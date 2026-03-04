@@ -3061,7 +3061,7 @@ async def _h_run_command(text: str, target: str) -> dict:
         "uname", "hostname", "uptime",
         "python3", "python", "pip", "pip3", "node", "npm", "npx",
         "curl", "wget",
-        "xdg-open", "xdotool", "ydotool", "xclip", "scrot", "wmctrl",
+        "xdg-open", "xdotool", "xclip", "scrot", "wmctrl",
         "xfce4-terminal", "xterm",
         # Desktop apps (accessibility tasks frequently need to open these)
         "gnome-control-center", "gnome-settings", "gnome-calculator",

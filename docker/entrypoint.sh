@@ -124,22 +124,13 @@ websockify --web=/usr/share/novnc/ 6080 localhost:5900 &
 # ─────────────────────────────────────────────
 # 5b. Browser bootstrap — default browser + pre-warm Chrome profile
 # ─────────────────────────────────────────────
-echo "[Browser] Configuring default browser & pre-warming Chrome..."
+echo "[Browser] Configuring default browser..."
 # Set Google Chrome as the default web browser for xdg-open
 if command -v google-chrome >/dev/null 2>&1; then
     xdg-settings set default-web-browser google-chrome.desktop 2>/dev/null || true
     # Ensure Chrome profile directory exists (seeded at build time)
     mkdir -p /tmp/chrome-profile/Default
-    # Pre-warm: launch Chrome headless briefly to initialize runtime state
-    google-chrome --no-sandbox --disable-gpu --headless \
-        --no-first-run --disable-first-run-ui --disable-sync \
-        --disable-extensions --password-store=basic \
-        --user-data-dir=/tmp/chrome-profile about:blank &
-    CHROME_PID=$!
-    sleep 2
-    kill $CHROME_PID 2>/dev/null || true
-    wait $CHROME_PID 2>/dev/null || true
-    echo "[Browser] ✓ Chrome profile pre-warmed, set as default browser"
+    echo "[Browser] ✓ Chrome set as default browser (profile seeded at build time)"
 elif command -v firefox >/dev/null 2>&1; then
     xdg-settings set default-web-browser firefox.desktop 2>/dev/null || true
     echo "[Browser] ✓ Firefox set as default browser"
@@ -148,26 +139,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# 6. ydotool daemon (uinput-based input)
-# ─────────────────────────────────────────────
-echo "[ydotool] Starting ydotoold..."
-if [ -e /dev/uinput ] && [ -w /dev/uinput ]; then
-    ydotoold &
-    YDOTOOL_PID=$!
-    sleep 0.3
-    if kill -0 $YDOTOOL_PID 2>/dev/null; then
-        echo "[ydotool] ydotoold running (PID $YDOTOOL_PID)"
-    else
-        echo "[ydotool] WARNING: ydotoold failed to start"
-    fi
-else
-    echo "[ydotool] WARNING: /dev/uinput not available or not writable"
-    echo "[ydotool] Container needs --device /dev/uinput or --privileged"
-    ydotoold &  # Try anyway; it may work with capabilities
-fi
-
-# ─────────────────────────────────────────────
-# 7. Playwright MCP server (a11y-tree browser control)
+# 6. Playwright MCP server (a11y-tree browser control)
 # ─────────────────────────────────────────────
 MCP_PORT=${PLAYWRIGHT_MCP_PORT:-8931}
 MCP_LOG="/var/log/mcp-server.log"
@@ -250,15 +222,8 @@ else
     echo "[Verify] ✗ xdotool cannot reach X server on DISPLAY=$DISPLAY"
 fi
 
-# ydotool check
-if ydotool mousemove --absolute -x 0 -y 0 2>/dev/null; then
-    echo "[Verify] ✓ ydotool operational"
-else
-    echo "[Verify] ✗ ydotool not operational (check /dev/uinput access)"
-fi
-
 # ─────────────────────────────────────────────
-# 9. Agent service
+# 8. Agent service
 # ─────────────────────────────────────────────
 # ── Hard-check desktop tool binaries ─────────────────────────────────
 command -v xdotool  || echo "ERROR: xdotool missing from PATH"

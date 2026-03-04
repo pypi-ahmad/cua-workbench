@@ -6209,115 +6209,14 @@ Line 47: }
 
 === FILE: frontend/src/components/ScreenView.jsx ===
 --- SOURCE CODE ---
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState } from 'react'
 
 // Derive the backend API base from the current page location (protocol-safe)
 const API_BASE = window.location.origin
 
 export default function ScreenView({ screenshot, containerRunning }) {
-  // Default to VNC (interactive) when container is running, as requested by audit
+  // Default to VNC (interactive) when container is running
   const [useVnc, setUseVnc] = useState(true)
-  const [videoStreamActive, setVideoStreamActive] = useState(false)
-  const videoRef = useRef(null)
-  const pcRef = useRef(null)
-  const retryTimerRef = useRef(null)
-
-  const cleanup = useCallback(() => {
-    if (retryTimerRef.current) {
-      clearTimeout(retryTimerRef.current)
-      retryTimerRef.current = null
-    }
-    if (pcRef.current) {
-      pcRef.current.close()
-      pcRef.current = null
-    }
-    setVideoStreamActive(false)
-  }, [])
-
-  // WebRTC initialization
-  useEffect(() => {
-    if (!containerRunning || useVnc) {
-      cleanup()
-      return
-    }
-
-    let cancelled = false
-
-    const startWebRTC = async () => {
-      cleanup()
-
-      const pc = new RTCPeerConnection()
-      pcRef.current = pc
-
-      pc.addTransceiver('video', { direction: 'recvonly' })
-
-      pc.ontrack = (event) => {
-        if (cancelled) return
-        console.log('WebRTC track received')
-        if (videoRef.current) {
-          videoRef.current.srcObject = event.streams[0]
-          setVideoStreamActive(true)
-        }
-      }
-
-      pc.onconnectionstatechange = () => {
-        if (cancelled) return
-        const state = pc.connectionState
-        console.log('WebRTC state:', state)
-        if (state === 'failed' || state === 'disconnected') {
-          setVideoStreamActive(false)
-          // Auto-reconnect after 3 seconds
-          retryTimerRef.current = setTimeout(() => {
-            if (!cancelled) startWebRTC()
-          }, 3000)
-        }
-        if (state === 'closed') {
-          setVideoStreamActive(false)
-        }
-      }
-
-      try {
-        const offer = await pc.createOffer()
-        await pc.setLocalDescription(offer)
-
-        const response = await fetch(`${API_BASE}/webrtc/offer`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sdp: pc.localDescription.sdp,
-            type: pc.localDescription.type,
-          }),
-        })
-
-        if (!response.ok) throw new Error(`WebRTC offer failed: ${response.status}`)
-
-        const answer = await response.json()
-        if (answer.error) throw new Error(answer.error)
-
-        if (!cancelled && pcRef.current === pc) {
-          await pc.setRemoteDescription(answer)
-        }
-      } catch (err) {
-        console.warn('WebRTC error:', err.message)
-        if (!cancelled) {
-          setVideoStreamActive(false)
-          // Retry after 5 seconds on initial connection failure
-          retryTimerRef.current = setTimeout(() => {
-            if (!cancelled) startWebRTC()
-          }, 5000)
-        }
-      }
-    }
-
-    // Small delay to let the container fully start
-    const initTimer = setTimeout(startWebRTC, 1000)
-
-    return () => {
-      cancelled = true
-      clearTimeout(initTimer)
-      cleanup()
-    }
-  }, [containerRunning, useVnc, cleanup])
 
   // Route noVNC through the backend reverse proxy (same origin) so the
   // browser never needs direct access to Docker-mapped port 6080.
@@ -6333,46 +6232,22 @@ export default function ScreenView({ screenshot, containerRunning }) {
           style={{ width: '100%', height: '100%', border: 'none' }}
           allow="clipboard-read; clipboard-write"
           onError={() => {
-            console.warn("VNC iframe failed to load, falling back to video")
+            console.warn("VNC iframe failed to load, falling back to screenshot")
             setUseVnc(false)
           }}
         />
         <div className="screen-overlay">
           <span className="screen-badge">Interactive</span>
-          <button
-            onClick={() => setUseVnc(false)}
-            style={{
-              marginLeft: 8, padding: '2px 8px', fontSize: 11,
-              background: 'rgba(0,0,0,0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)',
-              borderRadius: 4, cursor: 'pointer',
-            }}
-          >
-            Video View
-          </button>
         </div>
       </div>
     )
   }
 
-  // Combined Video + Screenshot Fallback View
+  // Screenshot fallback view
   return (
     <div className="screen-container" style={{ position: 'relative' }}>
-        {/* Video Layer */}
-        {containerRunning && (
-            <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            style={{
-                width: '100%', height: '100%', objectFit: 'contain',
-                display: videoStreamActive ? 'block' : 'none',
-            }}
-            />
-        )}
-        
-        {/* Screenshot Layer (Fallback) - Only show if video is NOT active */}
-        {(!videoStreamActive && screenshot) && (
+        {/* Screenshot layer */}
+        {screenshot && (
             <img
             src={`data:image/png;base64,${screenshot}`}
             alt="Agent screen"
@@ -6383,9 +6258,9 @@ export default function ScreenView({ screenshot, containerRunning }) {
             }}
             />
         )}
-        
-        {/* Empty State */}
-        {(!videoStreamActive && !screenshot) && (
+
+        {/* Empty state */}
+        {!screenshot && (
             <div className="screen-placeholder">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <rect x="2" y="3" width="20" height="14" rx="2" />
@@ -6397,11 +6272,9 @@ export default function ScreenView({ screenshot, containerRunning }) {
         )}
 
         {/* Overlay */}
-        {(screenshot || videoStreamActive) && (
+        {screenshot && (
             <div className="screen-overlay">
-                <span className="screen-badge">
-                    {videoStreamActive ? 'Live Video' : 'Screenshot'}
-                </span>
+                <span className="screen-badge">Screenshot</span>
                 {containerRunning && (
                     <button
                         onClick={() => setUseVnc(true)}
@@ -6421,193 +6294,82 @@ export default function ScreenView({ screenshot, containerRunning }) {
 }
 --- EXPLANATION ---
 This is the source code for frontend/src/components/ScreenView.jsx.
-Line 1: import { useState, useEffect, useRef, useCallback } from 'react'
+Line 1: import { useState } from 'react'
 Line 3: // Derive the backend API base from the current page location (protocol-safe)
 Line 4: const API_BASE = window.location.origin
 Line 6: export default function ScreenView({ screenshot, containerRunning }) {
-Line 7: // Default to VNC (interactive) when container is running, as requested by audit
+Line 7: // Default to VNC (interactive) when container is running
 Line 8: const [useVnc, setUseVnc] = useState(true)
-Line 9: const [videoStreamActive, setVideoStreamActive] = useState(false)
-Line 10: const videoRef = useRef(null)
-Line 11: const pcRef = useRef(null)
-Line 12: const retryTimerRef = useRef(null)
-Line 14: const cleanup = useCallback(() => {
-Line 15: if (retryTimerRef.current) {
-Line 16: clearTimeout(retryTimerRef.current)
-Line 17: retryTimerRef.current = null
-Line 18: }
-Line 19: if (pcRef.current) {
-Line 20: pcRef.current.close()
-Line 21: pcRef.current = null
-Line 22: }
-Line 23: setVideoStreamActive(false)
-Line 24: }, [])
-Line 26: // WebRTC initialization
-Line 27: useEffect(() => {
-Line 28: if (!containerRunning || useVnc) {
-Line 29: cleanup()
-Line 30: return
-Line 31: }
-Line 33: let cancelled = false
-Line 35: const startWebRTC = async () => {
-Line 36: cleanup()
-Line 38: const pc = new RTCPeerConnection()
-Line 39: pcRef.current = pc
-Line 41: pc.addTransceiver('video', { direction: 'recvonly' })
-Line 43: pc.ontrack = (event) => {
-Line 44: if (cancelled) return
-Line 45: console.log('WebRTC track received')
-Line 46: if (videoRef.current) {
-Line 47: videoRef.current.srcObject = event.streams[0]
-Line 48: setVideoStreamActive(true)
-Line 49: }
-Line 50: }
-Line 52: pc.onconnectionstatechange = () => {
-Line 53: if (cancelled) return
-Line 54: const state = pc.connectionState
-Line 55: console.log('WebRTC state:', state)
-Line 56: if (state === 'failed' || state === 'disconnected') {
-Line 57: setVideoStreamActive(false)
-Line 58: // Auto-reconnect after 3 seconds
-Line 59: retryTimerRef.current = setTimeout(() => {
-Line 60: if (!cancelled) startWebRTC()
-Line 61: }, 3000)
-Line 62: }
-Line 63: if (state === 'closed') {
-Line 64: setVideoStreamActive(false)
-Line 65: }
-Line 66: }
-Line 68: try {
-Line 69: const offer = await pc.createOffer()
-Line 70: await pc.setLocalDescription(offer)
-Line 72: const response = await fetch(`${API_BASE}/webrtc/offer`, {
-Line 73: method: 'POST',
-Line 74: headers: { 'Content-Type': 'application/json' },
-Line 75: body: JSON.stringify({
-Line 76: sdp: pc.localDescription.sdp,
-Line 77: type: pc.localDescription.type,
-Line 78: }),
-Line 79: })
-Line 81: if (!response.ok) throw new Error(`WebRTC offer failed: ${response.status}`)
-Line 83: const answer = await response.json()
-Line 84: if (answer.error) throw new Error(answer.error)
-Line 86: if (!cancelled && pcRef.current === pc) {
-Line 87: await pc.setRemoteDescription(answer)
-Line 88: }
-Line 89: } catch (err) {
-Line 90: console.warn('WebRTC error:', err.message)
-Line 91: if (!cancelled) {
-Line 92: setVideoStreamActive(false)
-Line 93: // Retry after 5 seconds on initial connection failure
-Line 94: retryTimerRef.current = setTimeout(() => {
-Line 95: if (!cancelled) startWebRTC()
-Line 96: }, 5000)
-Line 97: }
-Line 98: }
-Line 99: }
-Line 101: // Small delay to let the container fully start
-Line 102: const initTimer = setTimeout(startWebRTC, 1000)
-Line 104: return () => {
-Line 105: cancelled = true
-Line 106: clearTimeout(initTimer)
-Line 107: cleanup()
-Line 108: }
-Line 109: }, [containerRunning, useVnc, cleanup])
-Line 111: // Route noVNC through the backend reverse proxy (same origin) so the
-Line 112: // browser never needs direct access to Docker-mapped port 6080.
-Line 113: const vncUrl = `/vnc/vnc.html?autoconnect=true&resize=scale&path=vnc/websockify`
-Line 115: // When container is running and VNC mode enabled, show interactive desktop
-Line 116: if (containerRunning && useVnc) {
-Line 117: return (
-Line 118: <div className="screen-container" style={{ position: 'relative' }}>
-Line 119: <iframe
-Line 120: src={vncUrl}
-Line 121: title="Live Desktop (noVNC)"
-Line 122: style={{ width: '100%', height: '100%', border: 'none' }}
-Line 123: allow="clipboard-read; clipboard-write"
-Line 124: onError={() => {
-Line 125: console.warn("VNC iframe failed to load, falling back to video")
-Line 126: setUseVnc(false)
-Line 127: }}
-Line 128: />
-Line 129: <div className="screen-overlay">
-Line 130: <span className="screen-badge">Interactive</span>
-Line 131: <button
-Line 132: onClick={() => setUseVnc(false)}
-Line 133: style={{
-Line 134: marginLeft: 8, padding: '2px 8px', fontSize: 11,
-Line 135: background: 'rgba(0,0,0,0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)',
-Line 136: borderRadius: 4, cursor: 'pointer',
-Line 137: }}
-Line 138: >
-Line 139: Video View
-Line 140: </button>
-Line 141: </div>
-Line 142: </div>
-Line 143: )
-Line 144: }
-Line 146: // Combined Video + Screenshot Fallback View
-Line 147: return (
-Line 148: <div className="screen-container" style={{ position: 'relative' }}>
-Line 149: {/* Video Layer */}
-Line 150: {containerRunning && (
-Line 151: <video
-Line 152: ref={videoRef}
-Line 153: autoPlay
-Line 154: playsInline
-Line 155: muted
-Line 156: style={{
-Line 157: width: '100%', height: '100%', objectFit: 'contain',
-Line 158: display: videoStreamActive ? 'block' : 'none',
-Line 159: }}
-Line 160: />
-Line 161: )}
-Line 163: {/* Screenshot Layer (Fallback) - Only show if video is NOT active */}
-Line 164: {(!videoStreamActive && screenshot) && (
-Line 165: <img
-Line 166: src={`data:image/png;base64,${screenshot}`}
-Line 167: alt="Agent screen"
-Line 168: draggable={false}
-Line 169: style={{
-Line 170: width: '100%', height: '100%', objectFit: 'contain',
-Line 171: display: 'block'
-Line 172: }}
-Line 173: />
-Line 174: )}
-Line 176: {/* Empty State */}
-Line 177: {(!videoStreamActive && !screenshot) && (
-Line 178: <div className="screen-placeholder">
-Line 179: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-Line 180: <rect x="2" y="3" width="20" height="14" rx="2" />
-Line 181: <path d="M8 21h8M12 17v4" />
-Line 182: </svg>
-Line 183: <span>No screen capture available</span>
-Line 184: <span style={{ fontSize: 12 }}>Start the container to see the live view</span>
-Line 185: </div>
-Line 186: )}
-Line 188: {/* Overlay */}
-Line 189: {(screenshot || videoStreamActive) && (
-Line 190: <div className="screen-overlay">
-Line 191: <span className="screen-badge">
-Line 192: {videoStreamActive ? 'Live Video' : 'Screenshot'}
-Line 193: </span>
-Line 194: {containerRunning && (
-Line 195: <button
-Line 196: onClick={() => setUseVnc(true)}
-Line 197: style={{
-Line 198: marginLeft: 8, padding: '2px 8px', fontSize: 11,
-Line 199: background: 'rgba(0,0,0,0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)',
-Line 200: borderRadius: 4, cursor: 'pointer',
-Line 201: }}
-Line 202: >
-Line 203: Interactive View
-Line 204: </button>
-Line 205: )}
-Line 206: </div>
-Line 207: )}
-Line 208: </div>
-Line 209: )
-Line 210: }
+Line 10: // Route noVNC through the backend reverse proxy (same origin) so the
+Line 11: // browser never needs direct access to Docker-mapped port 6080.
+Line 12: const vncUrl = `/vnc/vnc.html?autoconnect=true&resize=scale&path=vnc/websockify`
+Line 14: // When container is running and VNC mode enabled, show interactive desktop
+Line 15: if (containerRunning && useVnc) {
+Line 16: return (
+Line 17: <div className="screen-container" style={{ position: 'relative' }}>
+Line 18: <iframe
+Line 19: src={vncUrl}
+Line 20: title="Live Desktop (noVNC)"
+Line 21: style={{ width: '100%', height: '100%', border: 'none' }}
+Line 22: allow="clipboard-read; clipboard-write"
+Line 23: onError={() => {
+Line 24: console.warn("VNC iframe failed to load, falling back to screenshot")
+Line 25: setUseVnc(false)
+Line 26: }}
+Line 27: />
+Line 28: <div className="screen-overlay">
+Line 29: <span className="screen-badge">Interactive</span>
+Line 30: </div>
+Line 31: </div>
+Line 32: )
+Line 33: }
+Line 35: // Screenshot fallback view
+Line 36: return (
+Line 37: <div className="screen-container" style={{ position: 'relative' }}>
+Line 38: {/* Screenshot layer */}
+Line 39: {screenshot && (
+Line 40: <img
+Line 41: src={`data:image/png;base64,${screenshot}`}
+Line 42: alt="Agent screen"
+Line 43: draggable={false}
+Line 44: style={{
+Line 45: width: '100%', height: '100%', objectFit: 'contain',
+Line 46: display: 'block'
+Line 47: }}
+Line 48: />
+Line 49: )}
+Line 51: {/* Empty state */}
+Line 52: {!screenshot && (
+Line 53: <div className="screen-placeholder">
+Line 54: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+Line 55: <rect x="2" y="3" width="20" height="14" rx="2" />
+Line 56: <path d="M8 21h8M12 17v4" />
+Line 57: </svg>
+Line 58: <span>No screen capture available</span>
+Line 59: <span style={{ fontSize: 12 }}>Start the container to see the live view</span>
+Line 60: </div>
+Line 61: )}
+Line 63: {/* Overlay */}
+Line 64: {screenshot && (
+Line 65: <div className="screen-overlay">
+Line 66: <span className="screen-badge">Screenshot</span>
+Line 67: {containerRunning && (
+Line 68: <button
+Line 69: onClick={() => setUseVnc(true)}
+Line 70: style={{
+Line 71: marginLeft: 8, padding: '2px 8px', fontSize: 11,
+Line 72: background: 'rgba(0,0,0,0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)',
+Line 73: borderRadius: 4, cursor: 'pointer',
+Line 74: }}
+Line 75: >
+Line 76: Interactive View
+Line 77: </button>
+Line 78: )}
+Line 79: </div>
+Line 80: )}
+Line 81: </div>
+Line 82: )
+Line 83: }
 
 
 === FILE: frontend/src/hooks/useWebSocket.js ===

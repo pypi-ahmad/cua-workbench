@@ -187,8 +187,8 @@ backend/
 
 docker/
   Dockerfile             – Ubuntu 24.04, XFCE 4, Chrome, Firefox, Playwright, AT-SPI
-  entrypoint.sh          – Xvfb + XFCE + x11vnc + noVNC + ydotoold + agent service
-  agent_service.py       – Synchronous HTTP server: browser / desktop / ydotool dispatch
+  entrypoint.sh          – Xvfb + XFCE + x11vnc + noVNC + agent service
+  agent_service.py       – Synchronous HTTP server: browser / desktop dispatch
 
 frontend/
   src/App.jsx            – Dashboard: Header + ControlPanel + ScreenView + LogPanel
@@ -652,16 +652,15 @@ Built from `docker/Dockerfile` on Ubuntu 24.04. The entrypoint (`docker/entrypoi
 5. **x11vnc** — VNC server on port 5900 (optional `VNC_PASSWORD` for authentication)
 6. **noVNC + websockify** — browser-accessible VNC on port 6080
 7. **Browser bootstrap** — pre-warms Chrome profile, sets default browser via `xdg-settings`
-8. **ydotoold** — ydotool daemon (if `/dev/uinput` is available)
-9. **Playwright MCP server** — `@playwright/mcp` HTTP transport on port 8931 (headless, `--no-sandbox`)
-10. **Agent Service** — `agent_service.py` HTTP server on port 9222
+8. **Playwright MCP server** — `@playwright/mcp` HTTP transport on port 8931 (headless, `--no-sandbox`)
+9. **Agent Service** — `agent_service.py` HTTP server on port 9222
 
 ### Pre-installed Software
 
 - Google Chrome (stable), Firefox
 - Playwright Chromium + Firefox browsers
 - Playwright MCP server (`@playwright/mcp` via npm)
-- xdotool, wmctrl, xclip, ydotool, scrot
+- xdotool, wmctrl, xclip, scrot
 - AT-SPI2 accessibility stack (`at-spi2-core`, `gir1.2-atspi-2.0`, `python3-gi`)
 - ffmpeg (for video capture)
 - Node.js 20 LTS
@@ -674,7 +673,7 @@ A synchronous `BaseHTTPRequestHandler` HTTP server (~2800 lines) running inside 
 |---|---|---|
 | `/health` | GET | Liveness check |
 | `/screenshot` | GET | Capture via Playwright or scrot (query param `mode`) |
-| `/action` | POST | Execute a single action (dispatches to browser/desktop/ydotool handler) |
+| `/action` | POST | Execute a single action (dispatches to browser/desktop handler) |
 | `/mode` | POST | Switch default mode at runtime |
 
 ### Port Map

@@ -482,8 +482,6 @@ def _engine_mode(engine: str) -> str:
     """Return the mode string the frontend sends for the given engine."""
     if engine in ("xdotool", "omni_accessibility", "desktop_hybrid"):
         return "desktop"
-    if engine == "ydotool":
-        return "ydotool"
     return "browser"
 
 

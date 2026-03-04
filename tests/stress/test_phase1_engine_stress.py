@@ -85,7 +85,7 @@ class TestEngineValidationStress:
         invalids = [
             "", "PLAYWRIGHT", "magic", "auto", "gpt4", "browser",
             "xdotool ", " playwright", "playwright_mcp_v2", "hybrid",
-            "Desktop_Hybrid", "OMNI_ACCESSIBILITY", "ydotool2", "none",
+            "Desktop_Hybrid", "OMNI_ACCESSIBILITY", "ydotool", "ydotool2", "none",
             "null", "undefined", "NaN", "true", "false",
         ]
         for _ in range(100):
@@ -204,21 +204,6 @@ class TestExecutorRapidFireStress:
 
         assert metrics.success_rate >= STRESS.min_success_rate
 
-    @patch("backend.agent.executor._send_with_retry", new_callable=AsyncMock)
-    def test_rapid_clicks_ydotool(self, mock_send):
-        """Fire 50 click actions through ydotool executor."""
-        mock_send.return_value = {"success": True, "message": "OK"}
-        metrics = StressMetrics()
-        actions = generate_rapid_click_sequence(STRESS.rapid_fire_actions)
-
-        for action in actions:
-            start = time.perf_counter()
-            result = run_async(execute_action(action, mode="desktop", engine="ydotool"))
-            elapsed = (time.perf_counter() - start) * 1000
-            metrics.record(result.get("success", False), elapsed)
-
-        assert metrics.success_rate >= STRESS.min_success_rate
-
     @patch("backend.engines.accessibility_engine.execute_accessibility_action", new_callable=AsyncMock)
     def test_rapid_clicks_accessibility(self, mock_a11y):
         """Fire 50 click actions through accessibility executor."""
@@ -284,10 +269,10 @@ class TestExecutorMixedActionStress:
 
     @patch("backend.agent.executor._send_with_retry", new_callable=AsyncMock)
     def test_mixed_actions_desktop_engines(self, mock_send):
-        """Fire mixed actions through xdotool and ydotool sequentially."""
+        """Fire mixed actions through xdotool sequentially."""
         mock_send.return_value = {"success": True, "message": "OK"}
 
-        for engine in ("xdotool", "ydotool"):
+        for engine in ("xdotool",):
             metrics = StressMetrics()
             actions = (
                 generate_rapid_click_sequence(15)
@@ -347,7 +332,7 @@ class TestExecutorIntermittentFailureStress:
                 return {
                     "success": False, "message": "xdotool timeout",
                     "engine": "desktop_hybrid", "primary_engine": "xdotool",
-                    "fallback_used": True, "fallback_engine": "ydotool",
+                    "fallback_used": True, "fallback_engine": "xdotool",
                 }
             return {
                 "success": True, "message": "OK",
@@ -542,7 +527,7 @@ class TestEngineIsolationUnderStress:
         mock_send.return_value = {"success": True, "message": "OK"}
 
         for _ in range(100):
-            for engine in ("playwright", "xdotool", "ydotool"):
+            for engine in ("playwright", "xdotool"):
                 action = make_click_action(100, 200)
                 result = run_async(execute_action(action, mode=_mode_for(engine), engine=engine))
                 assert result.get("engine") == engine, (

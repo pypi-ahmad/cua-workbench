@@ -84,12 +84,6 @@ async def start_container(name: str | None = None) -> bool:
     # Remove any stopped container with the same name (if inspect failed or start failed)
     await _run(["docker", "rm", "-f", container])
 
-    uinput_args: list[str] = []
-    if os.name != "nt" and os.path.exists("/dev/uinput"):
-        uinput_args = ["--device", "/dev/uinput:/dev/uinput"]
-    else:
-        logger.warning("/dev/uinput unavailable on host; ydotool mode may be limited")
-
     args = [
         "docker", "run", "-d",
         "--name", container,
@@ -103,7 +97,6 @@ async def start_container(name: str | None = None) -> bool:
         "-p", f"127.0.0.1:{config.agent_service_port}:{config.agent_service_port}",
         "-p", "127.0.0.1:9223:9223",
         "--shm-size=2g",
-        *uinput_args,
         config.container_image,
     ]
     logger.info("Starting container: %s", container)

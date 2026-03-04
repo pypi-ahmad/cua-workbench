@@ -280,7 +280,7 @@ def engine_rotation_schedule(total_rotations: int = COMPRESSED_ROTATIONS) -> Lis
     """Build the engine rotation order: cycle through all 6, alternating browser/desktop.
 
     Even cycles → browser engines (playwright, playwright_mcp).
-    Odd cycles  → non-browser engines (xdotool, ydotool, accessibility, desktop_hybrid).
+    Odd cycles  → non-browser engines (xdotool, accessibility, desktop_hybrid).
     """
     non_browser = DESKTOP_ENGINES + ["omni_accessibility"]
     browser_cycle = itertools.cycle(BROWSER_ENGINES)

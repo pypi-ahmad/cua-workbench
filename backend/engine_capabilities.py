@@ -17,7 +17,7 @@ Usage::
     caps.validate_action("xdotool", "evaluate_js")    # → False
     caps.get_engine_actions("desktop_hybrid")          # → union of child engines
 
-The schema is **future-proof for Wayland** — ydotool and accessibility engines
+The schema is **future-proof for Wayland** — accessibility engines
 already declare ``wayland_support: true`` in the comparison matrix.
 """
 

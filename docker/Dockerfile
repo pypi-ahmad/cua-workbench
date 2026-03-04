@@ -25,7 +25,6 @@ RUN apt-get update && apt-get install -y \
     scrot \
     wmctrl \
     xclip \
-    ydotool \
     xdotool \
     fonts-liberation \
     fonts-noto-core \
@@ -65,8 +64,87 @@ COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir playwright -r /tmp/requirements.txt
 
 # Install Playwright browsers + OS deps
-RUN playwright install chromium firefox
+RUN playwright install chromium
 RUN playwright install-deps
+
+# --- Google Chrome (item 1) ---
+RUN wget -qO- https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google.gpg \
+ && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+    > /etc/apt/sources.list.d/google-chrome.list \
+ && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
+ && rm -rf /var/lib/apt/lists/*
+
+# Ensure Chrome binary exists at the path Playwright 'chrome' channel expects
+RUN mkdir -p /opt/google/chrome \
+ && ln -sf /usr/bin/google-chrome /opt/google/chrome/chrome || true \
+ && ln -sf /opt/google/chrome/google-chrome /opt/google/chrome/chrome || true
+
+# --- Playwright install via npx (item 2) ---
+RUN npx playwright install chrome
+RUN npx playwright install
+
+# --- Brave Browser (item 3) ---
+RUN curl -fsSL https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg \
+    -o /usr/share/keyrings/brave-browser-archive-keyring.gpg
+
+RUN echo "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main" \
+    > /etc/apt/sources.list.d/brave-browser-release.list
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    brave-browser \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Misc utilities (item 4) ---
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    flameshot \
+    xournalpp \
+    htop \
+    lsof \
+    strace \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Firefox via direct download (item 5) ---
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bzip2 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN wget -O /tmp/firefox.tar.bz2 "https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en-US" \
+    && tar -xjf /tmp/firefox.tar.bz2 -C /opt \
+    && ln -sf /opt/firefox/firefox /usr/local/bin/firefox \
+    && rm /tmp/firefox.tar.bz2
+
+# --- Microsoft Edge (item 6) ---
+RUN wget -qO- https://packages.microsoft.com/keys/microsoft.asc \
+  | gpg --dearmor -o /usr/share/keyrings/microsoft.gpg
+
+RUN echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/edge stable main" \
+  > /etc/apt/sources.list.d/microsoft-edge.list
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    microsoft-edge-stable \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Desktop apps and tools (item 8) ---
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    vlc \
+    libreoffice \
+    libreoffice-gtk3 \
+    evince \
+    gedit \
+    gnome-terminal \
+    file \
+    unzip \
+    p7zip-full \
+    jq \
+    curl \
+    wget \
+    git \
+    net-tools \
+    iputils-ping \
+    dnsutils \
+    xdg-utils \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # ── Pre-create Chrome profile to suppress first-run dialogs & keyring ────────
 # Static profile creation only — NO browser execution during build.

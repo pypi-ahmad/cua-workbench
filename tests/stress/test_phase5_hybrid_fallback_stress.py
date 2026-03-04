@@ -1,11 +1,11 @@
 """Phase 5 — Hybrid Engine Fallback Stress Tests.
 
-Three-stage fallback cascade: accessibility → xdotool → ydotool.
+Two-stage fallback cascade: accessibility → xdotool.
 50-iteration loop switching between desktop apps.
 
 Verifies:
   - No "Unsupported action" errors
-  - Fallback chain works correctly (a11y → xdotool → ydotool)
+  - Fallback chain works correctly (a11y → xdotool)
   - No infinite retry loops (bounded call counts)
 
 Run with:
@@ -61,7 +61,7 @@ _APP_SWITCH_ACTIONS = [
     ("close_window",  {"text": "APP_PLACEHOLDER"}),
 ]
 
-# Well-known recoverable error messages (xdotool failures → ydotool fallback)
+# Well-known recoverable error messages (xdotool failures)
 _RECOVERABLE_MESSAGES = [
     "X11 display connection lost",
     "focus error on target window",
@@ -75,7 +75,7 @@ _RECOVERABLE_MESSAGES = [
     "operation timed out after 5s",
 ]
 
-# Non-recoverable error messages (should NOT trigger ydotool fallback)
+# Non-recoverable error messages (should NOT trigger fallback)
 _NON_RECOVERABLE_MESSAGES = [
     "Out of memory",
     "Segmentation fault",
@@ -111,28 +111,18 @@ class HybridFallbackMetrics:
 
     # Fallback-specific counters
     xdotool_direct_success: int = 0
-    ydotool_fallback_success: int = 0
     both_failed: int = 0
     unsupported_action_errors: int = 0
     validation_errors: int = 0
 
-    # Cascade counters (a11y → xdotool → ydotool)
+    # Cascade counters (a11y → xdotool)
     a11y_success: int = 0
     a11y_fail_xdotool_success: int = 0
-    a11y_fail_xdotool_fail_ydotool_success: int = 0
     full_cascade_fail: int = 0
 
     @property
     def success_rate(self) -> float:
         return self.successful / max(self.total_actions, 1)
-
-    @property
-    def fallback_rate(self) -> float:
-        """Fraction of successful actions that required ydotool fallback."""
-        total_success = self.xdotool_direct_success + self.ydotool_fallback_success
-        if total_success == 0:
-            return 0.0
-        return self.ydotool_fallback_success / total_success
 
     @property
     def avg_latency_ms(self) -> float:
@@ -145,10 +135,7 @@ class HybridFallbackMetrics:
 
         if result.get("success"):
             self.successful += 1
-            if result.get("fallback_used"):
-                self.ydotool_fallback_success += 1
-            else:
-                self.xdotool_direct_success += 1
+            self.xdotool_direct_success += 1
         else:
             self.failed += 1
             msg = result.get("message", "")
@@ -220,10 +207,10 @@ async def _cascade_a11y_then_hybrid(
     target: str = "",
     coordinates: list[int] | None = None,
 ) -> dict:
-    """Simulate the 3-stage fallback: a11y → xdotool → ydotool.
+    """Simulate the 2-stage fallback: a11y → xdotool.
 
     1. Try accessibility engine first.
-    2. If it fails, delegate to desktop_hybrid (xdotool → ydotool).
+    2. If it fails, delegate to desktop_hybrid (xdotool).
     Returns the result from whichever stage succeeds (or final failure).
     """
     # Stage 1: accessibility
@@ -237,15 +224,12 @@ async def _cascade_a11y_then_hybrid(
     except Exception as exc:
         a11y_result = {"success": False, "message": str(exc)}
 
-    # Stage 2+3: desktop_hybrid (xdotool → ydotool internally)
+    # Stage 2: desktop_hybrid (xdotool)
     hybrid_result = await _hybrid_mod.execute_desktop_hybrid_action(
         action=action, text=text, target=target, coordinates=coordinates,
     )
     if hybrid_result.get("success"):
-        if hybrid_result.get("fallback_used"):
-            hybrid_result["_cascade_stage"] = "ydotool"
-        else:
-            hybrid_result["_cascade_stage"] = "xdotool"
+        hybrid_result["_cascade_stage"] = "xdotool"
     else:
         hybrid_result["_cascade_stage"] = "all_failed"
     return hybrid_result
@@ -259,10 +243,10 @@ async def _cascade_a11y_then_hybrid(
 @pytest.mark.stress
 @pytest.mark.phase5
 class TestHybridFallbackBasic:
-    """Core xdotool → ydotool fallback mechanics."""
+    """Core desktop_hybrid mechanics."""
 
     def test_xdotool_success_no_fallback(self):
-        """When xdotool succeeds, ydotool is never tried."""
+        """When xdotool succeeds, no fallback is tried."""
         send_mock = AsyncMock(return_value={"success": True, "message": "OK"})
 
         with patch.object(_hybrid_mod, "_send_action", send_mock):
@@ -277,21 +261,11 @@ class TestHybridFallbackBasic:
         # _send_action called once per iteration (xdotool only)
         assert send_mock.call_count == HYBRID_LOOP_CYCLES
 
-    def test_recoverable_triggers_ydotool_fallback(self):
-        """When xdotool fails with a recoverable error, ydotool is tried."""
-        call_idx = 0
-
-        async def _side_effect(payload: dict) -> dict:
-            nonlocal call_idx
-            call_idx += 1
-            if payload.get("mode") == "desktop":
-                # xdotool fails with recoverable error
-                return {"success": False, "message": "X11 display connection lost"}
-            else:
-                # ydotool succeeds
-                return {"success": True, "message": "ydotool OK"}
-
-        send_mock = AsyncMock(side_effect=_side_effect)
+    def test_recoverable_error_reported_as_failure(self):
+        """When xdotool fails with a recoverable error, failure is reported."""
+        send_mock = AsyncMock(
+            return_value={"success": False, "message": "X11 display connection lost"}
+        )
         metrics = HybridFallbackMetrics()
 
         with patch.object(_hybrid_mod, "_send_action", send_mock):
@@ -301,15 +275,12 @@ class TestHybridFallbackBasic:
                 )
                 metrics.classify_hybrid_result(result, result.get("_elapsed_ms", 0))
 
-        # Every action used fallback
-        assert metrics.ydotool_fallback_success == HYBRID_LOOP_CYCLES
+        assert metrics.failed == HYBRID_LOOP_CYCLES
         assert metrics.xdotool_direct_success == 0
-        assert metrics.success_rate == 1.0
-        # xdotool + ydotool = 2 calls per iteration
-        assert send_mock.call_count == HYBRID_LOOP_CYCLES * 2
+        assert send_mock.call_count == HYBRID_LOOP_CYCLES
 
     def test_non_recoverable_no_fallback(self):
-        """Non-recoverable xdotool error → no ydotool fallback."""
+        """Non-recoverable xdotool error → failure reported."""
         send_mock = AsyncMock(
             return_value={"success": False, "message": "Segmentation fault"}
         )
@@ -323,19 +294,14 @@ class TestHybridFallbackBasic:
                 metrics.classify_hybrid_result(result, result.get("_elapsed_ms", 0))
 
         assert metrics.failed == HYBRID_LOOP_CYCLES
-        assert metrics.ydotool_fallback_success == 0
-        # Only xdotool attempted (no fallback)
+        # Only xdotool attempted
         assert send_mock.call_count == HYBRID_LOOP_CYCLES
 
-    def test_both_engines_fail(self):
-        """Both xdotool (recoverable) and ydotool fail → both_failed error."""
-
-        async def _both_fail(payload: dict) -> dict:
-            if payload.get("mode") == "desktop":
-                return {"success": False, "message": "xdotool error: focus lost"}
-            return {"success": False, "message": "ydotool device not found"}
-
-        send_mock = AsyncMock(side_effect=_both_fail)
+    def test_engine_failure_reported(self):
+        """xdotool failure → clear error reported."""
+        send_mock = AsyncMock(
+            return_value={"success": False, "message": "xdotool error: focus lost"}
+        )
         metrics = HybridFallbackMetrics()
 
         with patch.object(_hybrid_mod, "_send_action", send_mock):
@@ -346,16 +312,14 @@ class TestHybridFallbackBasic:
                 metrics.classify_hybrid_result(result, result.get("_elapsed_ms", 0))
 
         assert metrics.failed == HYBRID_LOOP_CYCLES
-        assert metrics.both_failed == HYBRID_LOOP_CYCLES
         assert metrics.unsupported_action_errors == 0
-        # Total calls: 2 per iteration (xdotool + ydotool)
-        assert send_mock.call_count == HYBRID_LOOP_CYCLES * 2
+        assert send_mock.call_count == HYBRID_LOOP_CYCLES
 
 
 @pytest.mark.stress
 @pytest.mark.phase5
 class TestA11yCascadeFallback:
-    """Full 3-stage cascade: accessibility → xdotool → ydotool."""
+    """Full 2-stage cascade: accessibility → xdotool."""
 
     def test_a11y_success_no_cascade(self):
         """When accessibility succeeds, no hybrid fallback is needed."""
@@ -404,49 +368,14 @@ class TestA11yCascadeFallback:
         assert a11y_mock.call_count == HYBRID_LOOP_CYCLES
         assert send_mock.call_count == HYBRID_LOOP_CYCLES
 
-    def test_a11y_fail_xdotool_fail_ydotool_success(self):
-        """Full cascade: a11y fails → xdotool fails (recoverable) → ydotool succeeds."""
-        a11y_mock = AsyncMock(
-            return_value={"success": False, "message": "D-Bus connection refused"}
-        )
-
-        async def _xdotool_fail_ydotool_ok(payload: dict) -> dict:
-            if payload.get("mode") == "desktop":
-                return {"success": False, "message": "X11 connection error"}
-            return {"success": True, "message": "ydotool OK"}
-
-        send_mock = AsyncMock(side_effect=_xdotool_fail_ydotool_ok)
-        metrics = HybridFallbackMetrics()
-
-        with patch.object(_a11y_mod, "execute_accessibility_action", a11y_mock), \
-             patch.object(_hybrid_mod, "_send_action", send_mock):
-            for i in range(HYBRID_LOOP_CYCLES):
-                result = run_async(
-                    _cascade_a11y_then_hybrid(
-                        "click", text="", target="button", coordinates=[100, 200],
-                    )
-                )
-                assert result["_cascade_stage"] == "ydotool"
-                assert result["fallback_used"] is True
-                metrics.classify_hybrid_result(result, 0)
-
-        assert metrics.ydotool_fallback_success == HYBRID_LOOP_CYCLES
-        assert a11y_mock.call_count == HYBRID_LOOP_CYCLES
-        # 2 _send_action calls per iteration (xdotool + ydotool)
-        assert send_mock.call_count == HYBRID_LOOP_CYCLES * 2
-
     def test_full_cascade_all_fail(self):
-        """All three stages fail → detailed error returned."""
+        """Both stages fail → detailed error returned."""
         a11y_mock = AsyncMock(
             return_value={"success": False, "message": "GIR import error"}
         )
-
-        async def _all_fail(payload: dict) -> dict:
-            if payload.get("mode") == "desktop":
-                return {"success": False, "message": "xdotool error: connection lost"}
-            return {"success": False, "message": "ydotool: device unavailable"}
-
-        send_mock = AsyncMock(side_effect=_all_fail)
+        send_mock = AsyncMock(
+            return_value={"success": False, "message": "xdotool error: connection lost"}
+        )
 
         with patch.object(_a11y_mod, "execute_accessibility_action", a11y_mock), \
              patch.object(_hybrid_mod, "_send_action", send_mock):
@@ -458,7 +387,6 @@ class TestA11yCascadeFallback:
                 )
                 assert result["success"] is False
                 assert result["_cascade_stage"] == "all_failed"
-                assert result["fallback_used"] is True  # ydotool was attempted
 
     def test_intermittent_cascade_stages(self):
         """Randomly fail at different cascade stages over 50 iterations."""
@@ -472,17 +400,14 @@ class TestA11yCascadeFallback:
 
         async def _random_hybrid(payload: dict) -> dict:
             call_counter["total"] += 1
-            if payload.get("mode") == "desktop":
-                if random.random() < 0.5:  # 50% xdotool success
-                    return {"success": True, "message": "xdotool OK"}
-                return {"success": False, "message": "xdotool error: focus lost"}
-            # ydotool always succeeds as final fallback
-            return {"success": True, "message": "ydotool OK"}
+            if random.random() < 0.5:  # 50% xdotool success
+                return {"success": True, "message": "xdotool OK"}
+            return {"success": False, "message": "xdotool error: focus lost"}
 
         a11y_mock = AsyncMock(side_effect=_random_a11y)
         send_mock = AsyncMock(side_effect=_random_hybrid)
 
-        cascade_stages = {"omni_accessibility": 0, "xdotool": 0, "ydotool": 0, "all_failed": 0}
+        cascade_stages = {"omni_accessibility": 0, "xdotool": 0, "all_failed": 0}
 
         with patch.object(_a11y_mod, "execute_accessibility_action", a11y_mock), \
              patch.object(_hybrid_mod, "_send_action", send_mock):
@@ -498,8 +423,6 @@ class TestA11yCascadeFallback:
         total = sum(cascade_stages.values())
         assert total == HYBRID_LOOP_CYCLES
         # With 40% a11y success, we should see some a11y hits
-        # ydotool always succeeds as fallback → no all_failed
-        assert cascade_stages["all_failed"] == 0
         # At least some diversity in stages (not all in one bucket)
         non_zero_stages = sum(1 for v in cascade_stages.values() if v > 0)
         assert non_zero_stages >= 2, f"Expected cascade diversity: {cascade_stages}"
@@ -534,16 +457,13 @@ class TestAppSwitchingLoop:
         assert metrics.fallback_rate == 0.0
         assert metrics.unsupported_action_errors == 0
 
-    def test_50_cycle_app_switch_with_intermittent_fallback(self):
-        """50 cycles with ~30% xdotool recoverable failures → ydotool fallback."""
+    def test_50_cycle_app_switch_with_intermittent_failures(self):
+        """50 cycles with ~30% xdotool failures → reported as failures."""
 
         async def _intermittent(payload: dict) -> dict:
-            if payload.get("mode") == "desktop":
-                if random.random() < 0.3:
-                    return {"success": False, "message": "X11 focus error"}
-                return {"success": True, "message": "xdotool OK"}
-            # ydotool always succeeds
-            return {"success": True, "message": "ydotool OK"}
+            if random.random() < 0.3:
+                return {"success": False, "message": "X11 focus error"}
+            return {"success": True, "message": "xdotool OK"}
 
         send_mock = AsyncMock(side_effect=_intermittent)
         metrics = HybridFallbackMetrics()
@@ -563,10 +483,8 @@ class TestAppSwitchingLoop:
 
         total_actions = HYBRID_LOOP_CYCLES * len(_APP_SWITCH_ACTIONS)
         assert metrics.total_actions == total_actions
-        # All should succeed (ydotool always works as fallback)
-        assert metrics.success_rate == 1.0
-        # Some fraction should have used fallback
-        assert metrics.ydotool_fallback_success > 0
+        # ~70% should succeed
+        assert metrics.success_rate >= 0.50
         assert metrics.unsupported_action_errors == 0
 
     def test_50_cycle_concurrent_app_switches(self):
@@ -710,34 +628,11 @@ class TestNoInfiniteRetryLoop:
         assert result["success"] is True
         assert send_mock.call_count == 1
 
-    def test_exactly_two_calls_on_fallback(self):
-        """Recoverable xdotool failure → exactly 2 _send_action calls."""
-
-        async def _xdotool_fail_ydotool_ok(payload: dict) -> dict:
-            if payload.get("mode") == "desktop":
-                return {"success": False, "message": "X11 focus error"}
-            return {"success": True, "message": "ydotool OK"}
-
-        send_mock = AsyncMock(side_effect=_xdotool_fail_ydotool_ok)
-
-        with patch.object(_hybrid_mod, "_send_action", send_mock):
-            result = run_async(
-                _timed_hybrid_dispatch("click", coordinates=[100, 200])
-            )
-
-        assert result["success"] is True
-        assert result["fallback_used"] is True
-        assert send_mock.call_count == 2
-
-    def test_both_fail_exactly_two_attempts(self):
-        """Both engines fail → still only 2 _send_action calls."""
-
-        async def _both_fail(payload: dict) -> dict:
-            if payload.get("mode") == "desktop":
-                return {"success": False, "message": "xdotool error: timeout"}
-            return {"success": False, "message": "ydotool: no device"}
-
-        send_mock = AsyncMock(side_effect=_both_fail)
+    def test_exactly_one_call_on_failure(self):
+        """Recoverable xdotool failure → exactly 1 _send_action call (no fallback)."""
+        send_mock = AsyncMock(
+            return_value={"success": False, "message": "X11 focus error"}
+        )
 
         with patch.object(_hybrid_mod, "_send_action", send_mock):
             result = run_async(
@@ -745,16 +640,28 @@ class TestNoInfiniteRetryLoop:
             )
 
         assert result["success"] is False
-        assert send_mock.call_count == 2  # Not 3, not 100
+        assert send_mock.call_count == 1
+
+    def test_failure_exactly_one_attempt(self):
+        """Engine failure → only 1 _send_action call."""
+        send_mock = AsyncMock(
+            return_value={"success": False, "message": "xdotool error: timeout"}
+        )
+
+        with patch.object(_hybrid_mod, "_send_action", send_mock):
+            result = run_async(
+                _timed_hybrid_dispatch("click", coordinates=[100, 200])
+            )
+
+        assert result["success"] is False
+        assert send_mock.call_count == 1  # Not 3, not 100
 
     def test_timing_bounded_on_persistent_failure(self):
         """Even with failures at every step, total time stays bounded."""
 
         async def _slow_fail(payload: dict) -> dict:
             await asyncio.sleep(0.01)  # 10ms simulated latency
-            if payload.get("mode") == "desktop":
-                return {"success": False, "message": "xdotool error: display lost"}
-            return {"success": False, "message": "ydotool timeout"}
+            return {"success": False, "message": "xdotool error: display lost"}
 
         send_mock = AsyncMock(side_effect=_slow_fail)
 
@@ -766,10 +673,10 @@ class TestNoInfiniteRetryLoop:
                 )
             total_ms = (time.perf_counter() - t0) * 1000
 
-        # 50 iterations × 2 calls × 10ms = ~1000ms + overhead
+        # 50 iterations × 1 call × 10ms = ~500ms + overhead
         # Should be well under 10 seconds (no exponential retry blowup)
         assert total_ms < 10_000, f"Total time {total_ms:.0f}ms exceeds 10s bound"
-        assert send_mock.call_count == HYBRID_LOOP_CYCLES * 2
+        assert send_mock.call_count == HYBRID_LOOP_CYCLES
 
     def test_no_retry_on_validation_error(self):
         """Validation errors return immediately — zero _send_action calls."""
@@ -788,15 +695,13 @@ class TestNoInfiniteRetryLoop:
 
     def test_call_count_linear_with_iterations(self):
         """Call count scales linearly — not exponentially — with iteration count."""
-
-        async def _recoverable(payload: dict) -> dict:
-            if payload.get("mode") == "desktop":
-                return {"success": False, "message": "window not found: test"}
-            return {"success": True, "message": "ydotool OK"}
+        send_mock_factory = lambda: AsyncMock(
+            return_value={"success": False, "message": "window not found: test"}
+        )
 
         call_counts = []
         for n_iters in [10, 20, 50]:
-            send_mock = AsyncMock(side_effect=_recoverable)
+            send_mock = send_mock_factory()
             with patch.object(_hybrid_mod, "_send_action", send_mock):
                 for _ in range(n_iters):
                     run_async(
@@ -804,8 +709,8 @@ class TestNoInfiniteRetryLoop:
                     )
             call_counts.append(send_mock.call_count)
 
-        # Each iteration = 2 calls (xdotool fail + ydotool success)
-        assert call_counts == [20, 40, 100]
+        # Each iteration = 1 call (xdotool only)
+        assert call_counts == [10, 20, 50]
 
 
 @pytest.mark.stress
@@ -855,16 +760,14 @@ class TestRecoverableDetection:
 class TestFallbackMetrics:
     """Track fallback usage statistics across 50-cycle runs."""
 
-    def test_fallback_rate_tracking(self):
-        """Track exact fallback rate over 50 iterations."""
-        fallback_trigger_rate = 0.4  # 40% of xdotool calls fail
+    def test_failure_rate_tracking(self):
+        """Track exact failure rate over 50 iterations."""
+        failure_rate = 0.4  # 40% of xdotool calls fail
 
         async def _partial_fail(payload: dict) -> dict:
-            if payload.get("mode") == "desktop":
-                if random.random() < fallback_trigger_rate:
-                    return {"success": False, "message": "focus error"}
-                return {"success": True, "message": "xdotool OK"}
-            return {"success": True, "message": "ydotool OK"}
+            if random.random() < failure_rate:
+                return {"success": False, "message": "focus error"}
+            return {"success": True, "message": "xdotool OK"}
 
         send_mock = AsyncMock(side_effect=_partial_fail)
         metrics = HybridFallbackMetrics()
@@ -876,45 +779,39 @@ class TestFallbackMetrics:
                 )
                 metrics.classify_hybrid_result(result, result.get("_elapsed_ms", 0))
 
-        # All succeed (ydotool catches recoverable failures)
-        assert metrics.success_rate == 1.0
-        # Fallback rate should be roughly 40% ± tolerance
-        assert 0.0 < metrics.fallback_rate <= 1.0
+        # ~60% should succeed
+        assert 0.30 <= metrics.success_rate <= 0.90
         assert metrics.unsupported_action_errors == 0
 
-    def test_fallback_latency_overhead(self):
-        """Fallback actions take longer than direct successes."""
-        direct_latencies: List[float] = []
-        fallback_latencies: List[float] = []
+    def test_failure_latency_measurement(self):
+        """Failed actions are measured alongside successes."""
+        success_latencies: List[float] = []
+        failure_latencies: List[float] = []
 
-        async def _alternating(payload: dict) -> dict:
-            await asyncio.sleep(0.001)  # 1ms base latency
-            if payload.get("mode") == "desktop":
-                return {"success": False, "message": "X11 error"}
-            await asyncio.sleep(0.001)  # Extra 1ms for ydotool
-            return {"success": True, "message": "ydotool OK"}
-
-        send_mock_fb = AsyncMock(side_effect=_alternating)
-        send_mock_direct = AsyncMock(side_effect=AsyncMock(
+        send_mock_success = AsyncMock(
             return_value={"success": True, "message": "OK"}
-        ))
+        )
+        send_mock_fail = AsyncMock(
+            return_value={"success": False, "message": "X11 error"}
+        )
 
-        # Measure direct successes
-        with patch.object(_hybrid_mod, "_send_action", send_mock_direct):
+        # Measure successes
+        with patch.object(_hybrid_mod, "_send_action", send_mock_success):
             for _ in range(25):
                 r = run_async(_timed_hybrid_dispatch("click", coordinates=[100, 200]))
-                direct_latencies.append(r["_elapsed_ms"])
+                success_latencies.append(r["_elapsed_ms"])
 
-        # Measure fallback path
-        with patch.object(_hybrid_mod, "_send_action", send_mock_fb):
+        # Measure failures
+        with patch.object(_hybrid_mod, "_send_action", send_mock_fail):
             for _ in range(25):
                 r = run_async(_timed_hybrid_dispatch("click", coordinates=[100, 200]))
-                fallback_latencies.append(r["_elapsed_ms"])
+                failure_latencies.append(r["_elapsed_ms"])
 
-        avg_direct = sum(direct_latencies) / len(direct_latencies)
-        avg_fallback = sum(fallback_latencies) / len(fallback_latencies)
-        # Fallback should be slower (≥ 2 network calls vs 1)
-        assert avg_fallback > avg_direct * 0.5  # Conservative — at least not faster
+        avg_success = sum(success_latencies) / len(success_latencies)
+        avg_failure = sum(failure_latencies) / len(failure_latencies)
+        # Both should be measurable (non-zero)
+        assert avg_success >= 0
+        assert avg_failure >= 0
 
     def test_mixed_success_failure_metrics_accuracy(self):
         """Metrics accurately reflect outcomes under mixed conditions."""
@@ -923,12 +820,10 @@ class TestFallbackMetrics:
         async def _mixed(payload: dict) -> dict:
             nonlocal call_idx
             call_idx += 1
-            if payload.get("mode") == "desktop":
-                # 50% fail with recoverable error
-                if call_idx % 2 == 0:
-                    return {"success": False, "message": "focus error"}
-                return {"success": True, "message": "xdotool OK"}
-            return {"success": True, "message": "ydotool OK"}
+            # 50% fail
+            if call_idx % 2 == 0:
+                return {"success": False, "message": "focus error"}
+            return {"success": True, "message": "xdotool OK"}
 
         send_mock = AsyncMock(side_effect=_mixed)
         metrics = HybridFallbackMetrics()
@@ -941,8 +836,8 @@ class TestFallbackMetrics:
                 metrics.classify_hybrid_result(result, result.get("_elapsed_ms", 0))
 
         assert metrics.total_actions == HYBRID_LOOP_CYCLES
-        assert metrics.successful == HYBRID_LOOP_CYCLES  # All succeed (ydotool catches)
-        assert metrics.xdotool_direct_success + metrics.ydotool_fallback_success == HYBRID_LOOP_CYCLES
+        assert metrics.successful + metrics.failed == HYBRID_LOOP_CYCLES
+        assert metrics.xdotool_direct_success == metrics.successful
         assert metrics.unsupported_action_errors == 0
 
 
@@ -978,19 +873,17 @@ class TestConcurrentHybridStress:
         assert all(r["success"] for r in results)
         assert all(r["fallback_used"] is False for r in results)
 
-    def test_concurrent_mixed_fallback(self):
-        """Concurrent actions with some needing fallback — no cross-contamination."""
+    def test_concurrent_mixed_results(self):
+        """Concurrent actions with some failing — no cross-contamination."""
         call_idx = 0
 
         async def _mixed_concurrent(payload: dict) -> dict:
             nonlocal call_idx
             call_idx += 1
-            if payload.get("mode") == "desktop":
-                # Odd calls trigger recoverable error
-                if call_idx % 3 == 0:
-                    return {"success": False, "message": "window not found: test"}
-                return {"success": True, "message": "xdotool OK"}
-            return {"success": True, "message": "ydotool OK"}
+            # Odd calls trigger error
+            if call_idx % 3 == 0:
+                return {"success": False, "message": "window not found: test"}
+            return {"success": True, "message": "xdotool OK"}
 
         send_mock = AsyncMock(side_effect=_mixed_concurrent)
 
@@ -1009,11 +902,10 @@ class TestConcurrentHybridStress:
             results = run_async(_run())
 
         assert len(results) == 20
-        assert all(r["success"] for r in results)
-        # Some used fallback, some didn't
-        fallback_count = sum(1 for r in results if r["fallback_used"])
-        direct_count = sum(1 for r in results if not r["fallback_used"])
-        assert fallback_count + direct_count == 20
+        # Some succeeded, some failed
+        success_count = sum(1 for r in results if r["success"])
+        failure_count = sum(1 for r in results if not r["success"])
+        assert success_count + failure_count == 20
 
 
 @pytest.mark.stress
@@ -1212,13 +1104,13 @@ class TestExecutorIntegration:
         """Executor propagates hybrid failure without crashing."""
         hybrid_mock = AsyncMock(return_value={
             "success": False,
-            "message": "xdotool: focus lost; ydotool: device unavailable",
+            "message": "xdotool: focus lost",
             "engine": "desktop_hybrid",
             "primary_engine": "xdotool",
-            "fallback_used": True,
-            "fallback_engine": "ydotool",
+            "fallback_used": False,
+            "fallback_engine": None,
             "duration_ms": 5.0,
-            "error": {"type": "both_failed", "message": "both engines failed"},
+            "error": {"type": "engine_failed", "message": "xdotool engine failed"},
         })
 
         with patch(
