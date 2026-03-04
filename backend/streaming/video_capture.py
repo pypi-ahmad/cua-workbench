@@ -4,7 +4,11 @@ import logging
 import time
 from typing import AsyncGenerator
 
-import av
+try:
+    import av
+except ImportError:
+    av = None  # WebRTC video capture unavailable
+
 import numpy as np
 
 from backend.config import config
@@ -27,8 +31,16 @@ class VideoCapture:
         self.channels = 3  # BGR
         self.frame_size = self.width * self.height * self.channels
 
-    async def start(self) -> AsyncGenerator[av.VideoFrame, None]:
-        """Start capturing frames and yield them as av.VideoFrame objects."""
+    async def start(self) -> AsyncGenerator:
+        """Start capturing frames and yield them as av.VideoFrame objects.
+
+        Requires the ``av`` package — raises ``RuntimeError`` if not installed.
+        """
+        if av is None:
+            raise RuntimeError(
+                "Video capture requires PyAV — install with: pip install av"
+            )
+
         container_name = config.container_name
 
         # Run ffmpeg inside the container, piping raw BGR24 frames to stdout.
