@@ -81,14 +81,24 @@ class TestExecutorEngineIsolation:
         mock_mcp.assert_called_once()
 
     @patch("backend.agent.executor._send_with_retry", new_callable=AsyncMock)
-    def test_accessibility_stays_accessibility(self, mock_send):
-        """An accessibility session must NOT fall back to xdotool on failure."""
+    def test_accessibility_stays_accessibility_docker(self, mock_send):
+        """An accessibility session (docker) must NOT fall back to xdotool on failure."""
         mock_send.return_value = {"success": False, "message": "AT-SPI error"}
         action = AgentAction(action=ActionType.CLICK, coordinates=[100, 100])
-        result = asyncio.run(execute_action(action, engine="omni_accessibility", mode="desktop"))
+        result = asyncio.run(execute_action(action, engine="omni_accessibility", mode="desktop", execution_target="docker"))
         assert not result["success"]
         assert result["engine"] == "omni_accessibility"
         mock_send.assert_called_once()
+
+    @patch("backend.engines.accessibility_engine.execute_accessibility_action", new_callable=AsyncMock)
+    def test_accessibility_stays_accessibility_local(self, mock_a11y):
+        """An accessibility session (local) must NOT fall back to xdotool on failure."""
+        mock_a11y.return_value = {"success": False, "message": "UIA error"}
+        action = AgentAction(action=ActionType.CLICK, coordinates=[100, 100])
+        result = asyncio.run(execute_action(action, engine="omni_accessibility", mode="desktop", execution_target="local"))
+        assert not result["success"]
+        assert result["engine"] == "omni_accessibility"
+        mock_a11y.assert_called_once()
 
 
 
@@ -104,7 +114,7 @@ class TestNoCrossEngineFallback:
     def test_accessibility_never_calls_mcp(self, mock_mcp, mock_send):
         mock_send.return_value = {"success": False, "message": "AT-SPI error"}
         action = AgentAction(action=ActionType.CLICK, coordinates=[100, 100])
-        result = asyncio.run(execute_action(action, engine="omni_accessibility", mode="desktop"))
+        result = asyncio.run(execute_action(action, engine="omni_accessibility", mode="desktop", execution_target="docker"))
         mock_mcp.assert_not_called()
 
 

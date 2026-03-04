@@ -105,7 +105,7 @@ async def execute_action(
     mode: str = "browser",
     engine: str = "playwright_mcp",
     step: int = 0,
-    runtime_target: str = "local",
+    execution_target: str = "local",
 ) -> dict:
     """Execute a single agent action via the internal agent service.
 
@@ -114,7 +114,7 @@ async def execute_action(
         mode: 'browser' or 'desktop'.
         engine: 'playwright_mcp', 'omni_accessibility', or 'computer_use'.
         step: Current step number (used in structured error reporting).
-        runtime_target: 'local' (host machine) or 'docker' (container).
+        execution_target: 'local' (host machine) or 'docker' (container).
 
     Returns:
         dict with keys: success (bool), message (str)
@@ -202,19 +202,33 @@ async def execute_action(
         reasoning = action_dict.get("reasoning", "Unknown error")
         return {"success": False, "message": f"Agent error: {reasoning}", "error_type": "agent_error"}
 
-    # ── Dispatch: Accessibility (AT-SPI via agent service) ────────────────
-    # AT-SPI bindings (gi.repository.Atspi) only work inside the Linux
-    # container.  Route through the agent service HTTP API (mode=accessibility)
-    # so the action executes in the container where DBus + AT-SPI are live.
+    # ── Dispatch: Accessibility ─────────────────────────────────────────
+    # execution_target="docker": AT-SPI bindings via container agent service
+    # execution_target="local": Use the platform-native provider directly
+    #   (Windows UIA, Mac JXA, Linux AT-SPI on host)
     if engine == "omni_accessibility":
-        payload = {
-            "action": u_action.action,
-            "text": u_action.text or "",
-            "target": u_action.target or u_action.selector or "",
-            "coordinates": u_action.coordinates or [],
-            "mode": "omni_accessibility",
-        }
-        result = await _send_with_retry(payload, retries=2)
+        if execution_target == "local":
+            # Run locally via the platform-specific accessibility provider
+            try:
+                from backend.engines.accessibility_engine import execute_accessibility_action
+                result = await execute_accessibility_action(
+                    action=u_action.action,
+                    text=u_action.text or "",
+                    target=u_action.target or u_action.selector or "",
+                )
+            except Exception as exc:
+                result = {"success": False, "message": f"Local accessibility error: {exc}"}
+        else:
+            # Docker path: route through agent service HTTP API (mode=accessibility)
+            # where DBus + AT-SPI are available inside the Linux container.
+            payload = {
+                "action": u_action.action,
+                "text": u_action.text or "",
+                "target": u_action.target or u_action.selector or "",
+                "coordinates": u_action.coordinates or [],
+                "mode": "omni_accessibility",
+            }
+            result = await _send_with_retry(payload, retries=2)
 
         if not result.get("success") and "error_type" not in result:
             result["error_type"] = "execution"
@@ -225,8 +239,9 @@ async def execute_action(
         return result
 
     # ── Dispatch: Playwright MCP ──────────────────────────────────────────
+    # Playwright MCP: https://github.com/microsoft/playwright-mcp
     if engine == "playwright_mcp":
-        if runtime_target == "docker":
+        if execution_target == "docker":
             # Docker mode: route MCP calls to the HTTP server inside the container
             from backend.agent.playwright_mcp_client import execute_mcp_action_docker
             result = await execute_mcp_action_docker(

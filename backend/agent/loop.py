@@ -65,7 +65,7 @@ class AgentLoop:
         mode: str = "browser",
         engine: str = "playwright_mcp",
         provider: str = "google",
-        runtime_target: str = "local",
+        execution_target: str = "local",
         on_step: Optional[Callable] = None,
         on_log: Optional[Callable] = None,
         on_screenshot: Optional[Callable] = None,
@@ -82,7 +82,7 @@ class AgentLoop:
         self._engine = engine
         self._mode = mode
         self._provider = provider
-        self._runtime_target = runtime_target  # "local" or "docker"
+        self._execution_target = execution_target  # "local" or "docker"
         self._action_history: list[AgentAction] = []
         self._stop_requested = False
         self._consecutive_errors = 0
@@ -158,7 +158,7 @@ class AgentLoop:
         """Execute the full agent loop. Returns the final session state."""
         self.session.status = SessionStatus.RUNNING
         self._emit_log("info", f"Agent starting — task: {self.session.task}")
-        self._emit_log("info", f"Model: {self.session.model} | Max steps: {self.session.max_steps} | Mode: {self._mode} | Engine: {self._engine} | Provider: {self._provider} | Target: {self._runtime_target}")
+        self._emit_log("info", f"Model: {self.session.model} | Max steps: {self.session.max_steps} | Mode: {self._mode} | Engine: {self._engine} | Provider: {self._provider} | Target: {self._execution_target}")
 
         # Pre-flight: check agent service health
         healthy = await check_service_health()
@@ -167,7 +167,7 @@ class AgentLoop:
 
         # Pre-flight: ensure Playwright MCP server is running (STDIO transport)
         if self._engine == "playwright_mcp":
-            if self._runtime_target == "docker":
+            if self._execution_target == "docker":
                 # Docker mode: connect to the MCP HTTP server running inside the container
                 mcp_url = f"http://{config.playwright_mcp_host}:{config.playwright_mcp_port}"
                 self._emit_log("info", f"Using Docker Playwright MCP server at {mcp_url}...")
@@ -659,7 +659,7 @@ class AgentLoop:
         if action.action not in (ActionType.DONE, ActionType.ERROR):
             self._emit_log("info", f"Step {step_num}: Executing {action.action.value}...")
             try:
-                result = await execute_action(action, mode=self._mode, engine=self._engine, step=step_num, runtime_target=self._runtime_target)
+                result = await execute_action(action, mode=self._mode, engine=self._engine, step=step_num, execution_target=self._execution_target)
                 if result.get("success"):
                     self._emit_log("info", f"Step {step_num}: {result['message']}")
                 else:
@@ -667,7 +667,7 @@ class AgentLoop:
                     if self._is_retryable_failure(action, result):
                         self._emit_log("warning", f"Step {step_num}: Action failed: {initial_error}")
                         self._emit_log("info", f"Step {step_num}: Retrying once...")
-                        retry_result = await execute_action(action, mode=self._mode, engine=self._engine, step=step_num, runtime_target=self._runtime_target)
+                        retry_result = await execute_action(action, mode=self._mode, engine=self._engine, step=step_num, execution_target=self._execution_target)
                         if retry_result.get("success"):
                             self._emit_log("info", f"Step {step_num}: Retry succeeded: {retry_result['message']}")
                         else:
