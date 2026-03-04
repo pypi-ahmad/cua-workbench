@@ -956,7 +956,7 @@ class TestGeminiSafetyPopBeforeExecutor(unittest.IsolatedAsyncioTestCase):
         executor.screen_height = 900
         capture_result = CUActionResult(name="click_at")
         executor.execute = AsyncMock(return_value=capture_result)
-        executor.capture_screenshot = AsyncMock(return_value=b"\x89PNG\r\n")
+        executor.capture_screenshot = AsyncMock(return_value=b"\x89PNG\r\n" + b"\x00" * 120)
         executor.get_current_url = MagicMock(return_value="http://test.com")
 
         # User confirms safety
@@ -1021,7 +1021,7 @@ class TestGeminiSafetyPopBeforeExecutor(unittest.IsolatedAsyncioTestCase):
         executor = AsyncMock()
         executor.screen_width = 1440
         executor.screen_height = 900
-        executor.capture_screenshot = AsyncMock(return_value=b"\x89PNG\r\n")
+        executor.capture_screenshot = AsyncMock(return_value=b"\x89PNG\r\n" + b"\x00" * 120)
         executor.get_current_url = MagicMock(return_value="")
 
         client._build_config = MagicMock()

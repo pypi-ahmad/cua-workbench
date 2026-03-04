@@ -1896,15 +1896,15 @@ class AgentHandler(BaseHTTPRequestHandler):
 
         if self.path == "/health/a11y":
             # AT-SPI accessibility bus health check
+            # Run synchronously — avoid asyncio.new_event_loop() which conflicts
+            # with GLib's main loop used by AT-SPI/GObject Introspection.
             try:
-                import asyncio
-                from backend.engines.accessibility_engine import check_accessibility_health
-                loop = asyncio.new_event_loop()
-                try:
-                    healthy = loop.run_until_complete(check_accessibility_health())
-                finally:
-                    loop.close()
+                from backend.engines.accessibility_engine import _get_provider
+                provider = _get_provider()
+                healthy = provider.check_health()
                 self._respond(200, {"healthy": healthy, "bindings": True})
+            except ImportError as e:
+                self._respond(200, {"healthy": False, "bindings": False, "error": f"Import error: {e}"})
             except Exception as e:
                 self._respond(200, {"healthy": False, "bindings": False, "error": str(e)})
             return
@@ -2032,9 +2032,11 @@ class AgentHandler(BaseHTTPRequestHandler):
 
         The accessibility_engine module uses async functions internally
         (asyncio.to_thread for AT-SPI GI calls), so we run them in a
-        temporary event loop.
+        dedicated event loop.  We use ``asyncio.new_event_loop()`` inside
+        a thread-isolated context to avoid conflicts with GLib's main loop.
         """
         import asyncio
+        import threading
         try:
             from backend.engines.accessibility_engine import execute_accessibility_action
         except ImportError as exc:
@@ -2042,17 +2044,33 @@ class AgentHandler(BaseHTTPRequestHandler):
                 "success": False,
                 "message": f"Accessibility engine not available: {exc}",
             }
-        try:
-            loop = asyncio.new_event_loop()
+
+        result_container = [None]
+        error_container = [None]
+
+        def _run_in_thread():
+            """Run the async accessibility action in a fresh event loop on a separate thread."""
             try:
-                result = loop.run_until_complete(
-                    execute_accessibility_action(action, text=text, target=target)
-                )
-            finally:
-                loop.close()
-            return result
-        except Exception as exc:
-            return {"success": False, "message": f"Accessibility action failed: {exc}"}
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result_container[0] = loop.run_until_complete(
+                        execute_accessibility_action(action, text=text, target=target)
+                    )
+                finally:
+                    loop.close()
+            except Exception as exc:
+                error_container[0] = exc
+
+        t = threading.Thread(target=_run_in_thread, daemon=True)
+        t.start()
+        t.join(timeout=30.0)
+
+        if error_container[0] is not None:
+            return {"success": False, "message": f"Accessibility action failed: {error_container[0]}"}
+        if result_container[0] is None:
+            return {"success": False, "message": "Accessibility action timed out (30s)"}
+        return result_container[0]
 
     def _dispatch_browser(self, action: str, x: int, y: int, text: str, coords: list, target: str = "") -> dict:
         """Dispatch a single action to the Playwright browser engine."""

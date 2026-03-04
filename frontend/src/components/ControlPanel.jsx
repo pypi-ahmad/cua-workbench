@@ -21,6 +21,7 @@ export default function ControlPanel({
   const [maxSteps, setMaxSteps] = useState(50)
   const [engine, setEngine] = useState('playwright_mcp')
   const [engineList, setEngineList] = useState([])
+  const [runtimeTarget, setRuntimeTarget] = useState('local')
   const [error, setError] = useState('')
 
   // Model lists — fetched exclusively from /api/models (no hardcoded fallback)
@@ -106,6 +107,7 @@ export default function ControlPanel({
         mode: engineMode,
         engine,
         provider,
+        runtimeTarget,
       })
       if (res.error) {
         setError(res.error)
@@ -217,6 +219,16 @@ export default function ControlPanel({
               <option value="computer_use">🖥️ Computer Use (Native CU Protocol)</option>
             </>
           )}
+        </select>
+        <select
+          className="model-select"
+          value={runtimeTarget}
+          onChange={(e) => setRuntimeTarget(e.target.value)}
+          disabled={agentRunning}
+          title="Where to run the engine — Local (host machine) or Docker (Ubuntu container)"
+        >
+          <option value="local">🖥️ Run Locally (Host Machine)</option>
+          <option value="docker">🐳 Run in Docker (Ubuntu Container)</option>
         </select>
         <Link to="/workbench" className="btn btn-secondary" style={{ textAlign: 'center', marginTop: 6, display: 'block', textDecoration: 'none' }}>
           Open Workbench →
