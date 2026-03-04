@@ -1,59 +1,74 @@
-# CUA Workbench — Computer-Using Agent Workbench
+<div align="center">
 
-**Repo:** https://github.com/pypi-ahmad/cua-workbench.git
+# 🖥️ CUA Workbench
+
+### Computer-Using Agent Workbench
+
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
+[![Docker](https://img.shields.io/badge/Docker-24.04-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docker.com)
+[![Playwright](https://img.shields.io/badge/Playwright-MCP-2EAD33?style=for-the-badge&logo=playwright&logoColor=white)](https://playwright.dev)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
+
+[![Tests](https://img.shields.io/badge/Tests-431_passing-brightgreen?style=flat-square&logo=pytest&logoColor=white)](#testing)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square)](#)
 
 A cross-platform workbench for building and testing **computer-using agents**.  
-Run a full **Linux desktop + browser inside Docker**, stream it live in a **web UI**, and drive it using **native Computer Use protocols** (Gemini / Claude) or **Playwright MCP**.
+Run a full **Linux desktop + browser inside Docker**, stream it live in a **web UI**,  
+and drive it using **native Computer Use protocols** (Gemini / Claude) or **Playwright MCP**.
 
-CUA Workbench is designed for:
-- **Windows/macOS/Linux hosts** (backend + UI run on host)
-- **Safe execution in a Docker sandbox** (desktop/browser automation happens inside the container)
-- **Provider-native computer use** (Gemini CU + Claude CU)
-- **Tooling-first automation** (Playwright MCP + accessibility engine)
+[Getting Started](#quickstart-tldr) • [Architecture](#architecture-overview) • [API Docs](#api-surface) • [Contributing](#contributing)
 
----
-
-## Table of Contents
-
-1. [Project Overview](#project-overview)
-2. [Quickstart (TL;DR)](#quickstart-tldr)
-3. [Model Policy (UI + API)](#model-policy-ui--api)
-4. [Architecture Overview](#architecture-overview)
-5. [System Flow](#system-flow)
-6. [Agent Loop Logic](#agent-loop-logic)
-7. [Data Model & State](#data-model--state)
-8. [Core Modules](#core-modules)
-9. [Engine Breakdown](#engine-breakdown)
-10. [Security Model](#security-model)
-11. [LLM Provider Integration](#llm-provider-integration)
-12. [API Surface](#api-surface)
-13. [Docker Runtime](#docker-runtime)
-14. [Configuration](#configuration)
-15. [Setup & Installation](#setup--installation)
-16. [Running the Application](#running-the-application)
-17. [Testing](#testing)
-18. [Troubleshooting](#troubleshooting)
-19. [Limitations](#limitations)
-20. [Future Improvements](#future-improvements)
-21. [Contributing](#contributing)
-22. [Security Reporting](#security-reporting)
-23. [License](#license)
+</div>
 
 ---
 
-## Project Overview
+### ✨ Highlights
+
+- 💻 **Windows/macOS/Linux hosts** — backend + UI run on host
+- 🔒 **Safe execution in a Docker sandbox** — desktop/browser automation happens inside the container
+- 🤖 **Provider-native computer use** — Gemini CU + Claude CU
+- 🧩 **Tooling-first automation** — Playwright MCP + accessibility engine
+
+### 🛠️ Built With
+
+| Backend | Frontend | Infrastructure | AI Providers |
+|:---:|:---:|:---:|:---:|
+| ![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white) | ![React](https://img.shields.io/badge/React-61DAFB?style=flat-square&logo=react&logoColor=black) | ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white) | ![Google](https://img.shields.io/badge/Gemini-4285F4?style=flat-square&logo=google&logoColor=white) |
+| ![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white) | ![Vite](https://img.shields.io/badge/Vite-646CFF?style=flat-square&logo=vite&logoColor=white) | ![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=flat-square&logo=ubuntu&logoColor=white) | ![Anthropic](https://img.shields.io/badge/Claude-191919?style=flat-square&logo=anthropic&logoColor=white) |
+| ![Pydantic](https://img.shields.io/badge/Pydantic-E92063?style=flat-square&logo=pydantic&logoColor=white) | ![React Router](https://img.shields.io/badge/React_Router-CA4245?style=flat-square&logo=reactrouter&logoColor=white) | ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?style=flat-square&logo=playwright&logoColor=white) | ![WebRTC](https://img.shields.io/badge/WebRTC-333333?style=flat-square&logo=webrtc&logoColor=white) |
+
+---
+
+## 📑 Table of Contents
+
+| | | |
+|---|---|---|
+| 1. [🔭 Project Overview](#project-overview) | 9. [⚙️ Engine Breakdown](#engine-breakdown) | 17. [🧪 Testing](#testing) |
+| 2. [🚀 Quickstart (TL;DR)](#quickstart-tldr) | 10. [🔐 Security Model](#security-model) | 18. [🔧 Troubleshooting](#troubleshooting) |
+| 3. [🤖 Model Policy](#model-policy-ui--api) | 11. [🧠 LLM Provider Integration](#llm-provider-integration) | 19. [⚠️ Limitations](#limitations) |
+| 4. [🏗️ Architecture Overview](#architecture-overview) | 12. [📡 API Surface](#api-surface) | 20. [🔮 Future Improvements](#future-improvements) |
+| 5. [🔄 System Flow](#system-flow) | 13. [🐳 Docker Runtime](#docker-runtime) | 21. [🤝 Contributing](#contributing) |
+| 6. [📊 Agent Loop Logic](#agent-loop-logic) | 14. [📝 Configuration](#configuration) | 22. [🛡️ Security Reporting](#security-reporting) |
+| 7. [💾 Data Model & State](#data-model--state) | 15. [📦 Setup & Installation](#setup--installation) | 23. [📄 License](#license) |
+| 8. [🧩 Core Modules](#core-modules) | 16. [▶️ Running the Application](#running-the-application) | |
+
+---
+
+## 🔭 Project Overview
 
 CUA implements a **perceive → think → act** loop: it captures a screenshot of a virtual Linux desktop, sends the image to a vision-language model alongside the user's task description, receives a structured action command, and executes that command on the desktop. This cycle repeats until the task is complete, an error is unrecoverable, or the step limit is reached.
 
 ### Key Capabilities
 
-| Capability | Implementation |
-|---|---|
-| Browser automation (accessibility-tree) | Playwright MCP server via JSON-RPC |
-| Semantic desktop automation | AT-SPI2 accessibility framework via GObject Introspection |
-| Native computer-use protocol | Gemini CU + Claude CU structured tool calls (model-driven action loop) |
-| Real-time screen streaming | WebSocket screenshots, WebRTC via ffmpeg x11grab + aiortc, noVNC |
-| Multi-provider AI (model allowlist) | UI is restricted to 4 models (served by `GET /api/models`): `claude-sonnet-4-6`, `claude-opus-4-6`, `gemini-3-flash-preview`, `gemini-3.1-pro-preview` |
+| | Capability | Implementation |
+|:---:|---|---|
+| 🌐 | Browser automation (accessibility-tree) | Playwright MCP server via JSON-RPC |
+| ♿ | Semantic desktop automation | AT-SPI2 accessibility framework via GObject Introspection |
+| 🤖 | Native computer-use protocol | Gemini CU + Claude CU structured tool calls (model-driven action loop) |
+| 📹 | Real-time screen streaming | WebSocket screenshots, WebRTC via ffmpeg x11grab + aiortc, noVNC |
+| 🧠 | Multi-provider AI (model allowlist) | UI is restricted to 4 models (served by `GET /api/models`): `claude-sonnet-4-6`, `claude-opus-4-6`, `gemini-3-flash-preview`, `gemini-3.1-pro-preview` |
 
 ### Problem It Solves
 
@@ -61,47 +76,50 @@ CUA enables natural-language-driven computer control — a user describes a task
 
 ---
 
-## Quickstart (TL;DR)
+## 🚀 Quickstart (TL;DR)
 
 > Runs on Windows/macOS/Linux (host) and executes desktop/browser actions inside a Docker Linux sandbox.
 
-### 1) Start the Docker sandbox
+<table>
+<tr><td>
+
+**① Start the Docker sandbox**
 ```bash
 docker compose up --build -d
 ```
+Sanity check: `curl http://127.0.0.1:9222/health`
 
-Sanity check:
-```bash
-curl http://127.0.0.1:9222/health
-```
+</td><td>
 
-### 2) Start the backend (FastAPI)
+**② Start the backend**
 ```bash
 python -m backend.main
 ```
 
-### 3) Start the frontend (Vite)
+</td></tr>
+<tr><td>
+
+**③ Start the frontend**
 ```bash
-cd frontend
-npm install
-npm run dev
+cd frontend && npm install && npm run dev
 ```
 
-### 4) Open the Workbench
+</td><td>
 
-- UI: [http://127.0.0.1:3000](http://127.0.0.1:3000)
-- noVNC (direct): [http://127.0.0.1:6080](http://127.0.0.1:6080)
+**④ Open the Workbench**
+- 🌐 UI: [http://127.0.0.1:3000](http://127.0.0.1:3000)
+- 📺 noVNC: [http://127.0.0.1:6080](http://127.0.0.1:6080)
 
-### 5) Run a first task
+</td></tr>
+</table>
 
-- Desktop: **"open file explorer"**
-- Browser: **"go to example.com"**
+**⑤ Run a first task** — Desktop: *"open file explorer"*  ·  Browser: *"go to example.com"*
 
-> **Windows note:** Prefer `127.0.0.1` over `localhost` for internal services to avoid IPv6 binding issues with Docker.
+> 💡 **Windows note:** Prefer `127.0.0.1` over `localhost` to avoid IPv6 binding issues with Docker.
 
 ---
 
-## Model Policy (UI + API)
+## 🤖 Model Policy (UI + API)
 
 The UI dropdown is intentionally restricted to **four** models:
 
@@ -123,7 +141,7 @@ The UI dropdown is intentionally restricted to **four** models:
 
 ---
 
-## Architecture Overview
+## 🏗️ Architecture Overview
 
 The system is a **three-process architecture** running across the host and a Docker container:
 
@@ -222,7 +240,7 @@ flowchart LR
 
 ---
 
-## System Flow
+## 🔄 System Flow
 
 ### End-to-End Execution: User Input → Final Output
 
@@ -275,7 +293,7 @@ flowchart TD
 
 ---
 
-## Agent Loop Logic
+## 📊 Agent Loop Logic
 
 ### Core Loop (`backend/agent/loop.py`)
 
@@ -313,7 +331,7 @@ stateDiagram-v2
 
 ---
 
-## Data Model & State
+## 💾 Data Model & State
 
 ### `AgentSession` (Pydantic model, `backend/models.py`)
 
@@ -375,7 +393,7 @@ No persistent database is used. All session state lives in memory and is lost on
 
 ---
 
-## Core Modules
+## 🧩 Core Modules
 
 ### `execute_action()` — Action Executor (`backend/agent/executor.py`)
 
@@ -430,7 +448,7 @@ No persistent database is used. All session state lives in memory and is lost on
 
 ---
 
-## Engine Breakdown
+## ⚙️ Engine Breakdown
 
 Three engines are defined in `SUPPORTED_ENGINES` (sourced from `engine_capabilities.json`):
 
@@ -480,7 +498,7 @@ The executor enforces **strict engine isolation**: the user-chosen engine is use
 
 ---
 
-## Security Model
+## 🔐 Security Model
 
 ### Input Validation (`backend/api/server.py`, `backend/agent/executor.py`)
 
@@ -531,7 +549,7 @@ Restricted to local development origins: `localhost:5173`, `127.0.0.1:5173`, `lo
 
 ---
 
-## LLM Provider Integration
+## 🧠 LLM Provider Integration
 
 ### Supported Providers & Models (UI Allowlist)
 
@@ -578,7 +596,7 @@ The `/api/keys/status` endpoint reports which sources are available for each pro
 
 ---
 
-## API Surface
+## 📡 API Surface
 
 ### REST Endpoints (`backend/api/server.py`)
 
@@ -621,7 +639,7 @@ Client → Server: `{ type: "ping" }` for keepalive (sent every 15s by `useWebSo
 
 ---
 
-## Docker Runtime
+## 🐳 Docker Runtime
 
 ### Container: `cua-environment`
 
@@ -671,7 +689,7 @@ A synchronous `BaseHTTPRequestHandler` HTTP server (~2800 lines) running inside 
 
 ---
 
-## Configuration
+## 📝 Configuration
 
 ### Environment Variables (`backend/config.py`)
 
@@ -721,7 +739,7 @@ Configuration is loaded once at import time via `Config.from_env()` into a modul
 
 ---
 
-## Setup & Installation
+## 📦 Setup & Installation
 
 ### Prerequisites
 
@@ -783,7 +801,7 @@ export GOOGLE_API_KEY=your-key-here
 
 ---
 
-## Running the Application
+## ▶️ Running the Application
 
 ### Start All Components
 
@@ -835,12 +853,12 @@ docker compose down        # Stop container
 
 ---
 
-## Testing
+## 🧪 Testing
 
 ### Framework
 
 - **pytest** with custom markers for test categorization
-- **400+ tests** across unit and stress test suites
+- **431 tests** across unit and stress test suites
 - **All tests are hermetic** — they use mocks/fakes/patches and do not require a running container or network access
 
 ### Test Structure
@@ -888,7 +906,7 @@ It produces a **CUA FULL SYSTEM STRESS REPORT** with per-engine metrics (total c
 
 ---
 
-## Troubleshooting
+## 🔧 Troubleshooting
 
 ### "Agent Service Down" / timeouts (Windows)
 - Ensure Docker ports are reachable on IPv4:
@@ -909,7 +927,7 @@ The frontend surfaces these as `{ error: "..." }` messages.
 
 ---
 
-## Limitations
+## ⚠️ Limitations
 
 The following are constraints observed directly in the codebase:
 
@@ -927,7 +945,7 @@ The following are constraints observed directly in the codebase:
 
 ---
 
-## Future Improvements
+## 🔮 Future Improvements
 
 Based on patterns observable in the codebase:
 
@@ -940,20 +958,22 @@ Based on patterns observable in the codebase:
 
 ---
 
-## Contributing
+## 🤝 Contributing
 
-1. Fork the repo and create a feature branch.
-2. Write a **failing test first** (TDD) — all tests must be hermetic (mocked IO, no network).
-3. Run the full suite: `pytest tests/ -v`
-4. Keep code coverage **≥ 80%** on changed files.
-5. Follow existing style: small functions, clear names, minimal comments that explain *why*.
-6. Open a PR with a descriptive title and reference any related issues.
+| Step | What to do |
+|:---:|---|
+| 🍿 | **Fork** the repo and create a feature branch |
+| 🧪 | Write a **failing test first** (TDD) — all tests must be hermetic (mocked IO, no network) |
+| ✅ | Run the full suite: `pytest tests/ -v` |
+| 📊 | Keep code coverage **≥ 80%** on changed files |
+| ✍️ | Follow existing style: small functions, clear names, minimal comments that explain *why* |
+| 🚀 | Open a PR with a descriptive title and reference any related issues |
 
-See the [Testing](#testing) section for how to run unit and stress tests.
+See the [🧪 Testing](#testing) section for how to run unit and stress tests.
 
 ---
 
-## Security Reporting
+## 🛡️ Security Reporting
 
 If you discover a **security vulnerability**, please **do not** open a public issue.  
 Instead, email the maintainer privately or use GitHub's [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability).  
@@ -961,12 +981,24 @@ We aim to acknowledge reports within 48 hours and issue a fix within 7 days for 
 
 ---
 
-## License
+## 📄 License
 
 This project is licensed under the **MIT License** — see [LICENSE](LICENSE) for details.
 
 ---
 
-## Validation Statement
+<div align="center">
 
-This README aims to stay code-accurate. Every claim traces to a specific file, function, class, constant, or configuration value in the repository. Where behavior is ambiguous in code, the document describes what the code *does*, not what it might intend. If you find drift between the docs and the code, please [open an issue](https://github.com/pypi-ahmad/cua-workbench/issues).
+### 💬 Validation Statement
+
+*This README aims to stay code-accurate. Every claim traces to a specific file, function, class, constant, or configuration value in the repository. Where behavior is ambiguous in code, the document describes what the code does, not what it might intend.*
+
+*If you find drift between the docs and the code, please [open an issue](https://github.com/pypi-ahmad/cua-workbench/issues).*
+
+---
+
+**[Back to Top](#-cua-workbench)**  •  **[Quickstart](#-quickstart-tldr)**  •  **[Contributing](#-contributing)**
+
+Made with ❤️ for the Computer-Using Agent community
+
+</div>
