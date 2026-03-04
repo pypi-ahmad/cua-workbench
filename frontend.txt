@@ -4068,7 +4068,7 @@ export async function buildImage() {
   return request('/container/build', { method: 'POST' })
 }
 
-export async function startAgent({ task, apiKey, model, maxSteps, mode, engine, provider }) {
+export async function startAgent({ task, apiKey, model, maxSteps, mode, engine, provider, executionTarget }) {
   // Bypass generic request() — validation errors return HTTP 400/429 with JSON body.
   // Always returns { error?: string, ... } so callers can inspect data.error without catching.
   try {
@@ -4083,6 +4083,7 @@ export async function startAgent({ task, apiKey, model, maxSteps, mode, engine, 
         mode,
         engine,
         provider,
+        execution_target: executionTarget || 'local',
       }),
     })
 
@@ -4178,7 +4179,7 @@ Line 38: }
 Line 40: export async function buildImage() {
 Line 41: return request('/container/build', { method: 'POST' })
 Line 42: }
-Line 44: export async function startAgent({ task, apiKey, model, maxSteps, mode, engine, provider }) {
+Line 44: export async function startAgent({ task, apiKey, model, maxSteps, mode, engine, provider, executionTarget }) {
 Line 45: // Bypass generic request() — validation errors return HTTP 400/429 with JSON body.
 Line 46: // Always returns { error?: string, ... } so callers can inspect data.error without catching.
 Line 47: try {
@@ -4193,52 +4194,53 @@ Line 55: max_steps: maxSteps,
 Line 56: mode,
 Line 57: engine,
 Line 58: provider,
-Line 59: }),
-Line 60: })
-Line 62: const ct = res.headers.get('content-type') || ''
-Line 63: let data
-Line 64: if (ct.includes('application/json')) {
-Line 65: data = await res.json()
-Line 66: } else {
-Line 67: const text = await res.text()
-Line 68: data = { error: text || res.statusText }
-Line 69: }
-Line 71: // Normalize non-2xx into error if backend didn't already provide one
-Line 72: if (!res.ok && !data?.error) {
-Line 73: data = { ...data, error: res.statusText }
-Line 74: }
-Line 76: return data
-Line 77: } catch (e) {
-Line 78: return { error: String(e?.message || e) }
-Line 79: }
+Line 59: execution_target: executionTarget || 'local',
+Line 60: }),
+Line 61: })
+Line 63: const ct = res.headers.get('content-type') || ''
+Line 64: let data
+Line 65: if (ct.includes('application/json')) {
+Line 66: data = await res.json()
+Line 67: } else {
+Line 68: const text = await res.text()
+Line 69: data = { error: text || res.statusText }
+Line 70: }
+Line 72: // Normalize non-2xx into error if backend didn't already provide one
+Line 73: if (!res.ok && !data?.error) {
+Line 74: data = { ...data, error: res.statusText }
+Line 75: }
+Line 77: return data
+Line 78: } catch (e) {
+Line 79: return { error: String(e?.message || e) }
 Line 80: }
-Line 82: export async function stopAgent(sessionId) {
-Line 83: return request(`/agent/stop/${sessionId}`, { method: 'POST' })
-Line 84: }
-Line 86: export async function setAgentMode(mode) {
-Line 87: return request('/agent-service/mode', {
-Line 88: method: 'POST',
-Line 89: body: JSON.stringify({ mode }),
-Line 90: })
-Line 91: }
-Line 93: export async function getAgentStatus(sessionId) {
-Line 94: return request(`/agent/status/${sessionId}`)
-Line 95: }
-Line 97: export async function getScreenshot() {
-Line 98: return request('/screenshot')
-Line 99: }
-Line 101: export async function getAgentServiceHealth() {
-Line 102: return request('/agent-service/health')
-Line 103: }
-Line 105: export async function getKeyStatuses() {
-Line 106: return request('/keys/status')
-Line 107: }
-Line 109: export async function getEngines() {
-Line 110: return request('/engines')
-Line 111: }
-Line 113: export async function getModels() {
-Line 114: return request('/models')
-Line 115: }
+Line 81: }
+Line 83: export async function stopAgent(sessionId) {
+Line 84: return request(`/agent/stop/${sessionId}`, { method: 'POST' })
+Line 85: }
+Line 87: export async function setAgentMode(mode) {
+Line 88: return request('/agent-service/mode', {
+Line 89: method: 'POST',
+Line 90: body: JSON.stringify({ mode }),
+Line 91: })
+Line 92: }
+Line 94: export async function getAgentStatus(sessionId) {
+Line 95: return request(`/agent/status/${sessionId}`)
+Line 96: }
+Line 98: export async function getScreenshot() {
+Line 99: return request('/screenshot')
+Line 100: }
+Line 102: export async function getAgentServiceHealth() {
+Line 103: return request('/agent-service/health')
+Line 104: }
+Line 106: export async function getKeyStatuses() {
+Line 107: return request('/keys/status')
+Line 108: }
+Line 110: export async function getEngines() {
+Line 111: return request('/engines')
+Line 112: }
+Line 114: export async function getModels() {
+Line 115: return request('/models')
+Line 116: }
 
 
 === FILE: frontend/src/index.css ===
@@ -5381,7 +5383,12 @@ export default function ControlPanel({
   const [maxSteps, setMaxSteps] = useState(50)
   const [engine, setEngine] = useState('playwright_mcp')
   const [engineList, setEngineList] = useState([])
+  const [executionTarget, setExecutionTarget] = useState('local')
   const [error, setError] = useState('')
+
+  // Smart default: docker for CU/a11y, local for playwright_mcp
+  const ENGINES_WITH_TARGET = ['playwright_mcp', 'omni_accessibility', 'computer_use']
+  const getDefaultTarget = (eng) => (eng === 'playwright_mcp' ? 'local' : 'docker')
 
   // Model lists — fetched exclusively from /api/models (no hardcoded fallback)
   const [fetchedModels, setFetchedModels] = useState([])
@@ -5466,6 +5473,7 @@ export default function ControlPanel({
         mode: engineMode,
         engine,
         provider,
+        executionTarget,
       })
       if (res.error) {
         setError(res.error)
@@ -5567,7 +5575,7 @@ export default function ControlPanel({
         {modelsLoaded && models.length === 0 && (
           <p style={{ color: 'var(--error)', fontSize: 11, margin: '4px 0 0' }}>No models available for this provider.</p>
         )}
-        <select className="model-select" value={engine} onChange={(e) => setEngine(e.target.value)} disabled={agentRunning}>
+        <select className="model-select" value={engine} onChange={(e) => { setEngine(e.target.value); setExecutionTarget(getDefaultTarget(e.target.value)) }} disabled={agentRunning}>
           {engineList.length > 0 ? engineList.map(e => (
             <option key={e.value} value={e.value}>{e.label}</option>
           )) : (
@@ -5578,6 +5586,18 @@ export default function ControlPanel({
             </>
           )}
         </select>
+        {ENGINES_WITH_TARGET.includes(engine) && (
+          <select
+            className="model-select"
+            value={executionTarget}
+            onChange={(e) => setExecutionTarget(e.target.value)}
+            disabled={agentRunning}
+            title="Where to run the engine — Local (host machine) or Docker (Ubuntu container)"
+          >
+            <option value="local">🖥️ Run Locally (Host Machine)</option>
+            <option value="docker">🐳 Run in Docker (Ubuntu Container)</option>
+          </select>
+        )}
         <Link to="/workbench" className="btn btn-secondary" style={{ textAlign: 'center', marginTop: 6, display: 'block', textDecoration: 'none' }}>
           Open Workbench →
         </Link>
@@ -5699,285 +5719,302 @@ Line 20: const [task, setTask] = useState('')
 Line 21: const [maxSteps, setMaxSteps] = useState(50)
 Line 22: const [engine, setEngine] = useState('playwright_mcp')
 Line 23: const [engineList, setEngineList] = useState([])
-Line 24: const [error, setError] = useState('')
-Line 26: // Model lists — fetched exclusively from /api/models (no hardcoded fallback)
-Line 27: const [fetchedModels, setFetchedModels] = useState([])
-Line 28: const [modelsLoaded, setModelsLoaded] = useState(false)
-Line 30: // Derive per-provider lists from fetched data only
-Line 31: const toOption = (m) => ({ value: m.model_id, label: `${m.display_name} (${m.model_id})` })
-Line 32: const googleModels = fetchedModels.filter(m => m.provider === 'google').map(toOption)
-Line 33: const anthropicModels = fetchedModels.filter(m => m.provider === 'anthropic').map(toOption)
-Line 34: const models = provider === 'anthropic' ? anthropicModels : googleModels
-Line 36: // Fetch API key statuses, engines, and models on mount
-Line 37: useEffect(() => {
-Line 38: const fetchKeys = async () => {
-Line 39: try {
-Line 40: const data = await getKeyStatuses()
-Line 41: if (data.keys) {
-Line 42: const map = {}
-Line 43: data.keys.forEach(k => { map[k.provider] = k })
-Line 44: setKeyStatuses(map)
-Line 45: const current = map[provider]
-Line 46: if (current?.available) setKeySource(current.source)
-Line 47: }
-Line 48: } catch { /* backend not ready */ }
-Line 49: }
-Line 50: const fetchEngines = async () => {
-Line 51: try {
-Line 52: const data = await getEngines()
-Line 53: if (data.engines?.length) setEngineList(data.engines)
-Line 54: } catch { /* backend not ready */ }
-Line 55: }
-Line 56: const fetchModelList = async () => {
-Line 57: try {
-Line 58: const data = await getModels()
-Line 59: if (data.models?.length) {
-Line 60: setFetchedModels(data.models)
-Line 61: setModelsLoaded(true)
-Line 62: // Auto-select first model for the default provider
-Line 63: const firstForProvider = data.models.find(m => m.provider === 'google')
-Line 64: if (firstForProvider) setModel(firstForProvider.model_id)
-Line 65: }
-Line 66: } catch { /* backend not ready — models will stay empty */ }
-Line 67: }
-Line 68: fetchKeys()
-Line 69: fetchEngines()
-Line 70: fetchModelList()
-Line 71: }, []) // eslint-disable-line react-hooks/exhaustive-deps
-Line 73: const handleProviderChange = (newProvider) => {
-Line 74: setProvider(newProvider)
-Line 75: const list = newProvider === 'anthropic' ? anthropicModels : googleModels
-Line 76: setModel(list.length > 0 ? list[0].value : '')
-Line 77: // Auto-select key source
-Line 78: const status = keyStatuses[newProvider]
-Line 79: if (status?.available) {
-Line 80: setKeySource(status.source)
-Line 81: } else {
-Line 82: setKeySource('ui')
-Line 83: }
-Line 84: }
-Line 86: const handleStart = async () => {
-Line 87: if (keySource === 'ui' && !apiKey.trim()) {
-Line 88: setError('API key is required')
-Line 89: return
-Line 90: }
-Line 91: if (!task.trim()) {
-Line 92: setError('Task description is required')
-Line 93: return
-Line 94: }
-Line 95: setError('')
-Line 96: clearSteps()
-Line 98: try {
-Line 99: // Derive agent service mode from engine selection
-Line 100: const engineMode = engine === 'omni_accessibility' || engine === 'computer_use' ? 'desktop' : 'browser'
-Line 101: const res = await startAgent({
-Line 102: task: task.trim(),
-Line 103: apiKey: keySource === 'ui' ? apiKey.trim() : '',
-Line 104: model,
-Line 105: maxSteps: Number(maxSteps),
-Line 106: mode: engineMode,
-Line 107: engine,
-Line 108: provider,
-Line 109: })
-Line 110: if (res.error) {
-Line 111: setError(res.error)
-Line 112: return
-Line 113: }
-Line 114: setSessionId(res.session_id)
-Line 115: setAgentRunning(true)
-Line 116: } catch (e) {
-Line 117: setError(`Failed to start agent: ${e.message}`)
-Line 118: }
+Line 24: const [executionTarget, setExecutionTarget] = useState('local')
+Line 25: const [error, setError] = useState('')
+Line 27: // Smart default: docker for CU/a11y, local for playwright_mcp
+Line 28: const ENGINES_WITH_TARGET = ['playwright_mcp', 'omni_accessibility', 'computer_use']
+Line 29: const getDefaultTarget = (eng) => (eng === 'playwright_mcp' ? 'local' : 'docker')
+Line 31: // Model lists — fetched exclusively from /api/models (no hardcoded fallback)
+Line 32: const [fetchedModels, setFetchedModels] = useState([])
+Line 33: const [modelsLoaded, setModelsLoaded] = useState(false)
+Line 35: // Derive per-provider lists from fetched data only
+Line 36: const toOption = (m) => ({ value: m.model_id, label: `${m.display_name} (${m.model_id})` })
+Line 37: const googleModels = fetchedModels.filter(m => m.provider === 'google').map(toOption)
+Line 38: const anthropicModels = fetchedModels.filter(m => m.provider === 'anthropic').map(toOption)
+Line 39: const models = provider === 'anthropic' ? anthropicModels : googleModels
+Line 41: // Fetch API key statuses, engines, and models on mount
+Line 42: useEffect(() => {
+Line 43: const fetchKeys = async () => {
+Line 44: try {
+Line 45: const data = await getKeyStatuses()
+Line 46: if (data.keys) {
+Line 47: const map = {}
+Line 48: data.keys.forEach(k => { map[k.provider] = k })
+Line 49: setKeyStatuses(map)
+Line 50: const current = map[provider]
+Line 51: if (current?.available) setKeySource(current.source)
+Line 52: }
+Line 53: } catch { /* backend not ready */ }
+Line 54: }
+Line 55: const fetchEngines = async () => {
+Line 56: try {
+Line 57: const data = await getEngines()
+Line 58: if (data.engines?.length) setEngineList(data.engines)
+Line 59: } catch { /* backend not ready */ }
+Line 60: }
+Line 61: const fetchModelList = async () => {
+Line 62: try {
+Line 63: const data = await getModels()
+Line 64: if (data.models?.length) {
+Line 65: setFetchedModels(data.models)
+Line 66: setModelsLoaded(true)
+Line 67: // Auto-select first model for the default provider
+Line 68: const firstForProvider = data.models.find(m => m.provider === 'google')
+Line 69: if (firstForProvider) setModel(firstForProvider.model_id)
+Line 70: }
+Line 71: } catch { /* backend not ready — models will stay empty */ }
+Line 72: }
+Line 73: fetchKeys()
+Line 74: fetchEngines()
+Line 75: fetchModelList()
+Line 76: }, []) // eslint-disable-line react-hooks/exhaustive-deps
+Line 78: const handleProviderChange = (newProvider) => {
+Line 79: setProvider(newProvider)
+Line 80: const list = newProvider === 'anthropic' ? anthropicModels : googleModels
+Line 81: setModel(list.length > 0 ? list[0].value : '')
+Line 82: // Auto-select key source
+Line 83: const status = keyStatuses[newProvider]
+Line 84: if (status?.available) {
+Line 85: setKeySource(status.source)
+Line 86: } else {
+Line 87: setKeySource('ui')
+Line 88: }
+Line 89: }
+Line 91: const handleStart = async () => {
+Line 92: if (keySource === 'ui' && !apiKey.trim()) {
+Line 93: setError('API key is required')
+Line 94: return
+Line 95: }
+Line 96: if (!task.trim()) {
+Line 97: setError('Task description is required')
+Line 98: return
+Line 99: }
+Line 100: setError('')
+Line 101: clearSteps()
+Line 103: try {
+Line 104: // Derive agent service mode from engine selection
+Line 105: const engineMode = engine === 'omni_accessibility' || engine === 'computer_use' ? 'desktop' : 'browser'
+Line 106: const res = await startAgent({
+Line 107: task: task.trim(),
+Line 108: apiKey: keySource === 'ui' ? apiKey.trim() : '',
+Line 109: model,
+Line 110: maxSteps: Number(maxSteps),
+Line 111: mode: engineMode,
+Line 112: engine,
+Line 113: provider,
+Line 114: executionTarget,
+Line 115: })
+Line 116: if (res.error) {
+Line 117: setError(res.error)
+Line 118: return
 Line 119: }
-Line 121: const handleStop = async () => {
-Line 122: if (!sessionId) return
-Line 123: try {
-Line 124: await stopAgent(sessionId)
-Line 125: } catch {
-Line 126: // ignore
-Line 127: }
-Line 128: setAgentRunning(false)
-Line 129: }
-Line 131: const handleKeyDown = (e) => {
-Line 132: if (e.key === 'Enter' && e.ctrlKey && !agentRunning) {
-Line 133: handleStart()
-Line 134: }
+Line 120: setSessionId(res.session_id)
+Line 121: setAgentRunning(true)
+Line 122: } catch (e) {
+Line 123: setError(`Failed to start agent: ${e.message}`)
+Line 124: }
+Line 125: }
+Line 127: const handleStop = async () => {
+Line 128: if (!sessionId) return
+Line 129: try {
+Line 130: await stopAgent(sessionId)
+Line 131: } catch {
+Line 132: // ignore
+Line 133: }
+Line 134: setAgentRunning(false)
 Line 135: }
-Line 137: return (
-Line 138: <div className="left-panel">
-Line 139: {/* API Config */}
-Line 140: <div className="panel-section">
-Line 141: <h3>API Configuration</h3>
-Line 142: <select className="model-select" value={provider} onChange={(e) => handleProviderChange(e.target.value)} disabled={agentRunning}>
-Line 143: <option value="google">Google Gemini</option>
-Line 144: <option value="anthropic">Anthropic Claude</option>
-Line 145: </select>
-Line 147: {/* Key Source Toggle */}
-Line 148: <div className="key-source-row" style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
-Line 149: <button
-Line 150: className={`key-src-btn ${keySource === 'ui' ? 'active' : ''}`}
-Line 151: onClick={() => setKeySource('ui')}
-Line 152: disabled={agentRunning}
-Line 153: style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'ui' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'ui' ? '#fff' : 'var(--text-primary)' }}
-Line 154: >
-Line 155: ✏️ Manual
-Line 156: </button>
-Line 157: <button
-Line 158: className={`key-src-btn ${keySource === 'dotenv' ? 'active' : ''}`}
-Line 159: onClick={() => setKeySource('dotenv')}
-Line 160: disabled={agentRunning || keyStatuses[provider]?.source !== 'dotenv'}
-Line 161: style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'dotenv' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'dotenv' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.source === 'dotenv' ? 1 : 0.4 }}
-Line 162: title={keyStatuses[provider]?.source === 'dotenv' ? `Found (${keyStatuses[provider]?.masked_key})` : 'No key in .env'}
-Line 163: >
-Line 164: 📄 .env {keyStatuses[provider]?.source === 'dotenv' ? '✓' : ''}
-Line 165: </button>
-Line 166: <button
-Line 167: className={`key-src-btn ${keySource === 'env' ? 'active' : ''}`}
-Line 168: onClick={() => setKeySource('env')}
-Line 169: disabled={agentRunning || keyStatuses[provider]?.source !== 'env'}
-Line 170: style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'env' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'env' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.source === 'env' ? 1 : 0.4 }}
-Line 171: title={keyStatuses[provider]?.source === 'env' ? `Found (${keyStatuses[provider]?.masked_key})` : 'No system env var'}
-Line 172: >
-Line 173: 💻 System {keyStatuses[provider]?.source === 'env' ? '✓' : ''}
-Line 174: </button>
-Line 175: </div>
-Line 177: {keySource !== 'ui' && keyStatuses[provider]?.available && (
-Line 178: <div style={{ fontSize: 11, color: 'var(--success, #4caf50)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
-Line 179: 🔑 <span>{keyStatuses[provider]?.masked_key}</span>
-Line 180: <span style={{ color: 'var(--text-secondary)' }}>({keySource === 'env' ? 'system variable' : '.env file'})</span>
+Line 137: const handleKeyDown = (e) => {
+Line 138: if (e.key === 'Enter' && e.ctrlKey && !agentRunning) {
+Line 139: handleStart()
+Line 140: }
+Line 141: }
+Line 143: return (
+Line 144: <div className="left-panel">
+Line 145: {/* API Config */}
+Line 146: <div className="panel-section">
+Line 147: <h3>API Configuration</h3>
+Line 148: <select className="model-select" value={provider} onChange={(e) => handleProviderChange(e.target.value)} disabled={agentRunning}>
+Line 149: <option value="google">Google Gemini</option>
+Line 150: <option value="anthropic">Anthropic Claude</option>
+Line 151: </select>
+Line 153: {/* Key Source Toggle */}
+Line 154: <div className="key-source-row" style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+Line 155: <button
+Line 156: className={`key-src-btn ${keySource === 'ui' ? 'active' : ''}`}
+Line 157: onClick={() => setKeySource('ui')}
+Line 158: disabled={agentRunning}
+Line 159: style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'ui' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'ui' ? '#fff' : 'var(--text-primary)' }}
+Line 160: >
+Line 161: ✏️ Manual
+Line 162: </button>
+Line 163: <button
+Line 164: className={`key-src-btn ${keySource === 'dotenv' ? 'active' : ''}`}
+Line 165: onClick={() => setKeySource('dotenv')}
+Line 166: disabled={agentRunning || keyStatuses[provider]?.source !== 'dotenv'}
+Line 167: style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'dotenv' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'dotenv' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.source === 'dotenv' ? 1 : 0.4 }}
+Line 168: title={keyStatuses[provider]?.source === 'dotenv' ? `Found (${keyStatuses[provider]?.masked_key})` : 'No key in .env'}
+Line 169: >
+Line 170: 📄 .env {keyStatuses[provider]?.source === 'dotenv' ? '✓' : ''}
+Line 171: </button>
+Line 172: <button
+Line 173: className={`key-src-btn ${keySource === 'env' ? 'active' : ''}`}
+Line 174: onClick={() => setKeySource('env')}
+Line 175: disabled={agentRunning || keyStatuses[provider]?.source !== 'env'}
+Line 176: style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'env' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'env' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.source === 'env' ? 1 : 0.4 }}
+Line 177: title={keyStatuses[provider]?.source === 'env' ? `Found (${keyStatuses[provider]?.masked_key})` : 'No system env var'}
+Line 178: >
+Line 179: 💻 System {keyStatuses[provider]?.source === 'env' ? '✓' : ''}
+Line 180: </button>
 Line 181: </div>
-Line 182: )}
-Line 183: {keySource !== 'ui' && !keyStatuses[provider]?.available && (
-Line 184: <div style={{ fontSize: 11, color: 'var(--error, #f44336)', marginBottom: 6 }}>
-Line 185: ⚠️ No key found — {provider === 'google' ? 'set GOOGLE_API_KEY' : 'set ANTHROPIC_API_KEY'}
-Line 186: </div>
-Line 187: )}
-Line 189: {keySource === 'ui' && (
-Line 190: <input
-Line 191: type="password"
-Line 192: className="api-key-input"
-Line 193: placeholder={provider === 'anthropic' ? 'Anthropic API Key' : 'Gemini API Key'}
-Line 194: value={apiKey}
-Line 195: onChange={(e) => setApiKey(e.target.value)}
-Line 196: autoComplete="off"
-Line 197: />
-Line 198: )}
-Line 200: <select className="model-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={models.length === 0}>
-Line 201: {models.length > 0 ? models.map((m) => (
-Line 202: <option key={m.value} value={m.value}>{m.label}</option>
-Line 203: )) : (
-Line 204: <option value="">Loading models…</option>
-Line 205: )}
-Line 206: </select>
-Line 207: {modelsLoaded && models.length === 0 && (
-Line 208: <p style={{ color: 'var(--error)', fontSize: 11, margin: '4px 0 0' }}>No models available for this provider.</p>
-Line 209: )}
-Line 210: <select className="model-select" value={engine} onChange={(e) => setEngine(e.target.value)} disabled={agentRunning}>
-Line 211: {engineList.length > 0 ? engineList.map(e => (
-Line 212: <option key={e.value} value={e.value}>{e.label}</option>
-Line 213: )) : (
-Line 214: <>
-Line 215: <option value="playwright_mcp">🌳 Playwright MCP (Semantic Browser)</option>
-Line 216: <option value="omni_accessibility">♿ Omni Accessibility (AT-SPI/UIA/JXA)</option>
-Line 217: <option value="computer_use">🖥️ Computer Use (Native CU Protocol)</option>
-Line 218: </>
-Line 219: )}
-Line 220: </select>
-Line 221: <Link to="/workbench" className="btn btn-secondary" style={{ textAlign: 'center', marginTop: 6, display: 'block', textDecoration: 'none' }}>
-Line 222: Open Workbench →
-Line 223: </Link>
-Line 224: </div>
-Line 226: {/* Task Input */}
-Line 227: <div className="panel-section">
-Line 228: <h3>Task</h3>
-Line 229: <textarea
-Line 230: className="task-input"
-Line 231: placeholder="Describe what the agent should do...&#10;&#10;e.g., Open Chrome and search for 'weather in New York'"
-Line 232: value={task}
-Line 233: onChange={(e) => setTask(e.target.value)}
-Line 234: onKeyDown={handleKeyDown}
-Line 235: disabled={agentRunning}
-Line 236: />
-Line 237: <div className="step-info" style={{ marginTop: 8 }}>
-Line 238: <span>
-Line 239: Max steps: <strong>{maxSteps}</strong>
-Line 240: </span>
-Line 241: <input
-Line 242: type="number"
-Line 243: className="max-steps-input"
-Line 244: min={1}
-Line 245: max={200}
-Line 246: value={maxSteps}
-Line 247: onChange={(e) => setMaxSteps(e.target.value)}
-Line 248: disabled={agentRunning}
-Line 249: />
-Line 250: </div>
-Line 251: {error && <p style={{ color: 'var(--error)', fontSize: 12, marginTop: 6 }}>{error}</p>}
-Line 252: <div className="btn-row">
-Line 253: <button
-Line 254: className="btn btn-primary"
-Line 255: disabled={agentRunning || !containerRunning || models.length === 0}
-Line 256: onClick={handleStart}
-Line 257: >
-Line 258: {!containerRunning ? 'Start Container First' : models.length === 0 ? 'No Models Loaded' : 'Start Agent'}
-Line 259: </button>
-Line 260: <button className="btn btn-danger" disabled={!agentRunning} onClick={handleStop}>
-Line 261: Stop
-Line 262: </button>
-Line 263: </div>
-Line 264: </div>
-Line 266: {/* Action History */}
-Line 267: <div className="panel-section" style={{ flexShrink: 0 }}>
-Line 268: <h3>Action History ({steps.length}){maxSteps > 0 && agentRunning && ` / ${maxSteps}`}</h3>
-Line 269: {agentRunning && steps.length > 0 && (
-Line 270: <div className="progress-bar">
-Line 271: <div
-Line 272: className="progress-fill"
-Line 273: style={{ width: `${Math.min((steps.length / maxSteps) * 100, 100)}%` }}
-Line 274: />
-Line 275: </div>
-Line 276: )}
-Line 277: </div>
-Line 278: <div className="action-list">
-Line 279: {steps.length === 0 && (
-Line 280: <p style={{ color: 'var(--text-secondary)', fontSize: 13, padding: '8px 0' }}>
-Line 281: No actions yet. Start the agent to begin.
-Line 282: </p>
-Line 283: )}
-Line 284: {steps.map((step, i) => (
-Line 285: <div key={i} className={`action-item ${step.error ? 'has-error' : ''}`}>
-Line 286: <span className="action-step">#{step.step_number}</span>
-Line 287: <div className="action-details">
-Line 288: <div className="action-header">
-Line 289: <span className={`action-badge action-badge--${step.action?.action || 'unknown'}`}>
-Line 290: {step.action?.action || 'unknown'}
-Line 291: </span>
-Line 292: {step.action?.coordinates && (
-Line 293: <span className="action-coords">
-Line 294: ({step.action.coordinates[0]}, {step.action.coordinates[1]})
-Line 295: </span>
-Line 296: )}
-Line 297: {step.action?.text && step.action.action !== 'done' && (
-Line 298: <span className="action-text" title={step.action.text}>
-Line 299: &ldquo;{step.action.text.length > 30 ? step.action.text.slice(0, 30) + '...' : step.action.text}&rdquo;
-Line 300: </span>
+Line 183: {keySource !== 'ui' && keyStatuses[provider]?.available && (
+Line 184: <div style={{ fontSize: 11, color: 'var(--success, #4caf50)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+Line 185: 🔑 <span>{keyStatuses[provider]?.masked_key}</span>
+Line 186: <span style={{ color: 'var(--text-secondary)' }}>({keySource === 'env' ? 'system variable' : '.env file'})</span>
+Line 187: </div>
+Line 188: )}
+Line 189: {keySource !== 'ui' && !keyStatuses[provider]?.available && (
+Line 190: <div style={{ fontSize: 11, color: 'var(--error, #f44336)', marginBottom: 6 }}>
+Line 191: ⚠️ No key found — {provider === 'google' ? 'set GOOGLE_API_KEY' : 'set ANTHROPIC_API_KEY'}
+Line 192: </div>
+Line 193: )}
+Line 195: {keySource === 'ui' && (
+Line 196: <input
+Line 197: type="password"
+Line 198: className="api-key-input"
+Line 199: placeholder={provider === 'anthropic' ? 'Anthropic API Key' : 'Gemini API Key'}
+Line 200: value={apiKey}
+Line 201: onChange={(e) => setApiKey(e.target.value)}
+Line 202: autoComplete="off"
+Line 203: />
+Line 204: )}
+Line 206: <select className="model-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={models.length === 0}>
+Line 207: {models.length > 0 ? models.map((m) => (
+Line 208: <option key={m.value} value={m.value}>{m.label}</option>
+Line 209: )) : (
+Line 210: <option value="">Loading models…</option>
+Line 211: )}
+Line 212: </select>
+Line 213: {modelsLoaded && models.length === 0 && (
+Line 214: <p style={{ color: 'var(--error)', fontSize: 11, margin: '4px 0 0' }}>No models available for this provider.</p>
+Line 215: )}
+Line 216: <select className="model-select" value={engine} onChange={(e) => { setEngine(e.target.value); setExecutionTarget(getDefaultTarget(e.target.value)) }} disabled={agentRunning}>
+Line 217: {engineList.length > 0 ? engineList.map(e => (
+Line 218: <option key={e.value} value={e.value}>{e.label}</option>
+Line 219: )) : (
+Line 220: <>
+Line 221: <option value="playwright_mcp">🌳 Playwright MCP (Semantic Browser)</option>
+Line 222: <option value="omni_accessibility">♿ Omni Accessibility (AT-SPI/UIA/JXA)</option>
+Line 223: <option value="computer_use">🖥️ Computer Use (Native CU Protocol)</option>
+Line 224: </>
+Line 225: )}
+Line 226: </select>
+Line 227: {ENGINES_WITH_TARGET.includes(engine) && (
+Line 228: <select
+Line 229: className="model-select"
+Line 230: value={executionTarget}
+Line 231: onChange={(e) => setExecutionTarget(e.target.value)}
+Line 232: disabled={agentRunning}
+Line 233: title="Where to run the engine — Local (host machine) or Docker (Ubuntu container)"
+Line 234: >
+Line 235: <option value="local">🖥️ Run Locally (Host Machine)</option>
+Line 236: <option value="docker">🐳 Run in Docker (Ubuntu Container)</option>
+Line 237: </select>
+Line 238: )}
+Line 239: <Link to="/workbench" className="btn btn-secondary" style={{ textAlign: 'center', marginTop: 6, display: 'block', textDecoration: 'none' }}>
+Line 240: Open Workbench →
+Line 241: </Link>
+Line 242: </div>
+Line 244: {/* Task Input */}
+Line 245: <div className="panel-section">
+Line 246: <h3>Task</h3>
+Line 247: <textarea
+Line 248: className="task-input"
+Line 249: placeholder="Describe what the agent should do...&#10;&#10;e.g., Open Chrome and search for 'weather in New York'"
+Line 250: value={task}
+Line 251: onChange={(e) => setTask(e.target.value)}
+Line 252: onKeyDown={handleKeyDown}
+Line 253: disabled={agentRunning}
+Line 254: />
+Line 255: <div className="step-info" style={{ marginTop: 8 }}>
+Line 256: <span>
+Line 257: Max steps: <strong>{maxSteps}</strong>
+Line 258: </span>
+Line 259: <input
+Line 260: type="number"
+Line 261: className="max-steps-input"
+Line 262: min={1}
+Line 263: max={200}
+Line 264: value={maxSteps}
+Line 265: onChange={(e) => setMaxSteps(e.target.value)}
+Line 266: disabled={agentRunning}
+Line 267: />
+Line 268: </div>
+Line 269: {error && <p style={{ color: 'var(--error)', fontSize: 12, marginTop: 6 }}>{error}</p>}
+Line 270: <div className="btn-row">
+Line 271: <button
+Line 272: className="btn btn-primary"
+Line 273: disabled={agentRunning || !containerRunning || models.length === 0}
+Line 274: onClick={handleStart}
+Line 275: >
+Line 276: {!containerRunning ? 'Start Container First' : models.length === 0 ? 'No Models Loaded' : 'Start Agent'}
+Line 277: </button>
+Line 278: <button className="btn btn-danger" disabled={!agentRunning} onClick={handleStop}>
+Line 279: Stop
+Line 280: </button>
+Line 281: </div>
+Line 282: </div>
+Line 284: {/* Action History */}
+Line 285: <div className="panel-section" style={{ flexShrink: 0 }}>
+Line 286: <h3>Action History ({steps.length}){maxSteps > 0 && agentRunning && ` / ${maxSteps}`}</h3>
+Line 287: {agentRunning && steps.length > 0 && (
+Line 288: <div className="progress-bar">
+Line 289: <div
+Line 290: className="progress-fill"
+Line 291: style={{ width: `${Math.min((steps.length / maxSteps) * 100, 100)}%` }}
+Line 292: />
+Line 293: </div>
+Line 294: )}
+Line 295: </div>
+Line 296: <div className="action-list">
+Line 297: {steps.length === 0 && (
+Line 298: <p style={{ color: 'var(--text-secondary)', fontSize: 13, padding: '8px 0' }}>
+Line 299: No actions yet. Start the agent to begin.
+Line 300: </p>
 Line 301: )}
-Line 302: </div>
-Line 303: {step.action?.reasoning && (
-Line 304: <p className="action-reasoning">{step.action.reasoning}</p>
-Line 305: )}
-Line 306: {step.error && (
-Line 307: <p className="action-reasoning" style={{ color: 'var(--error)' }}>
-Line 308: {step.error}
-Line 309: </p>
-Line 310: )}
-Line 311: </div>
-Line 312: </div>
-Line 313: ))}
-Line 314: </div>
-Line 315: </div>
-Line 316: )
-Line 317: }
+Line 302: {steps.map((step, i) => (
+Line 303: <div key={i} className={`action-item ${step.error ? 'has-error' : ''}`}>
+Line 304: <span className="action-step">#{step.step_number}</span>
+Line 305: <div className="action-details">
+Line 306: <div className="action-header">
+Line 307: <span className={`action-badge action-badge--${step.action?.action || 'unknown'}`}>
+Line 308: {step.action?.action || 'unknown'}
+Line 309: </span>
+Line 310: {step.action?.coordinates && (
+Line 311: <span className="action-coords">
+Line 312: ({step.action.coordinates[0]}, {step.action.coordinates[1]})
+Line 313: </span>
+Line 314: )}
+Line 315: {step.action?.text && step.action.action !== 'done' && (
+Line 316: <span className="action-text" title={step.action.text}>
+Line 317: &ldquo;{step.action.text.length > 30 ? step.action.text.slice(0, 30) + '...' : step.action.text}&rdquo;
+Line 318: </span>
+Line 319: )}
+Line 320: </div>
+Line 321: {step.action?.reasoning && (
+Line 322: <p className="action-reasoning">{step.action.reasoning}</p>
+Line 323: )}
+Line 324: {step.error && (
+Line 325: <p className="action-reasoning" style={{ color: 'var(--error)' }}>
+Line 326: {step.error}
+Line 327: </p>
+Line 328: )}
+Line 329: </div>
+Line 330: </div>
+Line 331: ))}
+Line 332: </div>
+Line 333: </div>
+Line 334: )
+Line 335: }
 
 
 === FILE: frontend/src/components/Header.jsx ===
@@ -7173,7 +7210,12 @@ export default function Workbench() {
   const [keyStatuses, setKeyStatuses] = useState({}) // { google: {...}, anthropic: {...} }
   const [task, setTask] = useState('')
   const [maxSteps, setMaxSteps] = useState(50)
+  const [executionTarget, setExecutionTarget] = useState('local')
   const [error, setError] = useState('')
+
+  // Smart default: docker for CU/a11y, local for playwright_mcp
+  const ENGINES_WITH_TARGET = ['playwright_mcp', 'omni_accessibility', 'computer_use']
+  const getDefaultTarget = (eng) => (eng === 'playwright_mcp' ? 'local' : 'docker')
 
   // Timeline expansion
   const [expandedStep, setExpandedStep] = useState(null)
@@ -7281,7 +7323,9 @@ export default function Workbench() {
 
   // Sync engine when runMode changes
   useEffect(() => {
-    setEngine(runMode === 'browser' ? 'playwright_mcp' : 'computer_use')
+    const newEngine = runMode === 'browser' ? 'playwright_mcp' : 'computer_use'
+    setEngine(newEngine)
+    setExecutionTarget(getDefaultTarget(newEngine))
   }, [runMode])
 
   // Sync model when provider changes
@@ -7320,6 +7364,7 @@ export default function Workbench() {
         mode: engineMode,
         engine,
         provider,
+        executionTarget,
       })
       if (res.error) return setError(res.error)
       setSessionId(res.session_id)
@@ -7469,9 +7514,18 @@ export default function Workbench() {
           {/* Engine */}
           <div className="wb-section">
             <label className="wb-label">Engine</label>
-            <select className="wb-select" value={engine} onChange={(e) => setEngine(e.target.value)} disabled={agentRunning}>
+            <select className="wb-select" value={engine} onChange={(e) => { setEngine(e.target.value); setExecutionTarget(getDefaultTarget(e.target.value)) }} disabled={agentRunning}>
               {engines.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
             </select>
+            {ENGINES_WITH_TARGET.includes(engine) && (
+              <>
+                <label className="wb-label">Run On</label>
+                <select className="wb-select" value={executionTarget} onChange={(e) => setExecutionTarget(e.target.value)} disabled={agentRunning}>
+                  <option value="local">🖥️ Local (Host Machine)</option>
+                  <option value="docker">🐳 Docker (Ubuntu Container)</option>
+                </select>
+              </>
+            )}
             <label className="wb-label">Max Steps</label>
             <input type="number" className="wb-input wb-input-sm" min={1} max={200} value={maxSteps} onChange={(e) => setMaxSteps(e.target.value)} disabled={agentRunning} />
           </div>
@@ -7597,367 +7651,383 @@ Line 35: const [keySource, setKeySource] = useState('ui') // 'ui' | 'env' | 'dot
 Line 36: const [keyStatuses, setKeyStatuses] = useState({}) // { google: {...}, anthropic: {...} }
 Line 37: const [task, setTask] = useState('')
 Line 38: const [maxSteps, setMaxSteps] = useState(50)
-Line 39: const [error, setError] = useState('')
-Line 41: // Timeline expansion
-Line 42: const [expandedStep, setExpandedStep] = useState(null)
-Line 44: // Refs
-Line 45: const timelineRef = useRef(null)
-Line 46: const logRef = useRef(null)
-Line 48: // Dynamic model list — fetched exclusively from GET /api/models (no fallback)
-Line 49: const [fetchedModels, setFetchedModels] = useState([])
-Line 50: const [modelsLoaded, setModelsLoaded] = useState(false)
-Line 51: const toModelOption = (m) => ({ value: m.model_id, label: `${m.display_name} (${m.model_id})` })
-Line 52: const GOOGLE_MODELS = fetchedModels.filter(m => m.provider === 'google').map(toModelOption)
-Line 53: const ANTHROPIC_MODELS = fetchedModels.filter(m => m.provider === 'anthropic').map(toModelOption)
-Line 54: const models = provider === 'anthropic' ? ANTHROPIC_MODELS : GOOGLE_MODELS
-Line 56: // Dynamic engine lists (fetched from backend, with fallback)
-Line 57: const [fetchedBrowserEngines, setFetchedBrowserEngines] = useState([])
-Line 58: const [fetchedDesktopEngines, setFetchedDesktopEngines] = useState([])
-Line 59: const browserEngines = fetchedBrowserEngines.length > 0 ? fetchedBrowserEngines : DEFAULT_BROWSER_ENGINES
-Line 60: const desktopEngines = fetchedDesktopEngines.length > 0 ? fetchedDesktopEngines : DEFAULT_DESKTOP_ENGINES
-Line 61: const engines = runMode === 'browser' ? browserEngines : desktopEngines
-Line 63: // Poll container
-Line 64: const refreshContainer = useCallback(async () => {
-Line 65: try {
-Line 66: const data = await getContainerStatus()
-Line 67: setContainerRunning(data.running || false)
-Line 68: } catch {
-Line 69: setContainerRunning(false)
-Line 70: }
-Line 71: }, [])
-Line 73: useEffect(() => {
-Line 74: refreshContainer()
-Line 75: const id = setInterval(refreshContainer, 5000)
-Line 76: return () => clearInterval(id)
-Line 77: }, [refreshContainer])
-Line 79: // Fetch API key statuses, engines, and models on mount
-Line 80: useEffect(() => {
-Line 81: const fetchKeys = async () => {
-Line 82: try {
-Line 83: const data = await getKeyStatuses()
-Line 84: if (data.keys) {
-Line 85: const map = {}
-Line 86: data.keys.forEach(k => { map[k.provider] = k })
-Line 87: setKeyStatuses(map)
-Line 88: // Auto-select best source for current provider
-Line 89: const current = map[provider]
-Line 90: if (current?.available) {
-Line 91: setKeySource(current.source) // 'env' or 'dotenv'
-Line 92: }
-Line 93: }
-Line 94: } catch { /* backend not ready yet */ }
-Line 95: }
-Line 96: const fetchEngines = async () => {
-Line 97: try {
-Line 98: const data = await getEngines()
-Line 99: if (data.engines?.length) {
-Line 100: setFetchedBrowserEngines(data.engines.filter(e => e.category === 'browser'))
-Line 101: setFetchedDesktopEngines(data.engines.filter(e => e.category === 'desktop'))
-Line 102: }
-Line 103: } catch { /* backend not ready yet */ }
-Line 104: }
-Line 105: const fetchModelList = async () => {
-Line 106: try {
-Line 107: const data = await getModels()
-Line 108: if (data.models?.length) {
-Line 109: setFetchedModels(data.models)
-Line 110: setModelsLoaded(true)
-Line 111: // Auto-select first model for the default provider
-Line 112: const firstForProvider = data.models.find(m => m.provider === 'google')
-Line 113: if (firstForProvider) setModel(firstForProvider.model_id)
-Line 114: }
-Line 115: } catch { /* backend not ready — models stay empty, Start disabled */ }
-Line 116: }
-Line 117: fetchKeys()
-Line 118: fetchEngines()
-Line 119: fetchModelList()
-Line 120: }, []) // eslint-disable-line react-hooks/exhaustive-deps
-Line 122: // Auto-stop frontend when agent finishes (done/error/max-steps)
-Line 123: useEffect(() => {
-Line 124: if (agentFinished && agentRunning) {
-Line 125: setAgentRunning(false)
-Line 126: setSessionId(null)
-Line 127: clearFinished()
-Line 128: }
-Line 129: }, [agentFinished, agentRunning, clearFinished])
-Line 131: // Auto-scroll timeline
-Line 132: useEffect(() => {
-Line 133: if (timelineRef.current) {
-Line 134: timelineRef.current.scrollTop = timelineRef.current.scrollHeight
-Line 135: }
-Line 136: }, [steps])
-Line 138: // Auto-scroll logs
-Line 139: useEffect(() => {
-Line 140: if (logRef.current) {
-Line 141: logRef.current.scrollTop = logRef.current.scrollHeight
-Line 142: }
-Line 143: }, [logs])
-Line 145: // Sync engine when runMode changes
-Line 146: useEffect(() => {
-Line 147: setEngine(runMode === 'browser' ? 'playwright_mcp' : 'computer_use')
-Line 148: }, [runMode])
-Line 150: // Sync model when provider changes
+Line 39: const [executionTarget, setExecutionTarget] = useState('local')
+Line 40: const [error, setError] = useState('')
+Line 42: // Smart default: docker for CU/a11y, local for playwright_mcp
+Line 43: const ENGINES_WITH_TARGET = ['playwright_mcp', 'omni_accessibility', 'computer_use']
+Line 44: const getDefaultTarget = (eng) => (eng === 'playwright_mcp' ? 'local' : 'docker')
+Line 46: // Timeline expansion
+Line 47: const [expandedStep, setExpandedStep] = useState(null)
+Line 49: // Refs
+Line 50: const timelineRef = useRef(null)
+Line 51: const logRef = useRef(null)
+Line 53: // Dynamic model list — fetched exclusively from GET /api/models (no fallback)
+Line 54: const [fetchedModels, setFetchedModels] = useState([])
+Line 55: const [modelsLoaded, setModelsLoaded] = useState(false)
+Line 56: const toModelOption = (m) => ({ value: m.model_id, label: `${m.display_name} (${m.model_id})` })
+Line 57: const GOOGLE_MODELS = fetchedModels.filter(m => m.provider === 'google').map(toModelOption)
+Line 58: const ANTHROPIC_MODELS = fetchedModels.filter(m => m.provider === 'anthropic').map(toModelOption)
+Line 59: const models = provider === 'anthropic' ? ANTHROPIC_MODELS : GOOGLE_MODELS
+Line 61: // Dynamic engine lists (fetched from backend, with fallback)
+Line 62: const [fetchedBrowserEngines, setFetchedBrowserEngines] = useState([])
+Line 63: const [fetchedDesktopEngines, setFetchedDesktopEngines] = useState([])
+Line 64: const browserEngines = fetchedBrowserEngines.length > 0 ? fetchedBrowserEngines : DEFAULT_BROWSER_ENGINES
+Line 65: const desktopEngines = fetchedDesktopEngines.length > 0 ? fetchedDesktopEngines : DEFAULT_DESKTOP_ENGINES
+Line 66: const engines = runMode === 'browser' ? browserEngines : desktopEngines
+Line 68: // Poll container
+Line 69: const refreshContainer = useCallback(async () => {
+Line 70: try {
+Line 71: const data = await getContainerStatus()
+Line 72: setContainerRunning(data.running || false)
+Line 73: } catch {
+Line 74: setContainerRunning(false)
+Line 75: }
+Line 76: }, [])
+Line 78: useEffect(() => {
+Line 79: refreshContainer()
+Line 80: const id = setInterval(refreshContainer, 5000)
+Line 81: return () => clearInterval(id)
+Line 82: }, [refreshContainer])
+Line 84: // Fetch API key statuses, engines, and models on mount
+Line 85: useEffect(() => {
+Line 86: const fetchKeys = async () => {
+Line 87: try {
+Line 88: const data = await getKeyStatuses()
+Line 89: if (data.keys) {
+Line 90: const map = {}
+Line 91: data.keys.forEach(k => { map[k.provider] = k })
+Line 92: setKeyStatuses(map)
+Line 93: // Auto-select best source for current provider
+Line 94: const current = map[provider]
+Line 95: if (current?.available) {
+Line 96: setKeySource(current.source) // 'env' or 'dotenv'
+Line 97: }
+Line 98: }
+Line 99: } catch { /* backend not ready yet */ }
+Line 100: }
+Line 101: const fetchEngines = async () => {
+Line 102: try {
+Line 103: const data = await getEngines()
+Line 104: if (data.engines?.length) {
+Line 105: setFetchedBrowserEngines(data.engines.filter(e => e.category === 'browser'))
+Line 106: setFetchedDesktopEngines(data.engines.filter(e => e.category === 'desktop'))
+Line 107: }
+Line 108: } catch { /* backend not ready yet */ }
+Line 109: }
+Line 110: const fetchModelList = async () => {
+Line 111: try {
+Line 112: const data = await getModels()
+Line 113: if (data.models?.length) {
+Line 114: setFetchedModels(data.models)
+Line 115: setModelsLoaded(true)
+Line 116: // Auto-select first model for the default provider
+Line 117: const firstForProvider = data.models.find(m => m.provider === 'google')
+Line 118: if (firstForProvider) setModel(firstForProvider.model_id)
+Line 119: }
+Line 120: } catch { /* backend not ready — models stay empty, Start disabled */ }
+Line 121: }
+Line 122: fetchKeys()
+Line 123: fetchEngines()
+Line 124: fetchModelList()
+Line 125: }, []) // eslint-disable-line react-hooks/exhaustive-deps
+Line 127: // Auto-stop frontend when agent finishes (done/error/max-steps)
+Line 128: useEffect(() => {
+Line 129: if (agentFinished && agentRunning) {
+Line 130: setAgentRunning(false)
+Line 131: setSessionId(null)
+Line 132: clearFinished()
+Line 133: }
+Line 134: }, [agentFinished, agentRunning, clearFinished])
+Line 136: // Auto-scroll timeline
+Line 137: useEffect(() => {
+Line 138: if (timelineRef.current) {
+Line 139: timelineRef.current.scrollTop = timelineRef.current.scrollHeight
+Line 140: }
+Line 141: }, [steps])
+Line 143: // Auto-scroll logs
+Line 144: useEffect(() => {
+Line 145: if (logRef.current) {
+Line 146: logRef.current.scrollTop = logRef.current.scrollHeight
+Line 147: }
+Line 148: }, [logs])
+Line 150: // Sync engine when runMode changes
 Line 151: useEffect(() => {
-Line 152: const list = provider === 'anthropic' ? ANTHROPIC_MODELS : GOOGLE_MODELS
-Line 153: setModel(list.length > 0 ? list[0].value : '')
-Line 154: // Auto-select key source based on availability
-Line 155: const status = keyStatuses[provider]
-Line 156: if (status?.available) {
-Line 157: setKeySource(status.source)
-Line 158: } else {
-Line 159: setKeySource('ui')
-Line 160: }
-Line 161: }, [provider, keyStatuses])
-Line 163: const handleStart = async () => {
-Line 164: if (keySource === 'ui' && !apiKey.trim()) return setError('API key is required')
-Line 165: if (!task.trim()) return setError('Task description is required')
-Line 166: setError('')
-Line 167: clearSteps()
-Line 168: clearLogs()
-Line 170: try {
-Line 171: if (!containerRunning) {
-Line 172: await startContainer()
-Line 173: await refreshContainer()
-Line 174: }
-Line 176: const engineMode = engine === 'omni_accessibility' || engine === 'computer_use' ? 'desktop' : 'browser'
-Line 178: const res = await startAgent({
-Line 179: task: task.trim(),
-Line 180: apiKey: keySource === 'ui' ? apiKey.trim() : '', // empty = backend resolves from env
-Line 181: model,
-Line 182: maxSteps: Number(maxSteps),
-Line 183: mode: engineMode,
-Line 184: engine,
-Line 185: provider,
-Line 186: })
-Line 187: if (res.error) return setError(res.error)
-Line 188: setSessionId(res.session_id)
-Line 189: setAgentRunning(true)
-Line 190: } catch (e) {
-Line 191: setError(`Failed to start: ${e.message}`)
-Line 192: }
-Line 193: }
-Line 195: const handleStop = async () => {
-Line 196: if (!sessionId) return
-Line 197: try { await stopAgent(sessionId) } catch { /* ignore */ }
-Line 198: setAgentRunning(false)
-Line 199: setSessionId(null)
+Line 152: const newEngine = runMode === 'browser' ? 'playwright_mcp' : 'computer_use'
+Line 153: setEngine(newEngine)
+Line 154: setExecutionTarget(getDefaultTarget(newEngine))
+Line 155: }, [runMode])
+Line 157: // Sync model when provider changes
+Line 158: useEffect(() => {
+Line 159: const list = provider === 'anthropic' ? ANTHROPIC_MODELS : GOOGLE_MODELS
+Line 160: setModel(list.length > 0 ? list[0].value : '')
+Line 161: // Auto-select key source based on availability
+Line 162: const status = keyStatuses[provider]
+Line 163: if (status?.available) {
+Line 164: setKeySource(status.source)
+Line 165: } else {
+Line 166: setKeySource('ui')
+Line 167: }
+Line 168: }, [provider, keyStatuses])
+Line 170: const handleStart = async () => {
+Line 171: if (keySource === 'ui' && !apiKey.trim()) return setError('API key is required')
+Line 172: if (!task.trim()) return setError('Task description is required')
+Line 173: setError('')
+Line 174: clearSteps()
+Line 175: clearLogs()
+Line 177: try {
+Line 178: if (!containerRunning) {
+Line 179: await startContainer()
+Line 180: await refreshContainer()
+Line 181: }
+Line 183: const engineMode = engine === 'omni_accessibility' || engine === 'computer_use' ? 'desktop' : 'browser'
+Line 185: const res = await startAgent({
+Line 186: task: task.trim(),
+Line 187: apiKey: keySource === 'ui' ? apiKey.trim() : '', // empty = backend resolves from env
+Line 188: model,
+Line 189: maxSteps: Number(maxSteps),
+Line 190: mode: engineMode,
+Line 191: engine,
+Line 192: provider,
+Line 193: executionTarget,
+Line 194: })
+Line 195: if (res.error) return setError(res.error)
+Line 196: setSessionId(res.session_id)
+Line 197: setAgentRunning(true)
+Line 198: } catch (e) {
+Line 199: setError(`Failed to start: ${e.message}`)
 Line 200: }
-Line 202: const handleDownloadLogs = () => {
-Line 203: if (logs.length === 0) return
-Line 204: const now = new Date()
-Line 205: const pad = (n, w = 2) => String(n).padStart(w, '0')
-Line 206: const filename = `CUA_logs_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.txt`
-Line 207: const lines = logs.map(log => {
-Line 208: const ts = formatTime(log.timestamp)
-Line 209: return `[${ts}] [${(log.level || '').toUpperCase()}] ${log.message}`
-Line 210: })
-Line 211: const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
-Line 212: const url = URL.createObjectURL(blob)
-Line 213: const a = document.createElement('a')
-Line 214: a.href = url
-Line 215: a.download = filename
-Line 216: a.click()
-Line 217: URL.revokeObjectURL(url)
-Line 218: }
-Line 220: const formatTime = (ts) => {
-Line 221: try { return new Date(ts).toLocaleTimeString('en-US', { hour12: false }) }
-Line 222: catch { return '--:--:--' }
-Line 223: }
-Line 225: const getActionIcon = (action) => {
-Line 226: const icons = {
-Line 227: click: '🖱️', double_click: '🖱️', right_click: '🖱️', hover: '👆',
-Line 228: type: '⌨️', fill: '📝', key: '⌨️', hotkey: '⌨️', paste: '📋', copy: '📋',
-Line 229: open_url: '🌐', reload: '🔄', go_back: '◀', go_forward: '▶',
-Line 230: new_tab: '➕', close_tab: '✖', switch_tab: '🔀',
-Line 231: scroll: '📜', scroll_to: '📜',
-Line 232: get_text: '📖', find_element: '🔍', evaluate_js: '💻',
-Line 233: focus_window: '🪟', open_app: '🚀',
-Line 234: wait: '⏳', wait_for: '⏳', screenshot_region: '📸',
-Line 235: done: '✅', error: '❌',
-Line 236: }
-Line 237: return icons[action] || '⚡'
-Line 238: }
-Line 240: return (
-Line 241: <div className="wb">
-Line 242: {/* Header */}
-Line 243: <header className="wb-header">
-Line 244: <div className="wb-header-left">
-Line 245: <Link to="/" className="wb-back">← Back</Link>
-Line 246: <h1>CUA Workbench</h1>
-Line 247: <span className={`wb-status-pill ${containerRunning ? 'up' : 'down'}`}>
-Line 248: {containerRunning ? 'Container Up' : 'Container Down'}
-Line 249: </span>
-Line 250: <span className={`wb-status-pill ${connected ? 'up' : 'down'}`}>
-Line 251: {connected ? 'WS Connected' : 'WS Disconnected'}
-Line 252: </span>
-Line 253: {agentRunning && <span className="wb-status-pill running">Agent Running</span>}
-Line 254: </div>
-Line 255: <div className="wb-header-right">
-Line 256: <span className="wb-step-counter">Steps: {steps.length}/{maxSteps}</span>
-Line 257: </div>
-Line 258: </header>
-Line 260: <div className="wb-body">
-Line 261: {/* Left: Config */}
-Line 262: <aside className="wb-sidebar">
-Line 263: {/* Run Mode Toggle */}
-Line 264: <div className="wb-section">
-Line 265: <label className="wb-label">Run Mode</label>
-Line 266: <div className="wb-toggle-group">
-Line 267: <button className={`wb-toggle ${runMode === 'browser' ? 'active' : ''}`} onClick={() => setRunMode('browser')} disabled={agentRunning}>🌐 Browser</button>
-Line 268: <button className={`wb-toggle ${runMode === 'desktop' ? 'active' : ''}`} onClick={() => setRunMode('desktop')} disabled={agentRunning}>🖥️ Desktop</button>
-Line 269: </div>
-Line 270: </div>
-Line 272: {/* Provider & Model */}
-Line 273: <div className="wb-section">
-Line 274: <label className="wb-label">Provider</label>
-Line 275: <select className="wb-select" value={provider} onChange={(e) => setProvider(e.target.value)} disabled={agentRunning}>
-Line 276: <option value="google">Google Gemini</option>
-Line 277: <option value="anthropic">Anthropic Claude</option>
-Line 278: </select>
-Line 279: <label className="wb-label">Model</label>
-Line 280: <select className="wb-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={agentRunning || models.length === 0}>
-Line 281: {models.length > 0 ? models.map(m => <option key={m.value} value={m.value}>{m.label}</option>) : (
-Line 282: <option value="">Loading models…</option>
-Line 283: )}
-Line 284: </select>
-Line 285: {modelsLoaded && models.length === 0 && (
-Line 286: <p className="wb-error" style={{ margin: '4px 0 0', fontSize: 11 }}>No models available for this provider.</p>
-Line 287: )}
-Line 288: <label className="wb-label">API Key Source</label>
-Line 289: <div className="wb-key-source-group">
-Line 290: <button className={`wb-key-src-btn ${keySource === 'ui' ? 'active' : ''}`} onClick={() => setKeySource('ui')} disabled={agentRunning} title="Enter key manually">
-Line 291: ✏️ Manual
-Line 292: </button>
-Line 293: <button
-Line 294: className={`wb-key-src-btn ${keySource === 'dotenv' ? 'active' : ''} ${keyStatuses[provider]?.source === 'dotenv' ? 'available' : ''}`}
-Line 295: onClick={() => setKeySource('dotenv')}
-Line 296: disabled={agentRunning || keyStatuses[provider]?.source !== 'dotenv'}
-Line 297: title={keyStatuses[provider]?.source === 'dotenv' ? `Found in .env (${keyStatuses[provider]?.masked_key})` : 'No key in .env file'}
-Line 298: >
-Line 299: 📄 .env {keyStatuses[provider]?.source === 'dotenv' && '✓'}
+Line 201: }
+Line 203: const handleStop = async () => {
+Line 204: if (!sessionId) return
+Line 205: try { await stopAgent(sessionId) } catch { /* ignore */ }
+Line 206: setAgentRunning(false)
+Line 207: setSessionId(null)
+Line 208: }
+Line 210: const handleDownloadLogs = () => {
+Line 211: if (logs.length === 0) return
+Line 212: const now = new Date()
+Line 213: const pad = (n, w = 2) => String(n).padStart(w, '0')
+Line 214: const filename = `CUA_logs_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.txt`
+Line 215: const lines = logs.map(log => {
+Line 216: const ts = formatTime(log.timestamp)
+Line 217: return `[${ts}] [${(log.level || '').toUpperCase()}] ${log.message}`
+Line 218: })
+Line 219: const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
+Line 220: const url = URL.createObjectURL(blob)
+Line 221: const a = document.createElement('a')
+Line 222: a.href = url
+Line 223: a.download = filename
+Line 224: a.click()
+Line 225: URL.revokeObjectURL(url)
+Line 226: }
+Line 228: const formatTime = (ts) => {
+Line 229: try { return new Date(ts).toLocaleTimeString('en-US', { hour12: false }) }
+Line 230: catch { return '--:--:--' }
+Line 231: }
+Line 233: const getActionIcon = (action) => {
+Line 234: const icons = {
+Line 235: click: '🖱️', double_click: '🖱️', right_click: '🖱️', hover: '👆',
+Line 236: type: '⌨️', fill: '📝', key: '⌨️', hotkey: '⌨️', paste: '📋', copy: '📋',
+Line 237: open_url: '🌐', reload: '🔄', go_back: '◀', go_forward: '▶',
+Line 238: new_tab: '➕', close_tab: '✖', switch_tab: '🔀',
+Line 239: scroll: '📜', scroll_to: '📜',
+Line 240: get_text: '📖', find_element: '🔍', evaluate_js: '💻',
+Line 241: focus_window: '🪟', open_app: '🚀',
+Line 242: wait: '⏳', wait_for: '⏳', screenshot_region: '📸',
+Line 243: done: '✅', error: '❌',
+Line 244: }
+Line 245: return icons[action] || '⚡'
+Line 246: }
+Line 248: return (
+Line 249: <div className="wb">
+Line 250: {/* Header */}
+Line 251: <header className="wb-header">
+Line 252: <div className="wb-header-left">
+Line 253: <Link to="/" className="wb-back">← Back</Link>
+Line 254: <h1>CUA Workbench</h1>
+Line 255: <span className={`wb-status-pill ${containerRunning ? 'up' : 'down'}`}>
+Line 256: {containerRunning ? 'Container Up' : 'Container Down'}
+Line 257: </span>
+Line 258: <span className={`wb-status-pill ${connected ? 'up' : 'down'}`}>
+Line 259: {connected ? 'WS Connected' : 'WS Disconnected'}
+Line 260: </span>
+Line 261: {agentRunning && <span className="wb-status-pill running">Agent Running</span>}
+Line 262: </div>
+Line 263: <div className="wb-header-right">
+Line 264: <span className="wb-step-counter">Steps: {steps.length}/{maxSteps}</span>
+Line 265: </div>
+Line 266: </header>
+Line 268: <div className="wb-body">
+Line 269: {/* Left: Config */}
+Line 270: <aside className="wb-sidebar">
+Line 271: {/* Run Mode Toggle */}
+Line 272: <div className="wb-section">
+Line 273: <label className="wb-label">Run Mode</label>
+Line 274: <div className="wb-toggle-group">
+Line 275: <button className={`wb-toggle ${runMode === 'browser' ? 'active' : ''}`} onClick={() => setRunMode('browser')} disabled={agentRunning}>🌐 Browser</button>
+Line 276: <button className={`wb-toggle ${runMode === 'desktop' ? 'active' : ''}`} onClick={() => setRunMode('desktop')} disabled={agentRunning}>🖥️ Desktop</button>
+Line 277: </div>
+Line 278: </div>
+Line 280: {/* Provider & Model */}
+Line 281: <div className="wb-section">
+Line 282: <label className="wb-label">Provider</label>
+Line 283: <select className="wb-select" value={provider} onChange={(e) => setProvider(e.target.value)} disabled={agentRunning}>
+Line 284: <option value="google">Google Gemini</option>
+Line 285: <option value="anthropic">Anthropic Claude</option>
+Line 286: </select>
+Line 287: <label className="wb-label">Model</label>
+Line 288: <select className="wb-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={agentRunning || models.length === 0}>
+Line 289: {models.length > 0 ? models.map(m => <option key={m.value} value={m.value}>{m.label}</option>) : (
+Line 290: <option value="">Loading models…</option>
+Line 291: )}
+Line 292: </select>
+Line 293: {modelsLoaded && models.length === 0 && (
+Line 294: <p className="wb-error" style={{ margin: '4px 0 0', fontSize: 11 }}>No models available for this provider.</p>
+Line 295: )}
+Line 296: <label className="wb-label">API Key Source</label>
+Line 297: <div className="wb-key-source-group">
+Line 298: <button className={`wb-key-src-btn ${keySource === 'ui' ? 'active' : ''}`} onClick={() => setKeySource('ui')} disabled={agentRunning} title="Enter key manually">
+Line 299: ✏️ Manual
 Line 300: </button>
 Line 301: <button
-Line 302: className={`wb-key-src-btn ${keySource === 'env' ? 'active' : ''} ${keyStatuses[provider]?.source === 'env' ? 'available' : ''}`}
-Line 303: onClick={() => setKeySource('env')}
-Line 304: disabled={agentRunning || keyStatuses[provider]?.source !== 'env'}
-Line 305: title={keyStatuses[provider]?.source === 'env' ? `Found in system env (${keyStatuses[provider]?.masked_key})` : 'No system env variable set'}
+Line 302: className={`wb-key-src-btn ${keySource === 'dotenv' ? 'active' : ''} ${keyStatuses[provider]?.source === 'dotenv' ? 'available' : ''}`}
+Line 303: onClick={() => setKeySource('dotenv')}
+Line 304: disabled={agentRunning || keyStatuses[provider]?.source !== 'dotenv'}
+Line 305: title={keyStatuses[provider]?.source === 'dotenv' ? `Found in .env (${keyStatuses[provider]?.masked_key})` : 'No key in .env file'}
 Line 306: >
-Line 307: 💻 System {keyStatuses[provider]?.source === 'env' && '✓'}
+Line 307: 📄 .env {keyStatuses[provider]?.source === 'dotenv' && '✓'}
 Line 308: </button>
-Line 309: </div>
-Line 310: {keySource !== 'ui' && keyStatuses[provider]?.available && (
-Line 311: <div className="wb-key-status">
-Line 312: <span className="wb-key-badge ok">🔑 {keyStatuses[provider]?.masked_key}</span>
-Line 313: <span className="wb-key-source-label">from {keySource === 'env' ? 'system variable' : '.env file'}</span>
-Line 314: </div>
-Line 315: )}
-Line 316: {keySource !== 'ui' && !keyStatuses[provider]?.available && (
-Line 317: <div className="wb-key-status">
-Line 318: <span className="wb-key-badge missing">⚠️ No key found</span>
-Line 319: <span className="wb-key-source-label">
-Line 320: {provider === 'google' ? 'Set GOOGLE_API_KEY' : 'Set ANTHROPIC_API_KEY'}
-Line 321: </span>
+Line 309: <button
+Line 310: className={`wb-key-src-btn ${keySource === 'env' ? 'active' : ''} ${keyStatuses[provider]?.source === 'env' ? 'available' : ''}`}
+Line 311: onClick={() => setKeySource('env')}
+Line 312: disabled={agentRunning || keyStatuses[provider]?.source !== 'env'}
+Line 313: title={keyStatuses[provider]?.source === 'env' ? `Found in system env (${keyStatuses[provider]?.masked_key})` : 'No system env variable set'}
+Line 314: >
+Line 315: 💻 System {keyStatuses[provider]?.source === 'env' && '✓'}
+Line 316: </button>
+Line 317: </div>
+Line 318: {keySource !== 'ui' && keyStatuses[provider]?.available && (
+Line 319: <div className="wb-key-status">
+Line 320: <span className="wb-key-badge ok">🔑 {keyStatuses[provider]?.masked_key}</span>
+Line 321: <span className="wb-key-source-label">from {keySource === 'env' ? 'system variable' : '.env file'}</span>
 Line 322: </div>
 Line 323: )}
-Line 324: {keySource === 'ui' && (
-Line 325: <>
-Line 326: <label className="wb-label">API Key</label>
-Line 327: <input type="password" className="wb-input" placeholder={provider === 'anthropic' ? 'sk-ant-...' : 'AI...'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
-Line 328: </>
-Line 329: )}
+Line 324: {keySource !== 'ui' && !keyStatuses[provider]?.available && (
+Line 325: <div className="wb-key-status">
+Line 326: <span className="wb-key-badge missing">⚠️ No key found</span>
+Line 327: <span className="wb-key-source-label">
+Line 328: {provider === 'google' ? 'Set GOOGLE_API_KEY' : 'Set ANTHROPIC_API_KEY'}
+Line 329: </span>
 Line 330: </div>
-Line 332: {/* Engine */}
-Line 333: <div className="wb-section">
-Line 334: <label className="wb-label">Engine</label>
-Line 335: <select className="wb-select" value={engine} onChange={(e) => setEngine(e.target.value)} disabled={agentRunning}>
-Line 336: {engines.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
-Line 337: </select>
-Line 338: <label className="wb-label">Max Steps</label>
-Line 339: <input type="number" className="wb-input wb-input-sm" min={1} max={200} value={maxSteps} onChange={(e) => setMaxSteps(e.target.value)} disabled={agentRunning} />
-Line 340: </div>
-Line 342: {/* Task */}
-Line 343: <div className="wb-section wb-section-grow">
-Line 344: <label className="wb-label">Task</label>
-Line 345: <textarea className="wb-textarea" placeholder="Describe what the agent should do..." value={task} onChange={(e) => setTask(e.target.value)} disabled={agentRunning}
-Line 346: onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey && !agentRunning) handleStart() }}
-Line 347: />
-Line 348: {error && <p className="wb-error">{error}</p>}
-Line 349: <div className="wb-btn-row">
-Line 350: <button className="wb-btn wb-btn-primary" onClick={handleStart} disabled={agentRunning || models.length === 0}>
-Line 351: {agentRunning ? 'Running...' : models.length === 0 ? 'No Models Loaded' : 'Start Agent'}
-Line 352: </button>
-Line 353: <button className="wb-btn wb-btn-danger" onClick={handleStop} disabled={!agentRunning}>Stop</button>
-Line 354: <button className="wb-btn wb-btn-secondary" onClick={() => { clearSteps(); clearLogs() }} disabled={agentRunning}>Clear</button>
-Line 355: </div>
-Line 356: </div>
-Line 357: </aside>
-Line 359: {/* Center: Live Screen */}
-Line 360: <main className="wb-screen-area">
-Line 361: <ScreenView screenshot={lastScreenshot} containerRunning={containerRunning} />
-Line 363: {/* Progress bar */}
-Line 364: {agentRunning && steps.length > 0 && (
-Line 365: <div className="wb-progress">
-Line 366: <div className="wb-progress-fill" style={{ width: `${Math.min((steps.length / maxSteps) * 100, 100)}%` }} />
-Line 367: </div>
-Line 368: )}
-Line 369: </main>
-Line 371: {/* Right: Timeline + Logs */}
-Line 372: <aside className="wb-right-panel">
-Line 373: {/* Timeline */}
-Line 374: <div className="wb-timeline-section">
-Line 375: <div className="wb-panel-header">
-Line 376: <h3>Timeline ({steps.length})</h3>
-Line 377: </div>
-Line 378: <div className="wb-timeline" ref={timelineRef}>
-Line 379: {steps.length === 0 && <p className="wb-empty">No steps yet.</p>}
-Line 380: {steps.map((step, i) => (
-Line 381: <div key={i} className={`wb-timeline-item ${step.error ? 'has-error' : ''} ${expandedStep === i ? 'expanded' : ''}`} onClick={() => setExpandedStep(expandedStep === i ? null : i)}>
-Line 382: <div className="wb-timeline-head">
-Line 383: <span className="wb-step-num">#{step.step_number}</span>
-Line 384: <span className="wb-action-icon">{getActionIcon(step.action?.action)}</span>
-Line 385: <span className="wb-action-name">{step.action?.action || 'unknown'}</span>
-Line 386: {step.action?.target && <span className="wb-action-target" title={step.action.target}>{step.action.target.length > 20 ? step.action.target.slice(0, 20) + '…' : step.action.target}</span>}
-Line 387: {step.action?.text && step.action.action !== 'done' && (
-Line 388: <span className="wb-action-text" title={step.action.text}>"{step.action.text.length > 20 ? step.action.text.slice(0, 20) + '…' : step.action.text}"</span>
-Line 389: )}
-Line 390: <span className="wb-step-time">{formatTime(step.timestamp)}</span>
-Line 391: </div>
-Line 392: {expandedStep === i && (
-Line 393: <div className="wb-timeline-detail">
-Line 394: {step.action?.reasoning && <p className="wb-reasoning">{step.action.reasoning}</p>}
-Line 395: {step.action?.coordinates && <p className="wb-coords">Coords: [{step.action.coordinates.join(', ')}]</p>}
-Line 396: {step.error && <p className="wb-step-error">Error: {step.error}</p>}
-Line 397: <pre className="wb-json">{JSON.stringify(step.action, null, 2)}</pre>
-Line 398: </div>
-Line 399: )}
-Line 400: </div>
-Line 401: ))}
-Line 402: </div>
-Line 403: </div>
-Line 405: {/* Logs */}
-Line 406: <div className="wb-log-section">
-Line 407: <div className="wb-panel-header">
-Line 408: <h3>Logs ({logs.length})</h3>
-Line 409: <div className="wb-log-actions">
-Line 410: <button className="wb-download-btn" onClick={handleDownloadLogs} disabled={logs.length === 0} title="Download logs as .txt">⬇ Download</button>
-Line 411: <button className="wb-clear-btn" onClick={clearLogs}>Clear</button>
-Line 412: </div>
-Line 413: </div>
-Line 414: <div className="wb-logs" ref={logRef}>
-Line 415: {logs.length === 0 && <p className="wb-empty">Waiting for logs...</p>}
-Line 416: {logs.map((log, i) => (
-Line 417: <div key={i} className="wb-log-entry">
-Line 418: <span className="wb-log-time">{formatTime(log.timestamp)}</span>
-Line 419: <span className={`wb-log-level ${log.level}`}>{log.level}</span>
-Line 420: <span className="wb-log-msg">{log.message}</span>
-Line 421: </div>
-Line 422: ))}
-Line 423: </div>
-Line 424: </div>
-Line 425: </aside>
-Line 426: </div>
-Line 427: </div>
-Line 428: )
-Line 429: }
+Line 331: )}
+Line 332: {keySource === 'ui' && (
+Line 333: <>
+Line 334: <label className="wb-label">API Key</label>
+Line 335: <input type="password" className="wb-input" placeholder={provider === 'anthropic' ? 'sk-ant-...' : 'AI...'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
+Line 336: </>
+Line 337: )}
+Line 338: </div>
+Line 340: {/* Engine */}
+Line 341: <div className="wb-section">
+Line 342: <label className="wb-label">Engine</label>
+Line 343: <select className="wb-select" value={engine} onChange={(e) => { setEngine(e.target.value); setExecutionTarget(getDefaultTarget(e.target.value)) }} disabled={agentRunning}>
+Line 344: {engines.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
+Line 345: </select>
+Line 346: {ENGINES_WITH_TARGET.includes(engine) && (
+Line 347: <>
+Line 348: <label className="wb-label">Run On</label>
+Line 349: <select className="wb-select" value={executionTarget} onChange={(e) => setExecutionTarget(e.target.value)} disabled={agentRunning}>
+Line 350: <option value="local">🖥️ Local (Host Machine)</option>
+Line 351: <option value="docker">🐳 Docker (Ubuntu Container)</option>
+Line 352: </select>
+Line 353: </>
+Line 354: )}
+Line 355: <label className="wb-label">Max Steps</label>
+Line 356: <input type="number" className="wb-input wb-input-sm" min={1} max={200} value={maxSteps} onChange={(e) => setMaxSteps(e.target.value)} disabled={agentRunning} />
+Line 357: </div>
+Line 359: {/* Task */}
+Line 360: <div className="wb-section wb-section-grow">
+Line 361: <label className="wb-label">Task</label>
+Line 362: <textarea className="wb-textarea" placeholder="Describe what the agent should do..." value={task} onChange={(e) => setTask(e.target.value)} disabled={agentRunning}
+Line 363: onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey && !agentRunning) handleStart() }}
+Line 364: />
+Line 365: {error && <p className="wb-error">{error}</p>}
+Line 366: <div className="wb-btn-row">
+Line 367: <button className="wb-btn wb-btn-primary" onClick={handleStart} disabled={agentRunning || models.length === 0}>
+Line 368: {agentRunning ? 'Running...' : models.length === 0 ? 'No Models Loaded' : 'Start Agent'}
+Line 369: </button>
+Line 370: <button className="wb-btn wb-btn-danger" onClick={handleStop} disabled={!agentRunning}>Stop</button>
+Line 371: <button className="wb-btn wb-btn-secondary" onClick={() => { clearSteps(); clearLogs() }} disabled={agentRunning}>Clear</button>
+Line 372: </div>
+Line 373: </div>
+Line 374: </aside>
+Line 376: {/* Center: Live Screen */}
+Line 377: <main className="wb-screen-area">
+Line 378: <ScreenView screenshot={lastScreenshot} containerRunning={containerRunning} />
+Line 380: {/* Progress bar */}
+Line 381: {agentRunning && steps.length > 0 && (
+Line 382: <div className="wb-progress">
+Line 383: <div className="wb-progress-fill" style={{ width: `${Math.min((steps.length / maxSteps) * 100, 100)}%` }} />
+Line 384: </div>
+Line 385: )}
+Line 386: </main>
+Line 388: {/* Right: Timeline + Logs */}
+Line 389: <aside className="wb-right-panel">
+Line 390: {/* Timeline */}
+Line 391: <div className="wb-timeline-section">
+Line 392: <div className="wb-panel-header">
+Line 393: <h3>Timeline ({steps.length})</h3>
+Line 394: </div>
+Line 395: <div className="wb-timeline" ref={timelineRef}>
+Line 396: {steps.length === 0 && <p className="wb-empty">No steps yet.</p>}
+Line 397: {steps.map((step, i) => (
+Line 398: <div key={i} className={`wb-timeline-item ${step.error ? 'has-error' : ''} ${expandedStep === i ? 'expanded' : ''}`} onClick={() => setExpandedStep(expandedStep === i ? null : i)}>
+Line 399: <div className="wb-timeline-head">
+Line 400: <span className="wb-step-num">#{step.step_number}</span>
+Line 401: <span className="wb-action-icon">{getActionIcon(step.action?.action)}</span>
+Line 402: <span className="wb-action-name">{step.action?.action || 'unknown'}</span>
+Line 403: {step.action?.target && <span className="wb-action-target" title={step.action.target}>{step.action.target.length > 20 ? step.action.target.slice(0, 20) + '…' : step.action.target}</span>}
+Line 404: {step.action?.text && step.action.action !== 'done' && (
+Line 405: <span className="wb-action-text" title={step.action.text}>"{step.action.text.length > 20 ? step.action.text.slice(0, 20) + '…' : step.action.text}"</span>
+Line 406: )}
+Line 407: <span className="wb-step-time">{formatTime(step.timestamp)}</span>
+Line 408: </div>
+Line 409: {expandedStep === i && (
+Line 410: <div className="wb-timeline-detail">
+Line 411: {step.action?.reasoning && <p className="wb-reasoning">{step.action.reasoning}</p>}
+Line 412: {step.action?.coordinates && <p className="wb-coords">Coords: [{step.action.coordinates.join(', ')}]</p>}
+Line 413: {step.error && <p className="wb-step-error">Error: {step.error}</p>}
+Line 414: <pre className="wb-json">{JSON.stringify(step.action, null, 2)}</pre>
+Line 415: </div>
+Line 416: )}
+Line 417: </div>
+Line 418: ))}
+Line 419: </div>
+Line 420: </div>
+Line 422: {/* Logs */}
+Line 423: <div className="wb-log-section">
+Line 424: <div className="wb-panel-header">
+Line 425: <h3>Logs ({logs.length})</h3>
+Line 426: <div className="wb-log-actions">
+Line 427: <button className="wb-download-btn" onClick={handleDownloadLogs} disabled={logs.length === 0} title="Download logs as .txt">⬇ Download</button>
+Line 428: <button className="wb-clear-btn" onClick={clearLogs}>Clear</button>
+Line 429: </div>
+Line 430: </div>
+Line 431: <div className="wb-logs" ref={logRef}>
+Line 432: {logs.length === 0 && <p className="wb-empty">Waiting for logs...</p>}
+Line 433: {logs.map((log, i) => (
+Line 434: <div key={i} className="wb-log-entry">
+Line 435: <span className="wb-log-time">{formatTime(log.timestamp)}</span>
+Line 436: <span className={`wb-log-level ${log.level}`}>{log.level}</span>
+Line 437: <span className="wb-log-msg">{log.message}</span>
+Line 438: </div>
+Line 439: ))}
+Line 440: </div>
+Line 441: </div>
+Line 442: </aside>
+Line 443: </div>
+Line 444: </div>
+Line 445: )
+Line 446: }
 
 

@@ -2095,15 +2095,15 @@ class AgentHandler(BaseHTTPRequestHandler):
 
         if self.path == "/health/a11y":
             # AT-SPI accessibility bus health check
+            # Run synchronously — avoid asyncio.new_event_loop() which conflicts
+            # with GLib's main loop used by AT-SPI/GObject Introspection.
             try:
-                import asyncio
-                from backend.engines.accessibility_engine import check_accessibility_health
-                loop = asyncio.new_event_loop()
-                try:
-                    healthy = loop.run_until_complete(check_accessibility_health())
-                finally:
-                    loop.close()
+                from backend.engines.accessibility_engine import _get_provider
+                provider = _get_provider()
+                healthy = provider.check_health()
                 self._respond(200, {"healthy": healthy, "bindings": True})
+            except ImportError as e:
+                self._respond(200, {"healthy": False, "bindings": False, "error": f"Import error: {e}"})
             except Exception as e:
                 self._respond(200, {"healthy": False, "bindings": False, "error": str(e)})
             return
@@ -2231,9 +2231,11 @@ class AgentHandler(BaseHTTPRequestHandler):
 
         The accessibility_engine module uses async functions internally
         (asyncio.to_thread for AT-SPI GI calls), so we run them in a
-        temporary event loop.
+        dedicated event loop.  We use ``asyncio.new_event_loop()`` inside
+        a thread-isolated context to avoid conflicts with GLib's main loop.
         """
         import asyncio
+        import threading
         try:
             from backend.engines.accessibility_engine import execute_accessibility_action
         except ImportError as exc:
@@ -2241,17 +2243,33 @@ class AgentHandler(BaseHTTPRequestHandler):
                 "success": False,
                 "message": f"Accessibility engine not available: {exc}",
             }
-        try:
-            loop = asyncio.new_event_loop()
+
+        result_container = [None]
+        error_container = [None]
+
+        def _run_in_thread():
+            """Run the async accessibility action in a fresh event loop on a separate thread."""
             try:
-                result = loop.run_until_complete(
-                    execute_accessibility_action(action, text=text, target=target)
-                )
-            finally:
-                loop.close()
-            return result
-        except Exception as exc:
-            return {"success": False, "message": f"Accessibility action failed: {exc}"}
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result_container[0] = loop.run_until_complete(
+                        execute_accessibility_action(action, text=text, target=target)
+                    )
+                finally:
+                    loop.close()
+            except Exception as exc:
+                error_container[0] = exc
+
+        t = threading.Thread(target=_run_in_thread, daemon=True)
+        t.start()
+        t.join(timeout=30.0)
+
+        if error_container[0] is not None:
+            return {"success": False, "message": f"Accessibility action failed: {error_container[0]}"}
+        if result_container[0] is None:
+            return {"success": False, "message": "Accessibility action timed out (30s)"}
+        return result_container[0]
 
     def _dispatch_browser(self, action: str, x: int, y: int, text: str, coords: list, target: str = "") -> dict:
         """Dispatch a single action to the Playwright browser engine."""
@@ -4538,15 +4556,15 @@ Line 1894: })
 Line 1895: return
 Line 1897: if self.path == "/health/a11y":
 Line 1898: # AT-SPI accessibility bus health check
-Line 1899: try:
-Line 1900: import asyncio
-Line 1901: from backend.engines.accessibility_engine import check_accessibility_health
-Line 1902: loop = asyncio.new_event_loop()
-Line 1903: try:
-Line 1904: healthy = loop.run_until_complete(check_accessibility_health())
-Line 1905: finally:
-Line 1906: loop.close()
-Line 1907: self._respond(200, {"healthy": healthy, "bindings": True})
+Line 1899: # Run synchronously — avoid asyncio.new_event_loop() which conflicts
+Line 1900: # with GLib's main loop used by AT-SPI/GObject Introspection.
+Line 1901: try:
+Line 1902: from backend.engines.accessibility_engine import _get_provider
+Line 1903: provider = _get_provider()
+Line 1904: healthy = provider.check_health()
+Line 1905: self._respond(200, {"healthy": healthy, "bindings": True})
+Line 1906: except ImportError as e:
+Line 1907: self._respond(200, {"healthy": False, "bindings": False, "error": f"Import error: {e}"})
 Line 1908: except Exception as e:
 Line 1909: self._respond(200, {"healthy": False, "bindings": False, "error": str(e)})
 Line 1910: return
@@ -4654,764 +4672,778 @@ Line 2030: def _dispatch_accessibility(self, action: str, text: str, target: str
 Line 2031: """Dispatch a single action to the AT-SPI accessibility engine.
 Line 2033: The accessibility_engine module uses async functions internally
 Line 2034: (asyncio.to_thread for AT-SPI GI calls), so we run them in a
-Line 2035: temporary event loop.
-Line 2036: """
-Line 2037: import asyncio
-Line 2038: try:
-Line 2039: from backend.engines.accessibility_engine import execute_accessibility_action
-Line 2040: except ImportError as exc:
-Line 2041: return {
-Line 2042: "success": False,
-Line 2043: "message": f"Accessibility engine not available: {exc}",
-Line 2044: }
-Line 2045: try:
-Line 2046: loop = asyncio.new_event_loop()
-Line 2047: try:
-Line 2048: result = loop.run_until_complete(
-Line 2049: execute_accessibility_action(action, text=text, target=target)
-Line 2050: )
-Line 2051: finally:
-Line 2052: loop.close()
-Line 2053: return result
-Line 2054: except Exception as exc:
-Line 2055: return {"success": False, "message": f"Accessibility action failed: {exc}"}
-Line 2057: def _dispatch_browser(self, action: str, x: int, y: int, text: str, coords: list, target: str = "") -> dict:
-Line 2058: """Dispatch a single action to the Playwright browser engine."""
-Line 2059: # ── Mouse / Interaction ───────────────────────────────────────
-Line 2060: if action == "click":
-Line 2061: return _pw_click(x, y)
-Line 2062: elif action == "double_click":
-Line 2063: return _pw_double_click(x, y)
-Line 2064: elif action == "right_click":
-Line 2065: return _pw_right_click(x, y)
-Line 2066: elif action == "middle_click":
-Line 2067: return _pw_middle_click(x, y)
-Line 2068: elif action == "hover":
-Line 2069: return _pw_hover(x, y)
-Line 2070: elif action == "drag":
-Line 2071: if len(coords) >= 4:
-Line 2072: return _pw_drag(coords[0], coords[1], coords[2], coords[3])
-Line 2073: return {"success": False, "message": "drag requires 4 coordinates [x1, y1, x2, y2]"}
-Line 2074: # ── Input ─────────────────────────────────────────────────────
-Line 2075: elif action == "type":
-Line 2076: selector = target or (text.split("|")[0] if "|" in text else "")
-Line 2077: value = text.split("|")[1] if "|" in text else text
-Line 2078: if not target and not "|" in text:
-Line 2079: return _pw_type(text, coords)
-Line 2080: return _pw_type(value, coords, selector)
-Line 2081: elif action == "fill":
-Line 2082: selector = target or (text.split("|")[0] if "|" in text else "")
-Line 2083: value = text.split("|")[1] if "|" in text else text
-Line 2084: if not selector:
-Line 2085: return {"success": False, "message": "fill requires target (CSS selector)"}
-Line 2086: return _pw_fill(selector, value)
-Line 2087: elif action == "key":
-Line 2088: return _pw_key(text)
-Line 2089: elif action == "hotkey":
-Line 2090: keys = [k.strip() for k in text.split("+")]
-Line 2091: return _pw_hotkey(keys)
-Line 2092: elif action == "clear_input":
-Line 2093: selector = target or text
-Line 2094: if not selector:
-Line 2095: return {"success": False, "message": "clear_input requires target (CSS selector)"}
-Line 2096: return _pw_clear_input(selector)
-Line 2097: elif action == "select_option":
-Line 2098: selector = target or ""
-Line 2099: if not selector:
-Line 2100: return {"success": False, "message": "select_option requires target (CSS selector)"}
-Line 2101: return _pw_select_option(selector, text)
-Line 2102: elif action == "paste":
-Line 2103: return _pw_paste(text)
-Line 2104: elif action == "copy":
-Line 2105: return _pw_copy()
-Line 2106: # ── Navigation ────────────────────────────────────────────────
-Line 2107: elif action == "open_url":
-Line 2108: return _pw_navigate(text)
-Line 2109: elif action == "reload":
-Line 2110: return _pw_reload()
-Line 2111: elif action == "go_back":
-Line 2112: return _pw_go_back()
-Line 2113: elif action == "go_forward":
-Line 2114: return _pw_go_forward()
-Line 2115: # ── Tabs ──────────────────────────────────────────────────────
-Line 2116: elif action == "new_tab":
-Line 2117: return _pw_new_tab(text)
-Line 2118: elif action == "close_tab":
-Line 2119: return _pw_close_tab()
-Line 2120: elif action == "switch_tab":
-Line 2121: return _pw_switch_tab(text or target)
-Line 2122: # ── Scrolling ─────────────────────────────────────────────────
-Line 2123: elif action == "scroll":
-Line 2124: direction = text.lower() if text else "down"
-Line 2125: return _pw_scroll(x, y, direction)
-Line 2126: elif action == "scroll_to":
-Line 2127: selector = target or text
-Line 2128: if not selector:
-Line 2129: return {"success": False, "message": "scroll_to requires target (CSS selector)"}
-Line 2130: return _pw_scroll_to(selector)
-Line 2131: elif action == "scroll_into_view":
-Line 2132: selector = target or text
-Line 2133: if not selector:
-Line 2134: return {"success": False, "message": "scroll_into_view requires target (CSS selector)"}
-Line 2135: return _pw_scroll_into_view(selector)
-Line 2136: # ── DOM / Semantic ────────────────────────────────────────────
-Line 2137: elif action == "get_text":
-Line 2138: selector = target or text
-Line 2139: if not selector:
-Line 2140: return {"success": False, "message": "get_text requires target (CSS selector)"}
-Line 2141: return _pw_get_text(selector)
-Line 2142: elif action == "find_element":
-Line 2143: description = target or text
-Line 2144: if not description:
-Line 2145: return {"success": False, "message": "find_element requires target (text description)"}
-Line 2146: return _pw_find_element(description)
-Line 2147: # ── JavaScript ────────────────────────────────────────────────
-Line 2148: elif action == "evaluate_js":
-Line 2149: if not text:
-Line 2150: return {"success": False, "message": "evaluate_js requires text (JS code)"}
-Line 2151: return _pw_evaluate_js(text)
-Line 2152: # ── Control ───────────────────────────────────────────────────
-Line 2153: elif action == "wait_for":
-Line 2154: selector = target or text
-Line 2155: if not selector:
-Line 2156: return {"success": False, "message": "wait_for requires target (CSS selector)"}
-Line 2157: return _pw_wait_for(selector)
-Line 2158: elif action == "wait_for_navigation":
-Line 2159: return _pw_wait_for_navigation()
-Line 2160: elif action == "screenshot_region":
-Line 2161: if len(coords) >= 4:
-Line 2162: b64 = _pw_screenshot_region(coords[0], coords[1], coords[2], coords[3])
-Line 2163: return {"success": True, "message": f"Region screenshot captured", "screenshot": b64}
-Line 2164: return {"success": False, "message": "screenshot_region needs 4 coords [x, y, width, height]"}
-Line 2165: elif action == "screenshot_viewport":
-Line 2166: b64 = _pw_screenshot_viewport()
-Line 2167: return {"success": True, "message": "Viewport screenshot captured", "screenshot": b64}
-Line 2168: elif action == "screenshot_element":
-Line 2169: selector = target or text
-Line 2170: if not selector:
-Line 2171: return {"success": False, "message": "screenshot_element requires target"}
-Line 2172: b64 = _pw_screenshot_element(selector)
-Line 2173: if b64:
-Line 2174: return {"success": True, "message": "Element screenshot captured", "screenshot": b64}
-Line 2175: return {"success": False, "message": "Failed to capture element screenshot"}
-Line 2176: elif action == "get_html":
-Line 2177: selector = target or text
-Line 2178: return _pw_get_html(selector)
-Line 2179: elif action == "get_attribute":
-Line 2180: selector = target or (text.split("|")[0] if "|" in text else "")
-Line 2181: attribute = text.split("|")[1] if "|" in text else ""
-Line 2182: if not selector or not attribute:
-Line 2183: return {"success": False, "message": "get_attribute requires target (selector) and attribute (in text as selector|attribute)"}
-Line 2184: return _pw_get_attribute(selector, attribute)
-Line 2185: elif action == "query_selector":
-Line 2186: selector = target or text
-Line 2187: if not selector:
-Line 2188: return {"success": False, "message": "query_selector requires target (CSS selector)"}
-Line 2189: return _pw_query_selector(selector)
-Line 2190: elif action == "query_all":
-Line 2191: selector = target or text
-Line 2192: if not selector:
-Line 2193: return {"success": False, "message": "query_all requires target (CSS selector)"}
-Line 2194: return _pw_query_all(selector)
-Line 2195: elif action == "get_bounding_box":
-Line 2196: selector = target or text
-Line 2197: if not selector:
-Line 2198: return {"success": False, "message": "get_bounding_box requires target (CSS selector)"}
-Line 2199: return _pw_get_bounding_box(selector)
-Line 2200: elif action == "get_visible_elements":
-Line 2201: selector = target or text
-Line 2202: if not selector:
-Line 2203: return {"success": False, "message": "get_visible_elements requires target (CSS selector)"}
-Line 2204: return _pw_get_visible_elements(selector)
-Line 2205: elif action == "evaluate_on_selector":
-Line 2206: selector = target or (text.split("|")[0] if "|" in text else "")
-Line 2207: script = text.split("|")[1] if "|" in text else ""
-Line 2208: if not selector or not script:
-Line 2209: return {"success": False, "message": "evaluate_on_selector requires target and script"}
-Line 2210: return _pw_evaluate_on_selector(selector, script)
-Line 2211: elif action == "upload_file":
-Line 2212: selector = target or (text.split("|")[0] if "|" in text else "")
-Line 2213: file_path = text.split("|")[1] if "|" in text else text
-Line 2214: if not selector or not file_path:
-Line 2215: return {"success": False, "message": "upload_file requires target and file path"}
-Line 2216: return _pw_upload_file(selector, file_path)
-Line 2217: elif action == "download_file":
-Line 2218: selector = target or text
-Line 2219: return _pw_download_file(selector)
-Line 2220: elif action == "handle_file_chooser":
-Line 2221: return {"success": False, "message": "Not implemented yet"}
-Line 2222: elif action == "set_cookies":
-Line 2223: try:
-Line 2224: cookies = json.loads(text)
-Line 2225: return _pw_set_cookies(cookies)
-Line 2226: except Exception as e:
-Line 2227: return {"success": False, "message": f"set_cookies requires JSON text: {e}"}
-Line 2228: elif action == "get_cookies":
-Line 2229: return _pw_get_cookies()
-Line 2230: elif action == "clear_cookies":
-Line 2231: return _pw_clear_cookies()
-Line 2232: elif action == "storage_state":
-Line 2233: return {"success": False, "message": "Not implemented yet"}
-Line 2234: elif action == "new_context":
-Line 2235: return _pw_new_context()
-Line 2236: elif action == "switch_context":
-Line 2237: identifier = target or text
-Line 2238: return _pw_switch_context(identifier)
-Line 2239: elif action == "close_context":
-Line 2240: return _pw_close_context()
-Line 2241: elif action == "intercept_request":
-Line 2242: return {"success": False, "message": "Not implemented yet"}
-Line 2243: elif action == "monitor_requests":
-Line 2244: return {"success": False, "message": "Not implemented yet"}
-Line 2245: elif action == "get_response_body":
-Line 2246: return {"success": False, "message": "Not implemented yet"}
-Line 2247: elif action == "assert_element_present":
-Line 2248: selector = target or text
-Line 2249: if not selector:
-Line 2250: return {"success": False, "message": "assert_element_present requires target (CSS selector)"}
-Line 2251: return _pw_query_selector(selector)
-Line 2252: elif action == "verify_text":
-Line 2253: selector = target or "body"
-Line 2254: needle = text or ""
-Line 2255: if not needle:
-Line 2256: return {"success": False, "message": "verify_text requires text to verify"}
-Line 2257: res = _pw_get_text(selector)
-Line 2258: if not res.get("success"):
-Line 2259: return res
-Line 2260: found = needle.lower() in res.get("message", "").lower()
-Line 2261: return {"success": found, "message": f"verify_text={'ok' if found else 'not found'}: {needle[:120]}"}
-Line 2262: elif action == "retry_last_action":
-Line 2263: return {"success": False, "message": "Not implemented yet"}
-Line 2264: elif action == "fallback_strategy":
-Line 2265: return {"success": False, "message": "Not implemented yet"}
-Line 2266: elif action == "set_viewport":
-Line 2267: if len(coords) >= 2:
-Line 2268: return _pw_set_viewport(coords[0], coords[1])
-Line 2269: return {"success": False, "message": "set_viewport requires width and height"}
-Line 2270: elif action == "zoom":
-Line 2271: try:
-Line 2272: level = float(text)
-Line 2273: return _pw_zoom(level)
-Line 2274: except ValueError:
-Line 2275: return {"success": False, "message": "zoom requires a float value"}
-Line 2276: elif action == "block_resource":
-Line 2277: return _pw_block_resource(text)
-Line 2278: elif action == "type_at":
-Line 2279: if not coords or len(coords) < 2:
-Line 2280: return {"success": False, "message": "type_at requires coordinates [x, y]"}
-Line 2281: return _pw_type(text, coords)
-Line 2282: elif action == "press_sequential":
-Line 2283: # Stub: treat as type
-Line 2284: return _pw_type(text, coords)
-Line 2285: elif action == "scroll_to_selector":
-Line 2286: selector = target or text
-Line 2287: if not selector:
-Line 2288: return {"success": False, "message": "scroll_to_selector requires target"}
-Line 2289: return _pw_scroll_to(selector)
-Line 2290: elif action == "export_page_pdf":
-Line 2291: b64 = _pw_export_page_pdf()
-Line 2292: return {"success": True, "message": "PDF exported", "pdf": b64}
-Line 2293: else:
-Line 2294: return {"success": False, "message": f"Unsupported action '{action}' in browser mode", "hint": "Check engine capability mapping"}
-Line 2296: def _dispatch_desktop(self, action: str, x: int, y: int, text: str, coords: list, target: str = "") -> dict:
-Line 2297: """Dispatch a single action to the xdotool desktop engine."""
-Line 2298: # ── Mouse / Interaction ───────────────────────────────────────
-Line 2299: if action == "click":
-Line 2300: return _xdo_click(x, y)
-Line 2301: elif action == "double_click":
-Line 2302: return _xdo_double_click(x, y)
-Line 2303: elif action == "right_click":
-Line 2304: return _xdo_right_click(x, y)
-Line 2305: elif action == "middle_click":
-Line 2306: return _xdo_middle_click(x, y)
-Line 2307: elif action == "hover":
-Line 2308: return _xdo_hover(x, y)
-Line 2309: elif action == "drag":
-Line 2310: if len(coords) >= 4:
-Line 2311: return _xdo_drag(coords[0], coords[1], coords[2], coords[3])
-Line 2312: return {"success": False, "message": "drag requires 4 coordinates [x1, y1, x2, y2]"}
-Line 2313: # ── Input ─────────────────────────────────────────────────────
-Line 2314: elif action == "type":
-Line 2315: if coords and len(coords) >= 2:
-Line 2316: _xdo_click(coords[0], coords[1])
-Line 2317: time.sleep(0.1)
-Line 2318: try:
-Line 2319: return _xdo_type(text)
-Line 2320: except Exception:
-Line 2321: logger.warning("xdotool type failed, trying paste fallback")
-Line 2322: return _xdo_paste(text)
-Line 2323: elif action == "key":
-Line 2324: return _xdo_key(text)
-Line 2325: elif action == "keydown":
-Line 2326: return _xdo_keydown(text)
-Line 2327: elif action == "keyup":
-Line 2328: return _xdo_keyup(text)
-Line 2329: elif action == "type_slow":
-Line 2330: if coords and len(coords) >= 2:
-Line 2331: _xdo_click(coords[0], coords[1])
-Line 2332: time.sleep(0.1)
-Line 2333: try:
-Line 2334: return _xdo_type_slow(text)
-Line 2335: except Exception:
-Line 2336: logger.warning("xdotool type_slow failed, trying paste fallback")
-Line 2337: return _xdo_paste(text)
-Line 2338: elif action == "hotkey":
-Line 2339: keys = [k.strip() for k in text.split("+")]
-Line 2340: return _xdo_hotkey(keys)
-Line 2341: elif action == "paste":
-Line 2342: return _xdo_paste(text)
-Line 2343: elif action == "copy":
-Line 2344: return _xdo_copy()
-Line 2345: # ── Navigation ────────────────────────────────────────────────
-Line 2346: elif action == "open_url":
-Line 2347: return _xdo_open_url(text)
-Line 2348: # ── Scrolling ─────────────────────────────────────────────────
-Line 2349: elif action == "scroll":
-Line 2350: direction = text.lower() if text else "down"
-Line 2351: return _xdo_scroll(x, y, direction)
-Line 2352: elif action == "scroll_up":
-Line 2353: return _xdo_scroll_up()
-Line 2354: elif action == "scroll_down":
-Line 2355: return _xdo_scroll_down()
-Line 2356: # ── Desktop / Window ──────────────────────────────────────────
-Line 2357: elif action == "focus_window":
-Line 2358: identifier = target or text
-Line 2359: if not identifier:
-Line 2360: return {"success": False, "message": "focus_window requires target (window name)"}
-Line 2361: return _xdo_focus_window(identifier)
-Line 2362: elif action == "window_activate":
-Line 2363: identifier = target or text
-Line 2364: if not identifier:
-Line 2365: return {"success": False, "message": "window_activate requires target"}
-Line 2366: return _xdo_focus_window(identifier)
-Line 2367: elif action == "focus_mouse":
-Line 2368: _xdo(["mousemove", "--sync", str(x), str(y)])
-Line 2369: return {"success": True, "message": f"Focused mouse at ({x}, {y})"}
-Line 2370: elif action == "mousemove":
-Line 2371: if len(coords) >= 2:
-Line 2372: _xdo(["mousemove", "--sync", str(coords[0]), str(coords[1])])
-Line 2373: return {"success": True, "message": f"Moved mouse to ({coords[0]}, {coords[1]})"}
-Line 2374: return {"success": False, "message": "mousemove requires coordinates [x, y]"}
-Line 2375: elif action == "open_app":
-Line 2376: app = target or text
-Line 2377: if not app:
-Line 2378: return {"success": False, "message": "open_app requires target (app command)"}
-Line 2379: return _xdo_open_app(app)
-Line 2380: elif action == "close_window":
+Line 2035: dedicated event loop.  We use ``asyncio.new_event_loop()`` inside
+Line 2036: a thread-isolated context to avoid conflicts with GLib's main loop.
+Line 2037: """
+Line 2038: import asyncio
+Line 2039: import threading
+Line 2040: try:
+Line 2041: from backend.engines.accessibility_engine import execute_accessibility_action
+Line 2042: except ImportError as exc:
+Line 2043: return {
+Line 2044: "success": False,
+Line 2045: "message": f"Accessibility engine not available: {exc}",
+Line 2046: }
+Line 2048: result_container = [None]
+Line 2049: error_container = [None]
+Line 2051: def _run_in_thread():
+Line 2052: """Run the async accessibility action in a fresh event loop on a separate thread."""
+Line 2053: try:
+Line 2054: loop = asyncio.new_event_loop()
+Line 2055: asyncio.set_event_loop(loop)
+Line 2056: try:
+Line 2057: result_container[0] = loop.run_until_complete(
+Line 2058: execute_accessibility_action(action, text=text, target=target)
+Line 2059: )
+Line 2060: finally:
+Line 2061: loop.close()
+Line 2062: except Exception as exc:
+Line 2063: error_container[0] = exc
+Line 2065: t = threading.Thread(target=_run_in_thread, daemon=True)
+Line 2066: t.start()
+Line 2067: t.join(timeout=30.0)
+Line 2069: if error_container[0] is not None:
+Line 2070: return {"success": False, "message": f"Accessibility action failed: {error_container[0]}"}
+Line 2071: if result_container[0] is None:
+Line 2072: return {"success": False, "message": "Accessibility action timed out (30s)"}
+Line 2073: return result_container[0]
+Line 2075: def _dispatch_browser(self, action: str, x: int, y: int, text: str, coords: list, target: str = "") -> dict:
+Line 2076: """Dispatch a single action to the Playwright browser engine."""
+Line 2077: # ── Mouse / Interaction ───────────────────────────────────────
+Line 2078: if action == "click":
+Line 2079: return _pw_click(x, y)
+Line 2080: elif action == "double_click":
+Line 2081: return _pw_double_click(x, y)
+Line 2082: elif action == "right_click":
+Line 2083: return _pw_right_click(x, y)
+Line 2084: elif action == "middle_click":
+Line 2085: return _pw_middle_click(x, y)
+Line 2086: elif action == "hover":
+Line 2087: return _pw_hover(x, y)
+Line 2088: elif action == "drag":
+Line 2089: if len(coords) >= 4:
+Line 2090: return _pw_drag(coords[0], coords[1], coords[2], coords[3])
+Line 2091: return {"success": False, "message": "drag requires 4 coordinates [x1, y1, x2, y2]"}
+Line 2092: # ── Input ─────────────────────────────────────────────────────
+Line 2093: elif action == "type":
+Line 2094: selector = target or (text.split("|")[0] if "|" in text else "")
+Line 2095: value = text.split("|")[1] if "|" in text else text
+Line 2096: if not target and not "|" in text:
+Line 2097: return _pw_type(text, coords)
+Line 2098: return _pw_type(value, coords, selector)
+Line 2099: elif action == "fill":
+Line 2100: selector = target or (text.split("|")[0] if "|" in text else "")
+Line 2101: value = text.split("|")[1] if "|" in text else text
+Line 2102: if not selector:
+Line 2103: return {"success": False, "message": "fill requires target (CSS selector)"}
+Line 2104: return _pw_fill(selector, value)
+Line 2105: elif action == "key":
+Line 2106: return _pw_key(text)
+Line 2107: elif action == "hotkey":
+Line 2108: keys = [k.strip() for k in text.split("+")]
+Line 2109: return _pw_hotkey(keys)
+Line 2110: elif action == "clear_input":
+Line 2111: selector = target or text
+Line 2112: if not selector:
+Line 2113: return {"success": False, "message": "clear_input requires target (CSS selector)"}
+Line 2114: return _pw_clear_input(selector)
+Line 2115: elif action == "select_option":
+Line 2116: selector = target or ""
+Line 2117: if not selector:
+Line 2118: return {"success": False, "message": "select_option requires target (CSS selector)"}
+Line 2119: return _pw_select_option(selector, text)
+Line 2120: elif action == "paste":
+Line 2121: return _pw_paste(text)
+Line 2122: elif action == "copy":
+Line 2123: return _pw_copy()
+Line 2124: # ── Navigation ────────────────────────────────────────────────
+Line 2125: elif action == "open_url":
+Line 2126: return _pw_navigate(text)
+Line 2127: elif action == "reload":
+Line 2128: return _pw_reload()
+Line 2129: elif action == "go_back":
+Line 2130: return _pw_go_back()
+Line 2131: elif action == "go_forward":
+Line 2132: return _pw_go_forward()
+Line 2133: # ── Tabs ──────────────────────────────────────────────────────
+Line 2134: elif action == "new_tab":
+Line 2135: return _pw_new_tab(text)
+Line 2136: elif action == "close_tab":
+Line 2137: return _pw_close_tab()
+Line 2138: elif action == "switch_tab":
+Line 2139: return _pw_switch_tab(text or target)
+Line 2140: # ── Scrolling ─────────────────────────────────────────────────
+Line 2141: elif action == "scroll":
+Line 2142: direction = text.lower() if text else "down"
+Line 2143: return _pw_scroll(x, y, direction)
+Line 2144: elif action == "scroll_to":
+Line 2145: selector = target or text
+Line 2146: if not selector:
+Line 2147: return {"success": False, "message": "scroll_to requires target (CSS selector)"}
+Line 2148: return _pw_scroll_to(selector)
+Line 2149: elif action == "scroll_into_view":
+Line 2150: selector = target or text
+Line 2151: if not selector:
+Line 2152: return {"success": False, "message": "scroll_into_view requires target (CSS selector)"}
+Line 2153: return _pw_scroll_into_view(selector)
+Line 2154: # ── DOM / Semantic ────────────────────────────────────────────
+Line 2155: elif action == "get_text":
+Line 2156: selector = target or text
+Line 2157: if not selector:
+Line 2158: return {"success": False, "message": "get_text requires target (CSS selector)"}
+Line 2159: return _pw_get_text(selector)
+Line 2160: elif action == "find_element":
+Line 2161: description = target or text
+Line 2162: if not description:
+Line 2163: return {"success": False, "message": "find_element requires target (text description)"}
+Line 2164: return _pw_find_element(description)
+Line 2165: # ── JavaScript ────────────────────────────────────────────────
+Line 2166: elif action == "evaluate_js":
+Line 2167: if not text:
+Line 2168: return {"success": False, "message": "evaluate_js requires text (JS code)"}
+Line 2169: return _pw_evaluate_js(text)
+Line 2170: # ── Control ───────────────────────────────────────────────────
+Line 2171: elif action == "wait_for":
+Line 2172: selector = target or text
+Line 2173: if not selector:
+Line 2174: return {"success": False, "message": "wait_for requires target (CSS selector)"}
+Line 2175: return _pw_wait_for(selector)
+Line 2176: elif action == "wait_for_navigation":
+Line 2177: return _pw_wait_for_navigation()
+Line 2178: elif action == "screenshot_region":
+Line 2179: if len(coords) >= 4:
+Line 2180: b64 = _pw_screenshot_region(coords[0], coords[1], coords[2], coords[3])
+Line 2181: return {"success": True, "message": f"Region screenshot captured", "screenshot": b64}
+Line 2182: return {"success": False, "message": "screenshot_region needs 4 coords [x, y, width, height]"}
+Line 2183: elif action == "screenshot_viewport":
+Line 2184: b64 = _pw_screenshot_viewport()
+Line 2185: return {"success": True, "message": "Viewport screenshot captured", "screenshot": b64}
+Line 2186: elif action == "screenshot_element":
+Line 2187: selector = target or text
+Line 2188: if not selector:
+Line 2189: return {"success": False, "message": "screenshot_element requires target"}
+Line 2190: b64 = _pw_screenshot_element(selector)
+Line 2191: if b64:
+Line 2192: return {"success": True, "message": "Element screenshot captured", "screenshot": b64}
+Line 2193: return {"success": False, "message": "Failed to capture element screenshot"}
+Line 2194: elif action == "get_html":
+Line 2195: selector = target or text
+Line 2196: return _pw_get_html(selector)
+Line 2197: elif action == "get_attribute":
+Line 2198: selector = target or (text.split("|")[0] if "|" in text else "")
+Line 2199: attribute = text.split("|")[1] if "|" in text else ""
+Line 2200: if not selector or not attribute:
+Line 2201: return {"success": False, "message": "get_attribute requires target (selector) and attribute (in text as selector|attribute)"}
+Line 2202: return _pw_get_attribute(selector, attribute)
+Line 2203: elif action == "query_selector":
+Line 2204: selector = target or text
+Line 2205: if not selector:
+Line 2206: return {"success": False, "message": "query_selector requires target (CSS selector)"}
+Line 2207: return _pw_query_selector(selector)
+Line 2208: elif action == "query_all":
+Line 2209: selector = target or text
+Line 2210: if not selector:
+Line 2211: return {"success": False, "message": "query_all requires target (CSS selector)"}
+Line 2212: return _pw_query_all(selector)
+Line 2213: elif action == "get_bounding_box":
+Line 2214: selector = target or text
+Line 2215: if not selector:
+Line 2216: return {"success": False, "message": "get_bounding_box requires target (CSS selector)"}
+Line 2217: return _pw_get_bounding_box(selector)
+Line 2218: elif action == "get_visible_elements":
+Line 2219: selector = target or text
+Line 2220: if not selector:
+Line 2221: return {"success": False, "message": "get_visible_elements requires target (CSS selector)"}
+Line 2222: return _pw_get_visible_elements(selector)
+Line 2223: elif action == "evaluate_on_selector":
+Line 2224: selector = target or (text.split("|")[0] if "|" in text else "")
+Line 2225: script = text.split("|")[1] if "|" in text else ""
+Line 2226: if not selector or not script:
+Line 2227: return {"success": False, "message": "evaluate_on_selector requires target and script"}
+Line 2228: return _pw_evaluate_on_selector(selector, script)
+Line 2229: elif action == "upload_file":
+Line 2230: selector = target or (text.split("|")[0] if "|" in text else "")
+Line 2231: file_path = text.split("|")[1] if "|" in text else text
+Line 2232: if not selector or not file_path:
+Line 2233: return {"success": False, "message": "upload_file requires target and file path"}
+Line 2234: return _pw_upload_file(selector, file_path)
+Line 2235: elif action == "download_file":
+Line 2236: selector = target or text
+Line 2237: return _pw_download_file(selector)
+Line 2238: elif action == "handle_file_chooser":
+Line 2239: return {"success": False, "message": "Not implemented yet"}
+Line 2240: elif action == "set_cookies":
+Line 2241: try:
+Line 2242: cookies = json.loads(text)
+Line 2243: return _pw_set_cookies(cookies)
+Line 2244: except Exception as e:
+Line 2245: return {"success": False, "message": f"set_cookies requires JSON text: {e}"}
+Line 2246: elif action == "get_cookies":
+Line 2247: return _pw_get_cookies()
+Line 2248: elif action == "clear_cookies":
+Line 2249: return _pw_clear_cookies()
+Line 2250: elif action == "storage_state":
+Line 2251: return {"success": False, "message": "Not implemented yet"}
+Line 2252: elif action == "new_context":
+Line 2253: return _pw_new_context()
+Line 2254: elif action == "switch_context":
+Line 2255: identifier = target or text
+Line 2256: return _pw_switch_context(identifier)
+Line 2257: elif action == "close_context":
+Line 2258: return _pw_close_context()
+Line 2259: elif action == "intercept_request":
+Line 2260: return {"success": False, "message": "Not implemented yet"}
+Line 2261: elif action == "monitor_requests":
+Line 2262: return {"success": False, "message": "Not implemented yet"}
+Line 2263: elif action == "get_response_body":
+Line 2264: return {"success": False, "message": "Not implemented yet"}
+Line 2265: elif action == "assert_element_present":
+Line 2266: selector = target or text
+Line 2267: if not selector:
+Line 2268: return {"success": False, "message": "assert_element_present requires target (CSS selector)"}
+Line 2269: return _pw_query_selector(selector)
+Line 2270: elif action == "verify_text":
+Line 2271: selector = target or "body"
+Line 2272: needle = text or ""
+Line 2273: if not needle:
+Line 2274: return {"success": False, "message": "verify_text requires text to verify"}
+Line 2275: res = _pw_get_text(selector)
+Line 2276: if not res.get("success"):
+Line 2277: return res
+Line 2278: found = needle.lower() in res.get("message", "").lower()
+Line 2279: return {"success": found, "message": f"verify_text={'ok' if found else 'not found'}: {needle[:120]}"}
+Line 2280: elif action == "retry_last_action":
+Line 2281: return {"success": False, "message": "Not implemented yet"}
+Line 2282: elif action == "fallback_strategy":
+Line 2283: return {"success": False, "message": "Not implemented yet"}
+Line 2284: elif action == "set_viewport":
+Line 2285: if len(coords) >= 2:
+Line 2286: return _pw_set_viewport(coords[0], coords[1])
+Line 2287: return {"success": False, "message": "set_viewport requires width and height"}
+Line 2288: elif action == "zoom":
+Line 2289: try:
+Line 2290: level = float(text)
+Line 2291: return _pw_zoom(level)
+Line 2292: except ValueError:
+Line 2293: return {"success": False, "message": "zoom requires a float value"}
+Line 2294: elif action == "block_resource":
+Line 2295: return _pw_block_resource(text)
+Line 2296: elif action == "type_at":
+Line 2297: if not coords or len(coords) < 2:
+Line 2298: return {"success": False, "message": "type_at requires coordinates [x, y]"}
+Line 2299: return _pw_type(text, coords)
+Line 2300: elif action == "press_sequential":
+Line 2301: # Stub: treat as type
+Line 2302: return _pw_type(text, coords)
+Line 2303: elif action == "scroll_to_selector":
+Line 2304: selector = target or text
+Line 2305: if not selector:
+Line 2306: return {"success": False, "message": "scroll_to_selector requires target"}
+Line 2307: return _pw_scroll_to(selector)
+Line 2308: elif action == "export_page_pdf":
+Line 2309: b64 = _pw_export_page_pdf()
+Line 2310: return {"success": True, "message": "PDF exported", "pdf": b64}
+Line 2311: else:
+Line 2312: return {"success": False, "message": f"Unsupported action '{action}' in browser mode", "hint": "Check engine capability mapping"}
+Line 2314: def _dispatch_desktop(self, action: str, x: int, y: int, text: str, coords: list, target: str = "") -> dict:
+Line 2315: """Dispatch a single action to the xdotool desktop engine."""
+Line 2316: # ── Mouse / Interaction ───────────────────────────────────────
+Line 2317: if action == "click":
+Line 2318: return _xdo_click(x, y)
+Line 2319: elif action == "double_click":
+Line 2320: return _xdo_double_click(x, y)
+Line 2321: elif action == "right_click":
+Line 2322: return _xdo_right_click(x, y)
+Line 2323: elif action == "middle_click":
+Line 2324: return _xdo_middle_click(x, y)
+Line 2325: elif action == "hover":
+Line 2326: return _xdo_hover(x, y)
+Line 2327: elif action == "drag":
+Line 2328: if len(coords) >= 4:
+Line 2329: return _xdo_drag(coords[0], coords[1], coords[2], coords[3])
+Line 2330: return {"success": False, "message": "drag requires 4 coordinates [x1, y1, x2, y2]"}
+Line 2331: # ── Input ─────────────────────────────────────────────────────
+Line 2332: elif action == "type":
+Line 2333: if coords and len(coords) >= 2:
+Line 2334: _xdo_click(coords[0], coords[1])
+Line 2335: time.sleep(0.1)
+Line 2336: try:
+Line 2337: return _xdo_type(text)
+Line 2338: except Exception:
+Line 2339: logger.warning("xdotool type failed, trying paste fallback")
+Line 2340: return _xdo_paste(text)
+Line 2341: elif action == "key":
+Line 2342: return _xdo_key(text)
+Line 2343: elif action == "keydown":
+Line 2344: return _xdo_keydown(text)
+Line 2345: elif action == "keyup":
+Line 2346: return _xdo_keyup(text)
+Line 2347: elif action == "type_slow":
+Line 2348: if coords and len(coords) >= 2:
+Line 2349: _xdo_click(coords[0], coords[1])
+Line 2350: time.sleep(0.1)
+Line 2351: try:
+Line 2352: return _xdo_type_slow(text)
+Line 2353: except Exception:
+Line 2354: logger.warning("xdotool type_slow failed, trying paste fallback")
+Line 2355: return _xdo_paste(text)
+Line 2356: elif action == "hotkey":
+Line 2357: keys = [k.strip() for k in text.split("+")]
+Line 2358: return _xdo_hotkey(keys)
+Line 2359: elif action == "paste":
+Line 2360: return _xdo_paste(text)
+Line 2361: elif action == "copy":
+Line 2362: return _xdo_copy()
+Line 2363: # ── Navigation ────────────────────────────────────────────────
+Line 2364: elif action == "open_url":
+Line 2365: return _xdo_open_url(text)
+Line 2366: # ── Scrolling ─────────────────────────────────────────────────
+Line 2367: elif action == "scroll":
+Line 2368: direction = text.lower() if text else "down"
+Line 2369: return _xdo_scroll(x, y, direction)
+Line 2370: elif action == "scroll_up":
+Line 2371: return _xdo_scroll_up()
+Line 2372: elif action == "scroll_down":
+Line 2373: return _xdo_scroll_down()
+Line 2374: # ── Desktop / Window ──────────────────────────────────────────
+Line 2375: elif action == "focus_window":
+Line 2376: identifier = target or text
+Line 2377: if not identifier:
+Line 2378: return {"success": False, "message": "focus_window requires target (window name)"}
+Line 2379: return _xdo_focus_window(identifier)
+Line 2380: elif action == "window_activate":
 Line 2381: identifier = target or text
 Line 2382: if not identifier:
-Line 2383: return {"success": False, "message": "close_window requires target (window title or class)"}
-Line 2384: return _wmctrl_close_window(identifier)
-Line 2385: elif action == "window_minimize":
-Line 2386: identifier = target or text
-Line 2387: if not identifier:
-Line 2388: return {"success": False, "message": "window_minimize requires target"}
-Line 2389: return _xdo_window_minimize(identifier)
-Line 2390: elif action == "window_maximize":
-Line 2391: identifier = target or text
-Line 2392: if not identifier:
-Line 2393: return {"success": False, "message": "window_maximize requires target"}
-Line 2394: return _xdo_window_maximize(identifier)
-Line 2395: elif action == "window_move":
-Line 2396: identifier = target or text
-Line 2397: if not identifier or not coords or len(coords) < 2:
-Line 2398: return {"success": False, "message": "window_move requires target and 2 coordinates"}
-Line 2399: return _xdo_window_move(identifier, coords[0], coords[1])
-Line 2400: elif action == "window_resize":
-Line 2401: identifier = target or text
-Line 2402: if not identifier or not coords or len(coords) < 2:
-Line 2403: return {"success": False, "message": "window_resize requires target and 2 coordinates"}
-Line 2404: return _xdo_window_resize(identifier, coords[0], coords[1])
-Line 2405: elif action == "search_window":
-Line 2406: identifier = target or text
-Line 2407: if not identifier:
-Line 2408: return {"success": False, "message": "search_window requires target"}
-Line 2409: return _xdo_search_window(identifier)
-Line 2410: elif action == "focus_click":
-Line 2411: identifier = target or text
-Line 2412: if not identifier:
-Line 2413: return {"success": False, "message": "focus_click requires target (window name)"}
-Line 2414: return _xdo_focus_click(identifier, x, y)
-Line 2415: # ── Fill / Clear (desktop approximation via keyboard) ─────────
-Line 2416: elif action == "fill":
-Line 2417: # In desktop mode, fill = click + wait + clear stuck mods + select all + delete + type
-Line 2418: if coords and len(coords) >= 2:
-Line 2419: _xdo_click(coords[0], coords[1])
-Line 2420: time.sleep(0.1)
-Line 2421: try:
-Line 2422: _xdo(["keyup", "shift"])
-Line 2423: _xdo(["keyup", "ctrl"])
-Line 2424: _xdo(["keyup", "alt"])
-Line 2425: except Exception:
-Line 2426: pass
-Line 2427: time.sleep(0.05)
-Line 2428: _xdo(["key", "--clearmodifiers", "ctrl+a"])
-Line 2429: time.sleep(0.05)
-Line 2430: _xdo(["key", "--clearmodifiers", "Delete"])
-Line 2431: time.sleep(0.1)
-Line 2432: value = text or ""
-Line 2433: try:
-Line 2434: _xdo(["type", "--clearmodifiers", "--delay", "25", "--", value])
-Line 2435: except Exception:
-Line 2436: logger.warning("Desktop fill type failed, using paste fallback")
-Line 2437: return _xdo_paste(value)
-Line 2438: return {"success": True, "message": f"Filled (desktop): {value[:50]}"}
-Line 2439: elif action == "clear_input":
-Line 2440: _xdo(["key", "--clearmodifiers", "ctrl+a"])
-Line 2441: time.sleep(0.05)
-Line 2442: _xdo(["key", "--clearmodifiers", "Delete"])
-Line 2443: return {"success": True, "message": "Cleared input (desktop)"}
-Line 2444: elif action == "select_option":
-Line 2445: return {"success": False, "message": "select_option not supported in desktop mode — use click"}
-Line 2446: # ── Browser-like navigation via keyboard shortcuts ─────────────
-Line 2447: elif action == "reload":
-Line 2448: _xdo(["key", "--clearmodifiers", "F5"])
-Line 2449: return {"success": True, "message": "Reloaded (F5)"}
-Line 2450: elif action == "go_back":
-Line 2451: _xdo(["key", "--clearmodifiers", "alt+Left"])
-Line 2452: return {"success": True, "message": "Navigated back (Alt+Left)"}
-Line 2453: elif action == "go_forward":
-Line 2454: _xdo(["key", "--clearmodifiers", "alt+Right"])
-Line 2455: return {"success": True, "message": "Navigated forward (Alt+Right)"}
-Line 2456: elif action == "new_tab":
-Line 2457: _xdo(["key", "--clearmodifiers", "ctrl+t"])
-Line 2458: time.sleep(0.5)
-Line 2459: if text:
-Line 2460: _xdo(["type", "--clearmodifiers", "--delay", "30", "--", text])
-Line 2461: _xdo(["key", "--clearmodifiers", "Return"])
-Line 2462: return {"success": True, "message": f"New tab (Ctrl+T){': ' + text[:50] if text else ''}"}
-Line 2463: elif action == "close_tab":
-Line 2464: _xdo(["key", "--clearmodifiers", "ctrl+w"])
-Line 2465: return {"success": True, "message": "Closed tab (Ctrl+W)"}
-Line 2466: elif action == "switch_tab":
-Line 2467: identifier = target or text or ""
-Line 2468: try:
-Line 2469: idx = int(identifier)
-Line 2470: # Ctrl+1..9 to switch by tab index
-Line 2471: if 1 <= idx <= 9:
-Line 2472: _xdo(["key", "--clearmodifiers", f"ctrl+{idx}"])
-Line 2473: return {"success": True, "message": f"Switched to tab {idx}"}
-Line 2474: except ValueError:
-Line 2475: pass
-Line 2476: _xdo(["key", "--clearmodifiers", "ctrl+Next"])
-Line 2477: return {"success": True, "message": "Switched to next tab (Ctrl+PageDown)"}
-Line 2478: # ── Scroll to (approximate via scroll) ────────────────────────
-Line 2479: elif action == "scroll_to":
-Line 2480: return {"success": False, "message": "scroll_to not supported in desktop mode — use scroll"}
-Line 2481: # ── DOM / Semantic (not available in desktop mode) ─────────────
-Line 2482: elif action == "get_text":
-Line 2483: return {"success": False, "message": "get_text not supported in desktop mode"}
-Line 2484: elif action == "find_element":
-Line 2485: return {"success": False, "message": "find_element not supported in desktop mode"}
-Line 2486: elif action == "evaluate_js":
-Line 2487: return {"success": False, "message": "evaluate_js not supported in desktop mode"}
-Line 2488: elif action == "wait_for":
-Line 2489: return _do_wait(3.0)  # Approximate: just wait a few seconds
-Line 2490: # ── Shell / Terminal ────────────────────────────────────────────
-Line 2491: elif action == "run_command":
-Line 2492: cmd = text or target
-Line 2493: if not cmd:
-Line 2494: return {"success": False, "message": "run_command requires text (shell command)"}
-Line 2495: try:
-Line 2496: args = shlex.split(cmd)
-Line 2497: except ValueError as e:
-Line 2498: return {"success": False, "message": f"Invalid command syntax: {e}"}
-Line 2499: if not args:
-Line 2500: return {"success": False, "message": "Empty command"}
-Line 2501: if args[0] not in _ALLOWED_COMMANDS:
-Line 2502: return {"success": False, "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_ALLOWED_COMMANDS))}"}
-Line 2503: try:
-Line 2504: result = subprocess.run(
-Line 2505: args, shell=False, capture_output=True, text=True, timeout=30,
-Line 2506: env={**os.environ, "DISPLAY": ":99"},
-Line 2507: )
-Line 2508: output = (result.stdout + result.stderr).strip()[:2000]
-Line 2509: return {"success": result.returncode == 0, "message": output or f"Command exited with code {result.returncode}"}
-Line 2510: except subprocess.TimeoutExpired:
-Line 2511: return {"success": False, "message": "Command timed out after 30s"}
-Line 2512: elif action == "open_terminal":
-Line 2513: return _open_terminal()
-Line 2514: # ── Vision ────────────────────────────────────────────────────
-Line 2515: elif action in ("screenshot", "screenshot_full"):
-Line 2516: b64 = _xdo_screenshot_full()
-Line 2517: return {"success": True, "message": "Full screenshot captured", "screenshot": b64}
-Line 2518: elif action == "screenshot_region":
-Line 2519: if len(coords) >= 4:
-Line 2520: b64 = _xdo_screenshot_region(coords[0], coords[1], coords[2], coords[3])
-Line 2521: return {"success": True, "message": "Region screenshot captured", "screenshot": b64}
-Line 2522: return {"success": False, "message": "screenshot_region needs 4 coords [x, y, width, height]"}
-Line 2523: else:
-Line 2524: return {"success": False, "message": f"Unsupported action '{action}' in desktop engine"}
-Line 2526: def _dispatch_ydotool(self, action: str, x: int, y: int, text: str, coords: list, target: str = "") -> dict:
-Line 2527: """Dispatch a single action to the ydotool engine (xdotool-free)."""
-Line 2528: try:
-Line 2529: # ── Mouse / Interaction ───────────────────────────────────────
-Line 2530: if action == "click":
-Line 2531: return _ydo_click(x, y)
-Line 2532: elif action == "double_click":
-Line 2533: return _ydo_double_click(x, y)
-Line 2534: elif action == "right_click":
-Line 2535: return _ydo_right_click(x, y)
-Line 2536: elif action == "middle_click":
-Line 2537: return _ydo_middle_click(x, y)
-Line 2538: elif action == "hover":
-Line 2539: return _ydo_hover(x, y)
-Line 2540: elif action == "drag":
-Line 2541: if len(coords) >= 4:
-Line 2542: return _ydo_drag(coords[0], coords[1], coords[2], coords[3])
-Line 2543: return {"success": False, "message": "drag requires 4 coordinates [x1, y1, x2, y2]"}
-Line 2544: elif action == "mouse_relative":
-Line 2545: if len(coords) >= 2:
-Line 2546: return _ydo_mouse_relative(coords[0], coords[1])
-Line 2547: return {"success": False, "message": "mouse_relative requires 2 coordinates [dx, dy]"}
-Line 2548: # ── Input ─────────────────────────────────────────────────────
-Line 2549: elif action == "type":
-Line 2550: if coords and len(coords) >= 2:
-Line 2551: _ydo_click(coords[0], coords[1])
-Line 2552: time.sleep(0.1)
-Line 2553: try:
-Line 2554: return _ydo_type(text)
-Line 2555: except Exception:
-Line 2556: logger.warning("ydotool type failed, trying paste fallback")
-Line 2557: return _ydo_paste(text)
-Line 2558: elif action == "type_slow":
-Line 2559: # ydotool doesn't have a slow typing implemented yet but we can fallback or implement
-Line 2560: if coords and len(coords) >= 2:
-Line 2561: _ydo_click(coords[0], coords[1])
-Line 2562: time.sleep(0.1)
-Line 2563: try:
-Line 2564: return _ydo_type(text)  # For now just use normal type
-Line 2565: except Exception:
-Line 2566: logger.warning("ydotool type failed, trying paste fallback")
-Line 2567: return _ydo_paste(text)
-Line 2568: elif action == "key":
-Line 2569: return _ydo_key(text)
-Line 2570: elif action == "keydown":
-Line 2571: return _ydo_keydown(text)
-Line 2572: elif action == "keyup":
-Line 2573: return _ydo_keyup(text)
-Line 2574: elif action == "hotkey":
-Line 2575: keys = [k.strip() for k in text.split("+")]
-Line 2576: return _ydo_hotkey(keys)
-Line 2577: elif action == "combined_input":
-Line 2578: return _ydo_combined_input(text)
-Line 2579: elif action == "key_sequence":
-Line 2580: return _ydo_key_sequence(text)
-Line 2581: elif action == "paste":
-Line 2582: return _ydo_paste(text)
-Line 2583: elif action == "copy":
-Line 2584: return _ydo_copy()
-Line 2585: # ── Navigation ────────────────────────────────────────────────
-Line 2586: elif action == "open_url":
-Line 2587: return _ydo_open_url(text)
-Line 2588: # ── Scrolling ─────────────────────────────────────────────────
-Line 2589: elif action == "scroll":
-Line 2590: direction = text.lower() if text else "down"
-Line 2591: return _ydo_scroll(x, y, direction)
-Line 2592: elif action == "scroll_up":
-Line 2593: return _ydo_scroll_up()
-Line 2594: elif action == "scroll_down":
-Line 2595: return _ydo_scroll_down()
-Line 2596: # ── Desktop (wmctrl-based window ops — no xdotool) ─────────
-Line 2597: elif action == "focus_window":
-Line 2598: identifier = target or text
-Line 2599: if not identifier:
-Line 2600: return {"success": False, "message": "focus_window requires target (window name)"}
-Line 2601: return _wmctrl_focus_window(identifier)
-Line 2602: elif action == "window_activate":
-Line 2603: identifier = target or text
-Line 2604: if not identifier:
-Line 2605: return {"success": False, "message": "window_activate requires target"}
-Line 2606: return _wmctrl_focus_window(identifier)
-Line 2607: elif action == "focus_mouse":
-Line 2608: return _ydo_hover(x, y)
-Line 2609: elif action == "open_app":
-Line 2610: app = target or text
-Line 2611: if not app:
-Line 2612: return {"success": False, "message": "open_app requires target (app command)"}
-Line 2613: return _ydo_open_app(app)
-Line 2614: elif action == "close_window":
-Line 2615: identifier = target or text
-Line 2616: if not identifier:
-Line 2617: return {"success": False, "message": "close_window requires target (window title or class)"}
-Line 2618: return _wmctrl_close_window(identifier)
-Line 2619: elif action == "window_minimize":
-Line 2620: identifier = target or text
-Line 2621: if not identifier:
-Line 2622: return {"success": False, "message": "window_minimize requires target"}
-Line 2623: return _wmctrl_minimize_window(identifier)
-Line 2624: elif action == "window_maximize":
-Line 2625: identifier = target or text
-Line 2626: if not identifier:
-Line 2627: return {"success": False, "message": "window_maximize requires target"}
-Line 2628: return _wmctrl_maximize_window(identifier)
-Line 2629: elif action == "window_move":
-Line 2630: identifier = target or text
-Line 2631: if not identifier or not coords or len(coords) < 2:
-Line 2632: return {"success": False, "message": "window_move requires target and 2 coordinates"}
-Line 2633: return _wmctrl_move_window(identifier, coords[0], coords[1])
-Line 2634: elif action == "window_resize":
-Line 2635: identifier = target or text
-Line 2636: if not identifier or not coords or len(coords) < 2:
-Line 2637: return {"success": False, "message": "window_resize requires target and 2 coordinates"}
-Line 2638: return _wmctrl_resize_window(identifier, coords[0], coords[1])
-Line 2639: elif action == "search_window":
-Line 2640: identifier = target or text
-Line 2641: if not identifier:
-Line 2642: return {"success": False, "message": "search_window requires target"}
-Line 2643: return _wmctrl_search_window(identifier)
-Line 2644: elif action == "focus_click":
-Line 2645: # Focus via wmctrl, then click via ydotool
-Line 2646: identifier = target or text
-Line 2647: if not identifier:
-Line 2648: return {"success": False, "message": "focus_click requires target (window name)"}
-Line 2649: focus_res = _wmctrl_focus_window(identifier)
-Line 2650: if not focus_res.get("success"):
-Line 2651: return focus_res
-Line 2652: time.sleep(0.2)
-Line 2653: return _ydo_click(x, y)
-Line 2654: # ── Fill / Clear (ydotool approximation via keyboard) ─────────
-Line 2655: elif action == "fill":
-Line 2656: # click + wait + select all + delete + type with paste fallback
-Line 2657: if coords and len(coords) >= 2:
-Line 2658: _ydo_click(coords[0], coords[1])
-Line 2659: time.sleep(0.1)
-Line 2660: time.sleep(0.05)
-Line 2661: _ydo(["key", "29:1", "30:1", "30:0", "29:0"])  # Ctrl+A
-Line 2662: time.sleep(0.05)
-Line 2663: _ydo(["key", "111:1", "111:0"])  # Delete
-Line 2664: time.sleep(0.1)
-Line 2665: value = text or ""
-Line 2666: try:
-Line 2667: _ydo(["type", "--", value])
-Line 2668: except Exception:
-Line 2669: logger.warning("ydotool fill type failed, using paste fallback")
-Line 2670: return _ydo_paste(value)
-Line 2671: return {"success": True, "message": f"Filled (ydotool): {value[:50]}"}
-Line 2672: elif action == "clear_input":
-Line 2673: _ydo(["key", "29:1", "30:1", "30:0", "29:0"])  # Ctrl+A
-Line 2674: time.sleep(0.05)
-Line 2675: _ydo(["key", "111:1", "111:0"])  # Delete
-Line 2676: return {"success": True, "message": "Cleared input (ydotool)"}
-Line 2677: elif action == "select_option":
-Line 2678: return {"success": False, "message": "select_option not supported in ydotool mode — use click"}
-Line 2679: # ── Browser-like nav via ydotool keycodes ─────────────────
-Line 2680: elif action == "reload":
-Line 2681: # F5 = keycode 63
-Line 2682: _ydo(["key", "63:1", "63:0"])
-Line 2683: return {"success": True, "message": "Reloaded (F5)"}
-Line 2684: elif action == "go_back":
-Line 2685: # Alt+Left = 56 (alt) + 105 (left)
-Line 2686: _ydo(["key", "56:1", "105:1", "105:0", "56:0"])
-Line 2687: return {"success": True, "message": "Navigated back (Alt+Left)"}
-Line 2688: elif action == "go_forward":
-Line 2689: # Alt+Right = 56 (alt) + 106 (right)
-Line 2690: _ydo(["key", "56:1", "106:1", "106:0", "56:0"])
-Line 2691: return {"success": True, "message": "Navigated forward (Alt+Right)"}
-Line 2692: elif action == "new_tab":
-Line 2693: # Ctrl+T = 29 (ctrl) + 20 (t)
-Line 2694: _ydo(["key", "29:1", "20:1", "20:0", "29:0"])
-Line 2695: time.sleep(0.5)
-Line 2696: if text:
-Line 2697: _ydo(["type", "--", text])
-Line 2698: # Enter = 28
-Line 2699: _ydo(["key", "28:1", "28:0"])
-Line 2700: return {"success": True, "message": f"New tab (Ctrl+T){': ' + text[:50] if text else ''}"}
-Line 2701: elif action == "close_tab":
-Line 2702: # Ctrl+W = 29 (ctrl) + 17 (w)
-Line 2703: _ydo(["key", "29:1", "17:1", "17:0", "29:0"])
-Line 2704: return {"success": True, "message": "Closed tab (Ctrl+W)"}
-Line 2705: elif action == "switch_tab":
-Line 2706: identifier = target or text or ""
-Line 2707: try:
-Line 2708: idx = int(identifier)
-Line 2709: if 1 <= idx <= 9:
-Line 2710: # Ctrl + number key
-Line 2711: num_keycode = str(idx + 1)  # 1=2, 2=3, ... 9=10 in evdev
-Line 2712: _ydo(["key", "29:1", f"{num_keycode}:1", f"{num_keycode}:0", "29:0"])
-Line 2713: return {"success": True, "message": f"Switched to tab {idx}"}
-Line 2714: except ValueError:
-Line 2715: pass
-Line 2716: # Ctrl+PageDown = 29 (ctrl) + 109 (pagedown)
-Line 2717: _ydo(["key", "29:1", "109:1", "109:0", "29:0"])
-Line 2718: return {"success": True, "message": "Switched to next tab (Ctrl+PageDown)"}
-Line 2719: # ── Scroll to (not available) ─────────────────────────────────
-Line 2720: elif action == "scroll_to":
-Line 2721: return {"success": False, "message": "scroll_to not supported in ydotool mode — use scroll"}
-Line 2722: # ── DOM / Semantic (not available) ─────────────────────────────
-Line 2723: elif action == "get_text":
-Line 2724: return {"success": False, "message": "get_text not supported in ydotool mode"}
-Line 2725: elif action == "find_element":
-Line 2726: return {"success": False, "message": "find_element not supported in ydotool mode"}
-Line 2727: elif action == "evaluate_js":
-Line 2728: return {"success": False, "message": "evaluate_js not supported in ydotool mode"}
-Line 2729: elif action == "wait_for":
-Line 2730: return _do_wait(3.0)  # Approximate: just wait a few seconds
-Line 2731: # ── Shell / Terminal ────────────────────────────────────────────
-Line 2732: elif action == "run_command":
-Line 2733: cmd = text or target
-Line 2734: if not cmd:
-Line 2735: return {"success": False, "message": "run_command requires text (shell command)"}
-Line 2736: try:
-Line 2737: args = shlex.split(cmd)
-Line 2738: except ValueError as e:
-Line 2739: return {"success": False, "message": f"Invalid command syntax: {e}"}
-Line 2740: if not args:
-Line 2741: return {"success": False, "message": "Empty command"}
-Line 2742: if args[0] not in _ALLOWED_COMMANDS:
-Line 2743: return {"success": False, "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_ALLOWED_COMMANDS))}"}
-Line 2744: try:
-Line 2745: result = subprocess.run(
-Line 2746: args, shell=False, capture_output=True, text=True, timeout=30,
-Line 2747: env={**os.environ, "DISPLAY": ":99"},
-Line 2748: )
-Line 2749: output = (result.stdout + result.stderr).strip()[:2000]
-Line 2750: return {"success": result.returncode == 0, "message": output or f"Command exited with code {result.returncode}"}
-Line 2751: except subprocess.TimeoutExpired:
-Line 2752: return {"success": False, "message": "Command timed out after 30s"}
-Line 2753: elif action == "open_terminal":
-Line 2754: return _open_terminal()
-Line 2755: # ── Vision (scrot — no xdotool dependency) ────────────────
-Line 2756: elif action in ("screenshot", "screenshot_full"):
-Line 2757: b64 = _screenshot_desktop()
-Line 2758: return {"success": True, "message": "Full screenshot captured", "screenshot": b64}
-Line 2759: elif action == "screenshot_region":
-Line 2760: if len(coords) >= 4:
-Line 2761: b64 = _xdo_screenshot_region(coords[0], coords[1], coords[2], coords[3])
-Line 2762: return {"success": True, "message": "Region screenshot captured", "screenshot": b64}
-Line 2763: return {"success": False, "message": "screenshot_region needs 4 coords [x, y, width, height]"}
-Line 2764: else:
-Line 2765: return {"success": False, "message": f"Unsupported action '{action}' in ydotool engine"}
-Line 2766: except RuntimeError as e:
-Line 2767: logger.warning(f"ydotool action '{action}' failed: {e}")
-Line 2768: return {"success": False, "message": f"ydotool error: {e}"}
-Line 2772: def main():
-Line 2773: """Start the HTTP agent service and initialise the browser."""
-Line 2774: logger.info("Starting agent service on port %d (default_mode=%s)", SERVICE_PORT, DEFAULT_MODE)
-Line 2776: # Initialize Playwright browser (available even in desktop mode for fallback)
-Line 2777: try:
-Line 2778: _init_browser()
-Line 2779: except Exception as e:
-Line 2780: logger.warning("Playwright init failed (desktop mode still works): %s", e)
-Line 2782: server = HTTPServer(("0.0.0.0", SERVICE_PORT), AgentHandler)
-Line 2783: logger.info("Agent service listening on 0.0.0.0:%d", SERVICE_PORT)
-Line 2785: def _handle_signal(sig, frame):
-Line 2786: """Gracefully shut down the server on SIGTERM/SIGINT."""
-Line 2787: logger.info("Shutting down...")
-Line 2788: _shutdown_browser()
-Line 2789: server.shutdown()
-Line 2790: sys.exit(0)
-Line 2792: signal.signal(signal.SIGTERM, _handle_signal)
-Line 2793: signal.signal(signal.SIGINT, _handle_signal)
+Line 2383: return {"success": False, "message": "window_activate requires target"}
+Line 2384: return _xdo_focus_window(identifier)
+Line 2385: elif action == "focus_mouse":
+Line 2386: _xdo(["mousemove", "--sync", str(x), str(y)])
+Line 2387: return {"success": True, "message": f"Focused mouse at ({x}, {y})"}
+Line 2388: elif action == "mousemove":
+Line 2389: if len(coords) >= 2:
+Line 2390: _xdo(["mousemove", "--sync", str(coords[0]), str(coords[1])])
+Line 2391: return {"success": True, "message": f"Moved mouse to ({coords[0]}, {coords[1]})"}
+Line 2392: return {"success": False, "message": "mousemove requires coordinates [x, y]"}
+Line 2393: elif action == "open_app":
+Line 2394: app = target or text
+Line 2395: if not app:
+Line 2396: return {"success": False, "message": "open_app requires target (app command)"}
+Line 2397: return _xdo_open_app(app)
+Line 2398: elif action == "close_window":
+Line 2399: identifier = target or text
+Line 2400: if not identifier:
+Line 2401: return {"success": False, "message": "close_window requires target (window title or class)"}
+Line 2402: return _wmctrl_close_window(identifier)
+Line 2403: elif action == "window_minimize":
+Line 2404: identifier = target or text
+Line 2405: if not identifier:
+Line 2406: return {"success": False, "message": "window_minimize requires target"}
+Line 2407: return _xdo_window_minimize(identifier)
+Line 2408: elif action == "window_maximize":
+Line 2409: identifier = target or text
+Line 2410: if not identifier:
+Line 2411: return {"success": False, "message": "window_maximize requires target"}
+Line 2412: return _xdo_window_maximize(identifier)
+Line 2413: elif action == "window_move":
+Line 2414: identifier = target or text
+Line 2415: if not identifier or not coords or len(coords) < 2:
+Line 2416: return {"success": False, "message": "window_move requires target and 2 coordinates"}
+Line 2417: return _xdo_window_move(identifier, coords[0], coords[1])
+Line 2418: elif action == "window_resize":
+Line 2419: identifier = target or text
+Line 2420: if not identifier or not coords or len(coords) < 2:
+Line 2421: return {"success": False, "message": "window_resize requires target and 2 coordinates"}
+Line 2422: return _xdo_window_resize(identifier, coords[0], coords[1])
+Line 2423: elif action == "search_window":
+Line 2424: identifier = target or text
+Line 2425: if not identifier:
+Line 2426: return {"success": False, "message": "search_window requires target"}
+Line 2427: return _xdo_search_window(identifier)
+Line 2428: elif action == "focus_click":
+Line 2429: identifier = target or text
+Line 2430: if not identifier:
+Line 2431: return {"success": False, "message": "focus_click requires target (window name)"}
+Line 2432: return _xdo_focus_click(identifier, x, y)
+Line 2433: # ── Fill / Clear (desktop approximation via keyboard) ─────────
+Line 2434: elif action == "fill":
+Line 2435: # In desktop mode, fill = click + wait + clear stuck mods + select all + delete + type
+Line 2436: if coords and len(coords) >= 2:
+Line 2437: _xdo_click(coords[0], coords[1])
+Line 2438: time.sleep(0.1)
+Line 2439: try:
+Line 2440: _xdo(["keyup", "shift"])
+Line 2441: _xdo(["keyup", "ctrl"])
+Line 2442: _xdo(["keyup", "alt"])
+Line 2443: except Exception:
+Line 2444: pass
+Line 2445: time.sleep(0.05)
+Line 2446: _xdo(["key", "--clearmodifiers", "ctrl+a"])
+Line 2447: time.sleep(0.05)
+Line 2448: _xdo(["key", "--clearmodifiers", "Delete"])
+Line 2449: time.sleep(0.1)
+Line 2450: value = text or ""
+Line 2451: try:
+Line 2452: _xdo(["type", "--clearmodifiers", "--delay", "25", "--", value])
+Line 2453: except Exception:
+Line 2454: logger.warning("Desktop fill type failed, using paste fallback")
+Line 2455: return _xdo_paste(value)
+Line 2456: return {"success": True, "message": f"Filled (desktop): {value[:50]}"}
+Line 2457: elif action == "clear_input":
+Line 2458: _xdo(["key", "--clearmodifiers", "ctrl+a"])
+Line 2459: time.sleep(0.05)
+Line 2460: _xdo(["key", "--clearmodifiers", "Delete"])
+Line 2461: return {"success": True, "message": "Cleared input (desktop)"}
+Line 2462: elif action == "select_option":
+Line 2463: return {"success": False, "message": "select_option not supported in desktop mode — use click"}
+Line 2464: # ── Browser-like navigation via keyboard shortcuts ─────────────
+Line 2465: elif action == "reload":
+Line 2466: _xdo(["key", "--clearmodifiers", "F5"])
+Line 2467: return {"success": True, "message": "Reloaded (F5)"}
+Line 2468: elif action == "go_back":
+Line 2469: _xdo(["key", "--clearmodifiers", "alt+Left"])
+Line 2470: return {"success": True, "message": "Navigated back (Alt+Left)"}
+Line 2471: elif action == "go_forward":
+Line 2472: _xdo(["key", "--clearmodifiers", "alt+Right"])
+Line 2473: return {"success": True, "message": "Navigated forward (Alt+Right)"}
+Line 2474: elif action == "new_tab":
+Line 2475: _xdo(["key", "--clearmodifiers", "ctrl+t"])
+Line 2476: time.sleep(0.5)
+Line 2477: if text:
+Line 2478: _xdo(["type", "--clearmodifiers", "--delay", "30", "--", text])
+Line 2479: _xdo(["key", "--clearmodifiers", "Return"])
+Line 2480: return {"success": True, "message": f"New tab (Ctrl+T){': ' + text[:50] if text else ''}"}
+Line 2481: elif action == "close_tab":
+Line 2482: _xdo(["key", "--clearmodifiers", "ctrl+w"])
+Line 2483: return {"success": True, "message": "Closed tab (Ctrl+W)"}
+Line 2484: elif action == "switch_tab":
+Line 2485: identifier = target or text or ""
+Line 2486: try:
+Line 2487: idx = int(identifier)
+Line 2488: # Ctrl+1..9 to switch by tab index
+Line 2489: if 1 <= idx <= 9:
+Line 2490: _xdo(["key", "--clearmodifiers", f"ctrl+{idx}"])
+Line 2491: return {"success": True, "message": f"Switched to tab {idx}"}
+Line 2492: except ValueError:
+Line 2493: pass
+Line 2494: _xdo(["key", "--clearmodifiers", "ctrl+Next"])
+Line 2495: return {"success": True, "message": "Switched to next tab (Ctrl+PageDown)"}
+Line 2496: # ── Scroll to (approximate via scroll) ────────────────────────
+Line 2497: elif action == "scroll_to":
+Line 2498: return {"success": False, "message": "scroll_to not supported in desktop mode — use scroll"}
+Line 2499: # ── DOM / Semantic (not available in desktop mode) ─────────────
+Line 2500: elif action == "get_text":
+Line 2501: return {"success": False, "message": "get_text not supported in desktop mode"}
+Line 2502: elif action == "find_element":
+Line 2503: return {"success": False, "message": "find_element not supported in desktop mode"}
+Line 2504: elif action == "evaluate_js":
+Line 2505: return {"success": False, "message": "evaluate_js not supported in desktop mode"}
+Line 2506: elif action == "wait_for":
+Line 2507: return _do_wait(3.0)  # Approximate: just wait a few seconds
+Line 2508: # ── Shell / Terminal ────────────────────────────────────────────
+Line 2509: elif action == "run_command":
+Line 2510: cmd = text or target
+Line 2511: if not cmd:
+Line 2512: return {"success": False, "message": "run_command requires text (shell command)"}
+Line 2513: try:
+Line 2514: args = shlex.split(cmd)
+Line 2515: except ValueError as e:
+Line 2516: return {"success": False, "message": f"Invalid command syntax: {e}"}
+Line 2517: if not args:
+Line 2518: return {"success": False, "message": "Empty command"}
+Line 2519: if args[0] not in _ALLOWED_COMMANDS:
+Line 2520: return {"success": False, "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_ALLOWED_COMMANDS))}"}
+Line 2521: try:
+Line 2522: result = subprocess.run(
+Line 2523: args, shell=False, capture_output=True, text=True, timeout=30,
+Line 2524: env={**os.environ, "DISPLAY": ":99"},
+Line 2525: )
+Line 2526: output = (result.stdout + result.stderr).strip()[:2000]
+Line 2527: return {"success": result.returncode == 0, "message": output or f"Command exited with code {result.returncode}"}
+Line 2528: except subprocess.TimeoutExpired:
+Line 2529: return {"success": False, "message": "Command timed out after 30s"}
+Line 2530: elif action == "open_terminal":
+Line 2531: return _open_terminal()
+Line 2532: # ── Vision ────────────────────────────────────────────────────
+Line 2533: elif action in ("screenshot", "screenshot_full"):
+Line 2534: b64 = _xdo_screenshot_full()
+Line 2535: return {"success": True, "message": "Full screenshot captured", "screenshot": b64}
+Line 2536: elif action == "screenshot_region":
+Line 2537: if len(coords) >= 4:
+Line 2538: b64 = _xdo_screenshot_region(coords[0], coords[1], coords[2], coords[3])
+Line 2539: return {"success": True, "message": "Region screenshot captured", "screenshot": b64}
+Line 2540: return {"success": False, "message": "screenshot_region needs 4 coords [x, y, width, height]"}
+Line 2541: else:
+Line 2542: return {"success": False, "message": f"Unsupported action '{action}' in desktop engine"}
+Line 2544: def _dispatch_ydotool(self, action: str, x: int, y: int, text: str, coords: list, target: str = "") -> dict:
+Line 2545: """Dispatch a single action to the ydotool engine (xdotool-free)."""
+Line 2546: try:
+Line 2547: # ── Mouse / Interaction ───────────────────────────────────────
+Line 2548: if action == "click":
+Line 2549: return _ydo_click(x, y)
+Line 2550: elif action == "double_click":
+Line 2551: return _ydo_double_click(x, y)
+Line 2552: elif action == "right_click":
+Line 2553: return _ydo_right_click(x, y)
+Line 2554: elif action == "middle_click":
+Line 2555: return _ydo_middle_click(x, y)
+Line 2556: elif action == "hover":
+Line 2557: return _ydo_hover(x, y)
+Line 2558: elif action == "drag":
+Line 2559: if len(coords) >= 4:
+Line 2560: return _ydo_drag(coords[0], coords[1], coords[2], coords[3])
+Line 2561: return {"success": False, "message": "drag requires 4 coordinates [x1, y1, x2, y2]"}
+Line 2562: elif action == "mouse_relative":
+Line 2563: if len(coords) >= 2:
+Line 2564: return _ydo_mouse_relative(coords[0], coords[1])
+Line 2565: return {"success": False, "message": "mouse_relative requires 2 coordinates [dx, dy]"}
+Line 2566: # ── Input ─────────────────────────────────────────────────────
+Line 2567: elif action == "type":
+Line 2568: if coords and len(coords) >= 2:
+Line 2569: _ydo_click(coords[0], coords[1])
+Line 2570: time.sleep(0.1)
+Line 2571: try:
+Line 2572: return _ydo_type(text)
+Line 2573: except Exception:
+Line 2574: logger.warning("ydotool type failed, trying paste fallback")
+Line 2575: return _ydo_paste(text)
+Line 2576: elif action == "type_slow":
+Line 2577: # ydotool doesn't have a slow typing implemented yet but we can fallback or implement
+Line 2578: if coords and len(coords) >= 2:
+Line 2579: _ydo_click(coords[0], coords[1])
+Line 2580: time.sleep(0.1)
+Line 2581: try:
+Line 2582: return _ydo_type(text)  # For now just use normal type
+Line 2583: except Exception:
+Line 2584: logger.warning("ydotool type failed, trying paste fallback")
+Line 2585: return _ydo_paste(text)
+Line 2586: elif action == "key":
+Line 2587: return _ydo_key(text)
+Line 2588: elif action == "keydown":
+Line 2589: return _ydo_keydown(text)
+Line 2590: elif action == "keyup":
+Line 2591: return _ydo_keyup(text)
+Line 2592: elif action == "hotkey":
+Line 2593: keys = [k.strip() for k in text.split("+")]
+Line 2594: return _ydo_hotkey(keys)
+Line 2595: elif action == "combined_input":
+Line 2596: return _ydo_combined_input(text)
+Line 2597: elif action == "key_sequence":
+Line 2598: return _ydo_key_sequence(text)
+Line 2599: elif action == "paste":
+Line 2600: return _ydo_paste(text)
+Line 2601: elif action == "copy":
+Line 2602: return _ydo_copy()
+Line 2603: # ── Navigation ────────────────────────────────────────────────
+Line 2604: elif action == "open_url":
+Line 2605: return _ydo_open_url(text)
+Line 2606: # ── Scrolling ─────────────────────────────────────────────────
+Line 2607: elif action == "scroll":
+Line 2608: direction = text.lower() if text else "down"
+Line 2609: return _ydo_scroll(x, y, direction)
+Line 2610: elif action == "scroll_up":
+Line 2611: return _ydo_scroll_up()
+Line 2612: elif action == "scroll_down":
+Line 2613: return _ydo_scroll_down()
+Line 2614: # ── Desktop (wmctrl-based window ops — no xdotool) ─────────
+Line 2615: elif action == "focus_window":
+Line 2616: identifier = target or text
+Line 2617: if not identifier:
+Line 2618: return {"success": False, "message": "focus_window requires target (window name)"}
+Line 2619: return _wmctrl_focus_window(identifier)
+Line 2620: elif action == "window_activate":
+Line 2621: identifier = target or text
+Line 2622: if not identifier:
+Line 2623: return {"success": False, "message": "window_activate requires target"}
+Line 2624: return _wmctrl_focus_window(identifier)
+Line 2625: elif action == "focus_mouse":
+Line 2626: return _ydo_hover(x, y)
+Line 2627: elif action == "open_app":
+Line 2628: app = target or text
+Line 2629: if not app:
+Line 2630: return {"success": False, "message": "open_app requires target (app command)"}
+Line 2631: return _ydo_open_app(app)
+Line 2632: elif action == "close_window":
+Line 2633: identifier = target or text
+Line 2634: if not identifier:
+Line 2635: return {"success": False, "message": "close_window requires target (window title or class)"}
+Line 2636: return _wmctrl_close_window(identifier)
+Line 2637: elif action == "window_minimize":
+Line 2638: identifier = target or text
+Line 2639: if not identifier:
+Line 2640: return {"success": False, "message": "window_minimize requires target"}
+Line 2641: return _wmctrl_minimize_window(identifier)
+Line 2642: elif action == "window_maximize":
+Line 2643: identifier = target or text
+Line 2644: if not identifier:
+Line 2645: return {"success": False, "message": "window_maximize requires target"}
+Line 2646: return _wmctrl_maximize_window(identifier)
+Line 2647: elif action == "window_move":
+Line 2648: identifier = target or text
+Line 2649: if not identifier or not coords or len(coords) < 2:
+Line 2650: return {"success": False, "message": "window_move requires target and 2 coordinates"}
+Line 2651: return _wmctrl_move_window(identifier, coords[0], coords[1])
+Line 2652: elif action == "window_resize":
+Line 2653: identifier = target or text
+Line 2654: if not identifier or not coords or len(coords) < 2:
+Line 2655: return {"success": False, "message": "window_resize requires target and 2 coordinates"}
+Line 2656: return _wmctrl_resize_window(identifier, coords[0], coords[1])
+Line 2657: elif action == "search_window":
+Line 2658: identifier = target or text
+Line 2659: if not identifier:
+Line 2660: return {"success": False, "message": "search_window requires target"}
+Line 2661: return _wmctrl_search_window(identifier)
+Line 2662: elif action == "focus_click":
+Line 2663: # Focus via wmctrl, then click via ydotool
+Line 2664: identifier = target or text
+Line 2665: if not identifier:
+Line 2666: return {"success": False, "message": "focus_click requires target (window name)"}
+Line 2667: focus_res = _wmctrl_focus_window(identifier)
+Line 2668: if not focus_res.get("success"):
+Line 2669: return focus_res
+Line 2670: time.sleep(0.2)
+Line 2671: return _ydo_click(x, y)
+Line 2672: # ── Fill / Clear (ydotool approximation via keyboard) ─────────
+Line 2673: elif action == "fill":
+Line 2674: # click + wait + select all + delete + type with paste fallback
+Line 2675: if coords and len(coords) >= 2:
+Line 2676: _ydo_click(coords[0], coords[1])
+Line 2677: time.sleep(0.1)
+Line 2678: time.sleep(0.05)
+Line 2679: _ydo(["key", "29:1", "30:1", "30:0", "29:0"])  # Ctrl+A
+Line 2680: time.sleep(0.05)
+Line 2681: _ydo(["key", "111:1", "111:0"])  # Delete
+Line 2682: time.sleep(0.1)
+Line 2683: value = text or ""
+Line 2684: try:
+Line 2685: _ydo(["type", "--", value])
+Line 2686: except Exception:
+Line 2687: logger.warning("ydotool fill type failed, using paste fallback")
+Line 2688: return _ydo_paste(value)
+Line 2689: return {"success": True, "message": f"Filled (ydotool): {value[:50]}"}
+Line 2690: elif action == "clear_input":
+Line 2691: _ydo(["key", "29:1", "30:1", "30:0", "29:0"])  # Ctrl+A
+Line 2692: time.sleep(0.05)
+Line 2693: _ydo(["key", "111:1", "111:0"])  # Delete
+Line 2694: return {"success": True, "message": "Cleared input (ydotool)"}
+Line 2695: elif action == "select_option":
+Line 2696: return {"success": False, "message": "select_option not supported in ydotool mode — use click"}
+Line 2697: # ── Browser-like nav via ydotool keycodes ─────────────────
+Line 2698: elif action == "reload":
+Line 2699: # F5 = keycode 63
+Line 2700: _ydo(["key", "63:1", "63:0"])
+Line 2701: return {"success": True, "message": "Reloaded (F5)"}
+Line 2702: elif action == "go_back":
+Line 2703: # Alt+Left = 56 (alt) + 105 (left)
+Line 2704: _ydo(["key", "56:1", "105:1", "105:0", "56:0"])
+Line 2705: return {"success": True, "message": "Navigated back (Alt+Left)"}
+Line 2706: elif action == "go_forward":
+Line 2707: # Alt+Right = 56 (alt) + 106 (right)
+Line 2708: _ydo(["key", "56:1", "106:1", "106:0", "56:0"])
+Line 2709: return {"success": True, "message": "Navigated forward (Alt+Right)"}
+Line 2710: elif action == "new_tab":
+Line 2711: # Ctrl+T = 29 (ctrl) + 20 (t)
+Line 2712: _ydo(["key", "29:1", "20:1", "20:0", "29:0"])
+Line 2713: time.sleep(0.5)
+Line 2714: if text:
+Line 2715: _ydo(["type", "--", text])
+Line 2716: # Enter = 28
+Line 2717: _ydo(["key", "28:1", "28:0"])
+Line 2718: return {"success": True, "message": f"New tab (Ctrl+T){': ' + text[:50] if text else ''}"}
+Line 2719: elif action == "close_tab":
+Line 2720: # Ctrl+W = 29 (ctrl) + 17 (w)
+Line 2721: _ydo(["key", "29:1", "17:1", "17:0", "29:0"])
+Line 2722: return {"success": True, "message": "Closed tab (Ctrl+W)"}
+Line 2723: elif action == "switch_tab":
+Line 2724: identifier = target or text or ""
+Line 2725: try:
+Line 2726: idx = int(identifier)
+Line 2727: if 1 <= idx <= 9:
+Line 2728: # Ctrl + number key
+Line 2729: num_keycode = str(idx + 1)  # 1=2, 2=3, ... 9=10 in evdev
+Line 2730: _ydo(["key", "29:1", f"{num_keycode}:1", f"{num_keycode}:0", "29:0"])
+Line 2731: return {"success": True, "message": f"Switched to tab {idx}"}
+Line 2732: except ValueError:
+Line 2733: pass
+Line 2734: # Ctrl+PageDown = 29 (ctrl) + 109 (pagedown)
+Line 2735: _ydo(["key", "29:1", "109:1", "109:0", "29:0"])
+Line 2736: return {"success": True, "message": "Switched to next tab (Ctrl+PageDown)"}
+Line 2737: # ── Scroll to (not available) ─────────────────────────────────
+Line 2738: elif action == "scroll_to":
+Line 2739: return {"success": False, "message": "scroll_to not supported in ydotool mode — use scroll"}
+Line 2740: # ── DOM / Semantic (not available) ─────────────────────────────
+Line 2741: elif action == "get_text":
+Line 2742: return {"success": False, "message": "get_text not supported in ydotool mode"}
+Line 2743: elif action == "find_element":
+Line 2744: return {"success": False, "message": "find_element not supported in ydotool mode"}
+Line 2745: elif action == "evaluate_js":
+Line 2746: return {"success": False, "message": "evaluate_js not supported in ydotool mode"}
+Line 2747: elif action == "wait_for":
+Line 2748: return _do_wait(3.0)  # Approximate: just wait a few seconds
+Line 2749: # ── Shell / Terminal ────────────────────────────────────────────
+Line 2750: elif action == "run_command":
+Line 2751: cmd = text or target
+Line 2752: if not cmd:
+Line 2753: return {"success": False, "message": "run_command requires text (shell command)"}
+Line 2754: try:
+Line 2755: args = shlex.split(cmd)
+Line 2756: except ValueError as e:
+Line 2757: return {"success": False, "message": f"Invalid command syntax: {e}"}
+Line 2758: if not args:
+Line 2759: return {"success": False, "message": "Empty command"}
+Line 2760: if args[0] not in _ALLOWED_COMMANDS:
+Line 2761: return {"success": False, "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_ALLOWED_COMMANDS))}"}
+Line 2762: try:
+Line 2763: result = subprocess.run(
+Line 2764: args, shell=False, capture_output=True, text=True, timeout=30,
+Line 2765: env={**os.environ, "DISPLAY": ":99"},
+Line 2766: )
+Line 2767: output = (result.stdout + result.stderr).strip()[:2000]
+Line 2768: return {"success": result.returncode == 0, "message": output or f"Command exited with code {result.returncode}"}
+Line 2769: except subprocess.TimeoutExpired:
+Line 2770: return {"success": False, "message": "Command timed out after 30s"}
+Line 2771: elif action == "open_terminal":
+Line 2772: return _open_terminal()
+Line 2773: # ── Vision (scrot — no xdotool dependency) ────────────────
+Line 2774: elif action in ("screenshot", "screenshot_full"):
+Line 2775: b64 = _screenshot_desktop()
+Line 2776: return {"success": True, "message": "Full screenshot captured", "screenshot": b64}
+Line 2777: elif action == "screenshot_region":
+Line 2778: if len(coords) >= 4:
+Line 2779: b64 = _xdo_screenshot_region(coords[0], coords[1], coords[2], coords[3])
+Line 2780: return {"success": True, "message": "Region screenshot captured", "screenshot": b64}
+Line 2781: return {"success": False, "message": "screenshot_region needs 4 coords [x, y, width, height]"}
+Line 2782: else:
+Line 2783: return {"success": False, "message": f"Unsupported action '{action}' in ydotool engine"}
+Line 2784: except RuntimeError as e:
+Line 2785: logger.warning(f"ydotool action '{action}' failed: {e}")
+Line 2786: return {"success": False, "message": f"ydotool error: {e}"}
+Line 2790: def main():
+Line 2791: """Start the HTTP agent service and initialise the browser."""
+Line 2792: logger.info("Starting agent service on port %d (default_mode=%s)", SERVICE_PORT, DEFAULT_MODE)
+Line 2794: # Initialize Playwright browser (available even in desktop mode for fallback)
 Line 2795: try:
-Line 2796: server.serve_forever()
-Line 2797: except KeyboardInterrupt:
-Line 2798: pass
-Line 2799: finally:
-Line 2800: _shutdown_browser()
-Line 2801: server.server_close()
-Line 2804: if __name__ == "__main__":
-Line 2805: main()
+Line 2796: _init_browser()
+Line 2797: except Exception as e:
+Line 2798: logger.warning("Playwright init failed (desktop mode still works): %s", e)
+Line 2800: server = HTTPServer(("0.0.0.0", SERVICE_PORT), AgentHandler)
+Line 2801: logger.info("Agent service listening on 0.0.0.0:%d", SERVICE_PORT)
+Line 2803: def _handle_signal(sig, frame):
+Line 2804: """Gracefully shut down the server on SIGTERM/SIGINT."""
+Line 2805: logger.info("Shutting down...")
+Line 2806: _shutdown_browser()
+Line 2807: server.shutdown()
+Line 2808: sys.exit(0)
+Line 2810: signal.signal(signal.SIGTERM, _handle_signal)
+Line 2811: signal.signal(signal.SIGINT, _handle_signal)
+Line 2813: try:
+Line 2814: server.serve_forever()
+Line 2815: except KeyboardInterrupt:
+Line 2816: pass
+Line 2817: finally:
+Line 2818: _shutdown_browser()
+Line 2819: server.server_close()
+Line 2822: if __name__ == "__main__":
+Line 2823: main()
 
 
 === FILE: docker/entrypoint.sh ===

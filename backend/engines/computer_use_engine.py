@@ -669,10 +669,37 @@ class GeminiCUClient:
                 )
             )
         ]
+
+        # Relax safety thresholds so the model doesn't silently refuse when
+        # seeing desktop screenshots that contain innocuous UI chrome the
+        # safety classifier may over-flag (e.g. browser with sign-in pages,
+        # system toolbars, ads).
+        safety_settings = []
+        _HarmCategory = getattr(types, "HarmCategory", None)
+        _SafetySetting = getattr(types, "SafetySetting", None)
+        _HarmBlockThreshold = getattr(types, "HarmBlockThreshold", None)
+        if _HarmCategory and _SafetySetting and _HarmBlockThreshold:
+            block_level = getattr(_HarmBlockThreshold, "BLOCK_ONLY_HIGH",
+                                  getattr(_HarmBlockThreshold, "BLOCK_NONE", None))
+            if block_level is not None:
+                for cat_name in (
+                    "HARM_CATEGORY_HARASSMENT",
+                    "HARM_CATEGORY_HATE_SPEECH",
+                    "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    "HARM_CATEGORY_DANGEROUS_CONTENT",
+                ):
+                    cat = getattr(_HarmCategory, cat_name, None)
+                    if cat is not None:
+                        safety_settings.append(
+                            _SafetySetting(category=cat, threshold=block_level)
+                        )
+
         kwargs: Dict[str, Any] = {
             "tools": tools,
             "thinking_config": types.ThinkingConfig(include_thoughts=True),
         }
+        if safety_settings:
+            kwargs["safety_settings"] = safety_settings
         if self._system_instruction:
             kwargs["system_instruction"] = self._system_instruction
         return self._genai.types.GenerateContentConfig(**kwargs)
@@ -751,9 +778,49 @@ class GeminiCUClient:
 
             if not response.candidates:
                 if on_log:
-                    on_log("error", f"Gemini returned no candidates at turn {turn + 1}")
-                final_text = "Error: Gemini returned no candidates"
-                break
+                    on_log("warning", f"Gemini returned no candidates at turn {turn + 1} — retrying with nudge")
+
+                # Retry once: append a user nudge reminding the model to
+                # use computer_use tools and re-send with a fresh screenshot.
+                try:
+                    retry_ss = await executor.capture_screenshot()
+                except Exception:
+                    retry_ss = screenshot_bytes
+
+                contents.append(
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part(
+                                text=(
+                                    "Please continue using the computer_use tools to "
+                                    "complete the task. Here is the current screen."
+                                )
+                            ),
+                            types.Part.from_bytes(
+                                data=retry_ss, mime_type="image/png"
+                            ),
+                        ],
+                    )
+                )
+                try:
+                    response = await asyncio.to_thread(
+                        self._client.models.generate_content,
+                        model=self._model,
+                        contents=contents,
+                        config=config,
+                    )
+                except Exception as retry_err:
+                    if on_log:
+                        on_log("error", f"Retry also failed: {retry_err}")
+                    final_text = f"Error: Gemini returned no candidates and retry failed: {retry_err}"
+                    break
+
+                if not response.candidates:
+                    if on_log:
+                        on_log("error", f"Gemini returned no candidates even after retry at turn {turn + 1}")
+                    final_text = "Error: Gemini returned no candidates (after retry)"
+                    break
 
             candidate = response.candidates[0]
             contents.append(candidate.content)

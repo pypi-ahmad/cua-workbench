@@ -1895,16 +1895,39 @@ class AgentHandler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/health/a11y":
-            # AT-SPI accessibility bus health check
-            # Run synchronously — avoid asyncio.new_event_loop() which conflicts
-            # with GLib's main loop used by AT-SPI/GObject Introspection.
+            # AT-SPI accessibility bus health check.
+            # GObject Introspection / AT-SPI internally spins a GLib main
+            # loop which conflicts with the HTTPServer thread.  To avoid
+            # "Cannot run the event loop while another loop is running",
+            # we run the check in a **separate subprocess**.
+            import subprocess, sys
+            _a11y_script = (
+                "import sys;"
+                "try:\n"
+                "    import gi; gi.require_version('Atspi', '2.0');"
+                "    from gi.repository import Atspi;"
+                "    apps = Atspi.get_desktop(0).get_child_count();"
+                "    print(f'OK:{apps}')\n"
+                "except ImportError as e:\n"
+                "    print(f'NOIMPORT:{e}'); sys.exit(1)\n"
+                "except Exception as e:\n"
+                "    print(f'ERR:{e}'); sys.exit(2)"
+            )
             try:
-                from backend.engines.accessibility_engine import _get_provider
-                provider = _get_provider()
-                healthy = provider.check_health()
-                self._respond(200, {"healthy": healthy, "bindings": True})
-            except ImportError as e:
-                self._respond(200, {"healthy": False, "bindings": False, "error": f"Import error: {e}"})
+                proc = subprocess.run(
+                    [sys.executable, "-c", _a11y_script],
+                    capture_output=True, text=True, timeout=10,
+                )
+                stdout = proc.stdout.strip()
+                if proc.returncode == 0 and stdout.startswith("OK:"):
+                    app_count = int(stdout.split(":")[1])
+                    self._respond(200, {"healthy": app_count > 0, "bindings": True, "apps": app_count})
+                elif stdout.startswith("NOIMPORT:"):
+                    self._respond(200, {"healthy": False, "bindings": False, "error": stdout})
+                else:
+                    self._respond(200, {"healthy": False, "bindings": True, "error": stdout or proc.stderr.strip()})
+            except subprocess.TimeoutExpired:
+                self._respond(200, {"healthy": False, "bindings": False, "error": "AT-SPI health check timed out"})
             except Exception as e:
                 self._respond(200, {"healthy": False, "bindings": False, "error": str(e)})
             return

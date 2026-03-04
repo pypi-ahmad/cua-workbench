@@ -169,18 +169,21 @@ class AgentLoop:
         if self._engine == "playwright_mcp":
             if self._execution_target == "docker":
                 # Docker mode: connect to the MCP HTTP server running inside the container
-                mcp_url = f"http://{config.playwright_mcp_host}:{config.playwright_mcp_port}"
+                mcp_url = f"http://{config.playwright_mcp_host}:{config.playwright_mcp_port}{config.playwright_mcp_path}"
                 self._emit_log("info", f"Using Docker Playwright MCP server at {mcp_url}...")
                 try:
-                    import httpx
-                    async with httpx.AsyncClient(timeout=10.0) as client:
-                        resp = await client.get(mcp_url)
-                        if resp.status_code < 500:
-                            self._emit_log("info", "Docker Playwright MCP server responding")
-                        else:
-                            self._emit_log("warning", f"Docker MCP server returned HTTP {resp.status_code}")
+                    from backend.agent.playwright_mcp_client import (
+                        _ensure_docker_mcp_initialized,
+                        _reset_docker_session,
+                    )
+                    session = await _ensure_docker_mcp_initialized()
+                    tools_result = await session.list_tools()
+                    if tools_result and tools_result.tools:
+                        self._emit_log("info", f"Docker Playwright MCP session ready — {len(tools_result.tools)} tools")
+                    else:
+                        self._emit_log("warning", "Docker MCP connected but returned no tools")
                 except Exception as e:
-                    self._emit_log("warning", f"Docker MCP server unreachable: {e}")
+                    self._emit_log("warning", f"Docker MCP server unreachable: {e} — will retry on first action")
             else:
                 # Local mode: spawn MCP via STDIO on the host machine
                 self._emit_log("info", "Initializing Playwright MCP server (STDIO)...")
