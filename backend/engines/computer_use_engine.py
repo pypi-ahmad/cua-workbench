@@ -822,9 +822,15 @@ class GeminiCUClient:
                 final_text = "Agent terminated: safety confirmation denied."
                 break
 
-            # Build FunctionResponse with inline screenshot (per Gemini docs)
+            # Build FunctionResponses with inline screenshot per Gemini CU docs:
+            # https://ai.google.dev/gemini-api/docs/computer-use
+            # Each FunctionResponse embeds the screenshot via
+            #   parts=[FunctionResponsePart(inline_data=FunctionResponseBlob(...))]
+            # The screenshot must NOT be sent as a separate Part.from_bytes().
             current_url = executor.get_current_url()
-            fr_parts = []
+            screenshot_ok = bool(screenshot_bytes) and len(screenshot_bytes) >= 100
+
+            function_responses = []
             for r in results:
                 resp_data: Dict[str, Any] = {"url": current_url}
                 if r.error:
@@ -840,24 +846,32 @@ class GeminiCUClient:
                     else:
                         resp_data[k] = str(v)
 
-                fr_parts.append(
-                    types.Part(
-                        function_response=types.FunctionResponse(
-                            name=r.name, response=resp_data,
+                fr_kwargs: Dict[str, Any] = {"name": r.name, "response": resp_data}
+
+                if screenshot_ok:
+                    fr_kwargs["parts"] = [
+                        types.FunctionResponsePart(
+                            inline_data=types.FunctionResponseBlob(
+                                mime_type="image/png",
+                                data=screenshot_bytes,
+                            )
                         )
-                    )
-                )
+                    ]
 
-            # Attach screenshot to the function response turn (only if valid)
-            if screenshot_bytes and len(screenshot_bytes) >= 100:
-                fr_parts.append(
-                    types.Part.from_bytes(data=screenshot_bytes, mime_type="image/png")
-                )
-            else:
+                function_responses.append(types.FunctionResponse(**fr_kwargs))
+
+            # IMPORTANT: send ONLY FunctionResponse parts — no separate image Part
+            if not function_responses:
                 if on_log:
-                    on_log("warning", "Skipping screenshot attachment — empty or too small")
+                    on_log("warning", "No function responses to send; ending loop")
+                break
 
-            contents.append(types.Content(role="user", parts=fr_parts))
+            contents.append(
+                types.Content(
+                    role="user",
+                    parts=[types.Part(function_response=fr) for fr in function_responses],
+                )
+            )
 
         return final_text
 

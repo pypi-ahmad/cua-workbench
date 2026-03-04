@@ -899,6 +899,189 @@ class TestClaudeThinkingEnabled(unittest.IsolatedAsyncioTestCase):
         assert thinking["budget_tokens"] == 4096
 
 
+# ── FunctionResponse screenshot inline (not separate Part) ─────────────────────
+
+class TestGeminiFunctionResponseScreenshot(unittest.IsolatedAsyncioTestCase):
+    """Screenshot must be embedded inside FunctionResponse.parts, NOT as a
+    separate Part.from_bytes().  See:
+    https://ai.google.dev/gemini-api/docs/computer-use
+    """
+
+    async def test_screenshot_inside_function_response_not_separate_part(self):
+        """Verify screenshot bytes go into FunctionResponseBlob, not Part.from_bytes."""
+        client = GeminiCUClient.__new__(GeminiCUClient)
+        client._model = "gemini-3-flash-preview"
+
+        mock_types = MagicMock()
+        client._types = mock_types
+        client._genai = MagicMock()
+        client._client = MagicMock()
+        client._environment = Environment.BROWSER
+        client._excluded = []
+        client._system_instruction = None
+
+        # Build a response with a single function call
+        fc = MagicMock()
+        fc.name = "click_at"
+        fc.args = {"x": 500, "y": 300}
+
+        candidate = MagicMock()
+        fc_part = MagicMock()
+        fc_part.function_call = fc
+        fc_part.text = None
+        text_part = MagicMock()
+        text_part.function_call = None
+        text_part.text = "clicking"
+        candidate.content.parts = [text_part, fc_part]
+
+        response = MagicMock()
+        response.candidates = [candidate]
+
+        # Second call returns done (no function calls)
+        done_part = MagicMock()
+        done_part.function_call = None
+        done_part.text = "Done"
+        done_candidate = MagicMock()
+        done_candidate.content.parts = [done_part]
+        done_response = MagicMock()
+        done_response.candidates = [done_candidate]
+
+        client._client.models.generate_content = MagicMock(
+            side_effect=[response, done_response]
+        )
+
+        # Executor stubs
+        screenshot_bytes = b"\x89PNG\r\n" + b"\x00" * 120
+        executor = AsyncMock()
+        executor.screen_width = 1440
+        executor.screen_height = 900
+        executor.execute = AsyncMock(return_value=CUActionResult(name="click_at"))
+        executor.capture_screenshot = AsyncMock(return_value=screenshot_bytes)
+        executor.get_current_url = MagicMock(return_value="http://test.com")
+
+        client._build_config = MagicMock()
+
+        # Track calls to types to verify the screenshot embedding pattern
+        fr_blob_calls = []
+        fr_part_calls = []
+        fr_calls = []
+
+        def _track_blob(**kwargs):
+            fr_blob_calls.append(kwargs)
+            return MagicMock()
+
+        def _track_fr_part(**kwargs):
+            fr_part_calls.append(kwargs)
+            return MagicMock()
+
+        def _track_fr(**kwargs):
+            fr_calls.append(kwargs)
+            return MagicMock()
+
+        mock_types.FunctionResponseBlob = _track_blob
+        mock_types.FunctionResponsePart = _track_fr_part
+        mock_types.FunctionResponse = _track_fr
+        mock_types.Content = MagicMock()
+        mock_types.Part = MagicMock()
+        mock_types.Part.from_bytes = MagicMock(return_value=MagicMock())
+
+        with patch("backend.engines.computer_use_engine.asyncio.to_thread",
+                    side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+            await client.run_loop("click btn", executor, turn_limit=2)
+
+        # 1. FunctionResponseBlob must have been called with the screenshot
+        assert len(fr_blob_calls) >= 1, "FunctionResponseBlob was never called"
+        assert fr_blob_calls[0]["mime_type"] == "image/png"
+        assert fr_blob_calls[0]["data"] == screenshot_bytes
+
+        # 2. FunctionResponsePart must wrap the blob via inline_data
+        assert len(fr_part_calls) >= 1, "FunctionResponsePart was never called"
+        assert "inline_data" in fr_part_calls[0]
+
+        # 3. FunctionResponse must have parts= with the inline screenshot
+        assert len(fr_calls) >= 1, "FunctionResponse was never called"
+        assert "parts" in fr_calls[0], "FunctionResponse missing 'parts' kwarg"
+        assert fr_calls[0]["name"] == "click_at"
+
+        # 4. Part.from_bytes must NOT have been called for the screenshot
+        #    (it's only called for the initial screenshot in the first message)
+        from_bytes_calls = mock_types.Part.from_bytes.call_count
+        assert from_bytes_calls <= 1, (
+            f"Part.from_bytes called {from_bytes_calls} times — "
+            "screenshot should be inside FunctionResponse.parts, not as separate Part"
+        )
+
+    async def test_no_screenshot_omits_parts_from_function_response(self):
+        """When screenshot is empty/too small, FunctionResponse has no parts."""
+        client = GeminiCUClient.__new__(GeminiCUClient)
+        client._model = "gemini-3-flash-preview"
+
+        mock_types = MagicMock()
+        client._types = mock_types
+        client._genai = MagicMock()
+        client._client = MagicMock()
+        client._environment = Environment.BROWSER
+        client._excluded = []
+        client._system_instruction = None
+
+        fc = MagicMock()
+        fc.name = "click_at"
+        fc.args = {"x": 100, "y": 200}
+
+        candidate = MagicMock()
+        fc_part = MagicMock()
+        fc_part.function_call = fc
+        fc_part.text = None
+        candidate.content.parts = [fc_part]
+
+        response = MagicMock()
+        response.candidates = [candidate]
+
+        done_part = MagicMock()
+        done_part.function_call = None
+        done_part.text = "Done"
+        done_candidate = MagicMock()
+        done_candidate.content.parts = [done_part]
+        done_response = MagicMock()
+        done_response.candidates = [done_candidate]
+
+        client._client.models.generate_content = MagicMock(
+            side_effect=[response, done_response]
+        )
+
+        # First call: valid bytes for initial screenshot; second call: empty
+        valid_screenshot = b"\x89PNG\r\n" + b"\x00" * 120
+        executor = AsyncMock()
+        executor.screen_width = 1440
+        executor.screen_height = 900
+        executor.execute = AsyncMock(return_value=CUActionResult(name="click_at"))
+        executor.capture_screenshot = AsyncMock(side_effect=[valid_screenshot, b""])
+        executor.get_current_url = MagicMock(return_value="http://test.com")
+
+        client._build_config = MagicMock()
+
+        fr_calls = []
+
+        def _track_fr(**kwargs):
+            fr_calls.append(kwargs)
+            return MagicMock()
+
+        mock_types.FunctionResponse = _track_fr
+        mock_types.Content = MagicMock()
+        mock_types.Part = MagicMock()
+        mock_types.Part.from_bytes = MagicMock(return_value=MagicMock())
+
+        with patch("backend.engines.computer_use_engine.asyncio.to_thread",
+                    side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+            await client.run_loop("click", executor, turn_limit=2)
+
+        # FunctionResponse should NOT have 'parts' key when screenshot is empty
+        assert len(fr_calls) >= 1
+        assert "parts" not in fr_calls[0], (
+            "FunctionResponse should not have 'parts' when screenshot is empty/small"
+        )
+
+
 # ── Safety pop before executor (Fix 3) ────────────────────────────────────────
 
 class TestGeminiSafetyPopBeforeExecutor(unittest.IsolatedAsyncioTestCase):
