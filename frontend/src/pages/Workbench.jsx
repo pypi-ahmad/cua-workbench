@@ -36,7 +36,12 @@ export default function Workbench() {
   const [keyStatuses, setKeyStatuses] = useState({}) // { google: {...}, anthropic: {...} }
   const [task, setTask] = useState('')
   const [maxSteps, setMaxSteps] = useState(50)
+  const [executionTarget, setExecutionTarget] = useState('local')
   const [error, setError] = useState('')
+
+  // Smart default: docker for CU/a11y, local for playwright_mcp
+  const ENGINES_WITH_TARGET = ['playwright_mcp', 'omni_accessibility', 'computer_use']
+  const getDefaultTarget = (eng) => (eng === 'playwright_mcp' ? 'local' : 'docker')
 
   // Timeline expansion
   const [expandedStep, setExpandedStep] = useState(null)
@@ -144,7 +149,9 @@ export default function Workbench() {
 
   // Sync engine when runMode changes
   useEffect(() => {
-    setEngine(runMode === 'browser' ? 'playwright_mcp' : 'computer_use')
+    const newEngine = runMode === 'browser' ? 'playwright_mcp' : 'computer_use'
+    setEngine(newEngine)
+    setExecutionTarget(getDefaultTarget(newEngine))
   }, [runMode])
 
   // Sync model when provider changes
@@ -183,6 +190,7 @@ export default function Workbench() {
         mode: engineMode,
         engine,
         provider,
+        executionTarget,
       })
       if (res.error) return setError(res.error)
       setSessionId(res.session_id)
@@ -332,9 +340,18 @@ export default function Workbench() {
           {/* Engine */}
           <div className="wb-section">
             <label className="wb-label">Engine</label>
-            <select className="wb-select" value={engine} onChange={(e) => setEngine(e.target.value)} disabled={agentRunning}>
+            <select className="wb-select" value={engine} onChange={(e) => { setEngine(e.target.value); setExecutionTarget(getDefaultTarget(e.target.value)) }} disabled={agentRunning}>
               {engines.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
             </select>
+            {ENGINES_WITH_TARGET.includes(engine) && (
+              <>
+                <label className="wb-label">Run On</label>
+                <select className="wb-select" value={executionTarget} onChange={(e) => setExecutionTarget(e.target.value)} disabled={agentRunning}>
+                  <option value="local">🖥️ Local (Host Machine)</option>
+                  <option value="docker">🐳 Docker (Ubuntu Container)</option>
+                </select>
+              </>
+            )}
             <label className="wb-label">Max Steps</label>
             <input type="number" className="wb-input wb-input-sm" min={1} max={200} value={maxSteps} onChange={(e) => setMaxSteps(e.target.value)} disabled={agentRunning} />
           </div>

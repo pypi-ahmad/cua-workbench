@@ -1,5 +1,7 @@
 """Playwright MCP client — STDIO transport (local) and HTTP transport (Docker).
 
+Playwright MCP: https://github.com/microsoft/playwright-mcp
+
 Communicates with the Playwright MCP server over:
   • STDIO (local): spawns npx @playwright/mcp@latest as a child process
   • HTTP  (Docker): connects to the MCP server inside the Docker container

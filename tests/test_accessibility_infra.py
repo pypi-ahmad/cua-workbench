@@ -124,22 +124,25 @@ class TestDockerfilePackages:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 3. Executor routes accessibility through HTTP (not direct import)
+# 3. Executor routes accessibility by execution_target
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
 class TestExecutorAccessibilityRouting:
-    """Accessibility actions must go through HTTP to agent service, not local AT-SPI."""
+    """Accessibility routing: docker → HTTP agent service, local → direct provider."""
 
-    def test_executor_accessibility_uses_http(self):
-        """The executor module must NOT import execute_accessibility_action for dispatch."""
+    def test_executor_accessibility_has_execution_target_branching(self):
+        """The executor must branch on execution_target for omni_accessibility."""
         import inspect
         from backend.agent import executor
         source = inspect.getsource(executor.execute_action)
-        # Old pattern: direct import and call
-        assert "from backend.engines.accessibility_engine import execute_accessibility_action" not in source, (
-            "executor.execute_action must NOT import accessibility_engine directly. "
-            "It should route through the agent service HTTP API."
+        # execution_target="local" path uses direct import
+        assert "from backend.engines.accessibility_engine import execute_accessibility_action" in source, (
+            "executor.execute_action must import accessibility_engine for local execution path."
+        )
+        # execution_target="docker" path uses HTTP agent service
+        assert '"mode": "omni_accessibility"' in source or "'mode': 'omni_accessibility'" in source, (
+            "executor must send mode='omni_accessibility' in the HTTP payload for docker path"
         )
 
     def test_executor_accessibility_sends_mode(self):

@@ -21,8 +21,12 @@ export default function ControlPanel({
   const [maxSteps, setMaxSteps] = useState(50)
   const [engine, setEngine] = useState('playwright_mcp')
   const [engineList, setEngineList] = useState([])
-  const [runtimeTarget, setRuntimeTarget] = useState('local')
+  const [executionTarget, setExecutionTarget] = useState('local')
   const [error, setError] = useState('')
+
+  // Smart default: docker for CU/a11y, local for playwright_mcp
+  const ENGINES_WITH_TARGET = ['playwright_mcp', 'omni_accessibility', 'computer_use']
+  const getDefaultTarget = (eng) => (eng === 'playwright_mcp' ? 'local' : 'docker')
 
   // Model lists — fetched exclusively from /api/models (no hardcoded fallback)
   const [fetchedModels, setFetchedModels] = useState([])
@@ -107,7 +111,7 @@ export default function ControlPanel({
         mode: engineMode,
         engine,
         provider,
-        runtimeTarget,
+        executionTarget,
       })
       if (res.error) {
         setError(res.error)
@@ -209,7 +213,7 @@ export default function ControlPanel({
         {modelsLoaded && models.length === 0 && (
           <p style={{ color: 'var(--error)', fontSize: 11, margin: '4px 0 0' }}>No models available for this provider.</p>
         )}
-        <select className="model-select" value={engine} onChange={(e) => setEngine(e.target.value)} disabled={agentRunning}>
+        <select className="model-select" value={engine} onChange={(e) => { setEngine(e.target.value); setExecutionTarget(getDefaultTarget(e.target.value)) }} disabled={agentRunning}>
           {engineList.length > 0 ? engineList.map(e => (
             <option key={e.value} value={e.value}>{e.label}</option>
           )) : (
@@ -220,16 +224,18 @@ export default function ControlPanel({
             </>
           )}
         </select>
-        <select
-          className="model-select"
-          value={runtimeTarget}
-          onChange={(e) => setRuntimeTarget(e.target.value)}
-          disabled={agentRunning}
-          title="Where to run the engine — Local (host machine) or Docker (Ubuntu container)"
-        >
-          <option value="local">🖥️ Run Locally (Host Machine)</option>
-          <option value="docker">🐳 Run in Docker (Ubuntu Container)</option>
-        </select>
+        {ENGINES_WITH_TARGET.includes(engine) && (
+          <select
+            className="model-select"
+            value={executionTarget}
+            onChange={(e) => setExecutionTarget(e.target.value)}
+            disabled={agentRunning}
+            title="Where to run the engine — Local (host machine) or Docker (Ubuntu container)"
+          >
+            <option value="local">🖥️ Run Locally (Host Machine)</option>
+            <option value="docker">🐳 Run in Docker (Ubuntu Container)</option>
+          </select>
+        )}
         <Link to="/workbench" className="btn btn-secondary" style={{ textAlign: 'center', marginTop: 6, display: 'block', textDecoration: 'none' }}>
           Open Workbench →
         </Link>

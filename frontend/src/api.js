@@ -41,7 +41,7 @@ export async function buildImage() {
   return request('/container/build', { method: 'POST' })
 }
 
-export async function startAgent({ task, apiKey, model, maxSteps, mode, engine, provider, runtimeTarget }) {
+export async function startAgent({ task, apiKey, model, maxSteps, mode, engine, provider, executionTarget }) {
   // Bypass generic request() — validation errors return HTTP 400/429 with JSON body.
   // Always returns { error?: string, ... } so callers can inspect data.error without catching.
   try {
@@ -56,7 +56,7 @@ export async function startAgent({ task, apiKey, model, maxSteps, mode, engine, 
         mode,
         engine,
         provider,
-        runtime_target: runtimeTarget || 'local',
+        execution_target: executionTarget || 'local',
       }),
     })
 

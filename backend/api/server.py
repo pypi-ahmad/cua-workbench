@@ -355,10 +355,21 @@ async def api_start_agent(req: StartTaskRequest):
     masked_key = resolved_key[:4] + "..." + resolved_key[-4:] if len(resolved_key) > 8 else "****"
     logger.info("AUDIT agent/start — task=%r engine=%s provider=%s model=%s key=%s source=%s target=%s",
                 req.task[:80], req.engine, req.provider, req.model, masked_key, key_source,
-                req.runtime_target)
+                req.execution_target)
 
-    # Validate runtime_target
-    runtime_target = req.runtime_target if req.runtime_target in ("local", "docker") else "local"
+    # Validate execution_target ("local" | "docker")
+    execution_target = req.execution_target if req.execution_target in ("local", "docker") else "local"
+
+    # Guard: computer_use engine only supports Docker target for now
+    # Refs:
+    #   Gemini CU docs: https://ai.google.dev/gemini-api/docs/computer-use
+    #   Anthropic CU docs: https://platform.claude.com/docs/en/docs/agents-and-tools/computer-use
+    if req.engine == "computer_use" and execution_target == "local":
+        return JSONResponse(status_code=400, content={
+            "error": "Local computer_use is not supported yet. "
+                     "The computer_use engine requires the Docker Ubuntu sandbox. "
+                     "Please select 'Docker Ubuntu' as the run target."
+        })
 
     container_ok = await start_container()
     if not container_ok:
@@ -372,7 +383,7 @@ async def api_start_agent(req: StartTaskRequest):
         mode=req.mode,
         engine=req.engine,
         provider=req.provider,
-        runtime_target=runtime_target,
+        execution_target=execution_target,
         on_log=lambda entry: asyncio.ensure_future(
             _broadcast("log", {"log": entry.model_dump()})
         ),
