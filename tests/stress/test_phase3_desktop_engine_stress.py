@@ -1,4 +1,4 @@
-"""Phase 3 — Desktop Engine Stress Tests (xdotool + ydotool).
+"""Phase 3 — Desktop Engine Stress Tests (xdotool).
 
 50-iteration loop per engine:
   open xfce4-terminal → type "STRESS TEST" → press Enter → close window
@@ -52,7 +52,7 @@ from tests.stress.helpers import (
 
 DESKTOP_LOOP_CYCLES = 50
 # The primary desktop engines under test (computer_use has its own loop)
-PRIMARY_DESKTOP_ENGINES = ["xdotool", "ydotool"]
+PRIMARY_DESKTOP_ENGINES = ["xdotool"]
 SCREEN_W, SCREEN_H = 1440, 900
 
 
@@ -339,98 +339,6 @@ class TestDesktopTerminalLoopXdotool:
             )
 
 
-@pytest.mark.stress
-@pytest.mark.phase3
-class TestDesktopTerminalLoopYdotool:
-    """50-cycle terminal open/type/enter/close stress for ydotool."""
-
-    @patch("backend.agent.executor._send_with_retry", new_callable=AsyncMock)
-    def test_terminal_loop_50_cycles(self, mock_send):
-        """Loop 50×: open_terminal → type → key Enter → close_window."""
-        mock_send.return_value = {"success": True, "message": "OK"}
-        metrics = DesktopStressMetrics()
-
-        tracemalloc.start()
-        metrics.sample_memory()
-
-        for cycle in range(DESKTOP_LOOP_CYCLES):
-            cycle_start = time.perf_counter()
-            for action in _build_terminal_cycle_actions():
-                result, elapsed = run_async(
-                    _timed_execute(action, mode="desktop", engine="ydotool")
-                )
-                metrics.record_action(result.get("success", False), elapsed)
-            cycle_ms = (time.perf_counter() - cycle_start) * 1000
-            metrics.cycle_durations_ms.append(cycle_ms)
-            metrics.cycles_completed += 1
-
-            if cycle % 10 == 0:
-                metrics.sample_memory()
-
-        metrics.sample_memory()
-        tracemalloc.stop()
-
-        assert metrics.cycles_completed == DESKTOP_LOOP_CYCLES
-        assert metrics.total_actions == DESKTOP_LOOP_CYCLES * 4
-        assert metrics.success_rate >= STRESS.min_success_rate
-        assert metrics.memory_growth_bytes < STRESS.max_memory_growth_mb * 1024 * 1024
-
-    @patch("backend.agent.executor._send_with_retry", new_callable=AsyncMock)
-    def test_focus_error_tracking(self, mock_send):
-        """Simulate intermittent focus errors under ydotool."""
-        call_idx = 0
-
-        async def _focus_flaky(*args, **kwargs):
-            nonlocal call_idx
-            call_idx += 1
-            if call_idx % 6 == 0:
-                return {
-                    "success": False,
-                    "message": "Focus lost: window not found for ydotool",
-                }
-            return {"success": True, "message": "OK"}
-
-        mock_send.side_effect = _focus_flaky
-        metrics = DesktopStressMetrics()
-
-        for _ in range(DESKTOP_LOOP_CYCLES):
-            for action in _build_terminal_cycle_actions():
-                result, elapsed = run_async(
-                    _timed_execute(action, mode="desktop", engine="ydotool")
-                )
-                success = result.get("success", False)
-                msg = result.get("message", "")
-                metrics.record_action(success, elapsed, None if success else msg)
-                if not success:
-                    metrics.classify_error(msg)
-            metrics.cycles_completed += 1
-
-        assert metrics.cycles_completed == DESKTOP_LOOP_CYCLES
-        assert metrics.focus_errors > 0
-        assert metrics.success_rate >= 0.70
-
-    @patch("backend.agent.executor._send_with_retry", new_callable=AsyncMock)
-    def test_cpu_spike_proxy_via_cycle_timing(self, mock_send):
-        """Cycle durations must remain consistent under ydotool."""
-        mock_send.return_value = {"success": True, "message": "OK"}
-        metrics = DesktopStressMetrics()
-
-        for cycle in range(DESKTOP_LOOP_CYCLES):
-            cycle_start = time.perf_counter()
-            for action in _build_terminal_cycle_actions():
-                run_async(
-                    _timed_execute(action, mode="desktop", engine="ydotool")
-                )
-            cycle_ms = (time.perf_counter() - cycle_start) * 1000
-            metrics.cycle_durations_ms.append(cycle_ms)
-
-        avg = sum(metrics.cycle_durations_ms) / len(metrics.cycle_durations_ms)
-        for i, dur in enumerate(metrics.cycle_durations_ms):
-            assert dur < avg * 10, (
-                f"Cycle {i} ydotool: {dur:.1f}ms vs avg {avg:.1f}ms — potential CPU spike"
-            )
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 # Coordinate Drift Tests
 # ══════════════════════════════════════════════════════════════════════════════
@@ -469,34 +377,6 @@ class TestCoordinateDriftStress:
             )
 
     @patch("backend.agent.executor._send_with_retry", new_callable=AsyncMock)
-    def test_ydotool_coordinate_consistency(self, mock_send):
-        """50 clicks at the same coordinate must not drift under ydotool."""
-        received_coords: List[list] = []
-
-        async def _capture_coords(*args, **kwargs):
-            payload = args[0] if args else {}
-            if isinstance(payload, dict):
-                coords = payload.get("coordinates")
-                if coords:
-                    received_coords.append(list(coords))
-            return {"success": True, "message": "OK"}
-
-        mock_send.side_effect = _capture_coords
-
-        target_x, target_y = 300, 600
-        for _ in range(DESKTOP_LOOP_CYCLES):
-            action = make_click_action(target_x, target_y)
-            run_async(
-                _timed_execute(action, mode="desktop", engine="ydotool")
-            )
-
-        assert len(received_coords) == DESKTOP_LOOP_CYCLES
-        for i, coords in enumerate(received_coords):
-            assert coords == [target_x, target_y], (
-                f"Click {i}: expected [{target_x}, {target_y}], got {coords}"
-            )
-
-    @patch("backend.agent.executor._send_with_retry", new_callable=AsyncMock)
     def test_spread_coordinates_all_quadrants(self, mock_send):
         """Click targets spread across all 4 screen quadrants."""
         mock_send.return_value = {"success": True, "message": "OK"}
@@ -525,8 +405,8 @@ class TestCoordinateDriftStress:
                         _timed_execute(action, mode="desktop", engine=engine)
                     )
 
-        # 2 engines × 4 quadrants × 10 repeats = 80
-        assert len(received_payloads) == 80
+        # 1 engine × 4 quadrants × 10 repeats = 40
+        assert len(received_payloads) == 40
         for p in received_payloads:
             coords = p.get("coordinates", [])
             assert len(coords) == 2
@@ -573,7 +453,7 @@ class TestCoordinateDriftStress:
 @pytest.mark.stress
 @pytest.mark.phase3
 class TestDesktopHybridFallbackStress:
-    """Stress the xdotool → ydotool fallback path in desktop_hybrid."""
+    """Stress the desktop_hybrid fallback path."""
 
     @patch(
         "backend.engines.desktop_hybrid_engine.execute_desktop_hybrid_action",
@@ -610,21 +490,20 @@ class TestDesktopHybridFallbackStress:
         new_callable=AsyncMock,
     )
     def test_hybrid_fallback_activation(self, mock_hybrid):
-        """Simulate xdotool failures that trigger ydotool fallback."""
+        """Simulate xdotool failures that trigger desktop fallback."""
         call_idx = 0
 
         async def _fallback_sim(*args, **kwargs):
             nonlocal call_idx
             call_idx += 1
             if call_idx % 4 == 0:
-                # Xdotool failed, ydotool succeeded
+                # Xdotool failed, fallback succeeded
                 return {
                     "success": True,
-                    "message": "OK (via ydotool fallback)",
+                    "message": "OK (via desktop fallback)",
                     "engine": "desktop_hybrid",
                     "primary_engine": "xdotool",
                     "fallback_used": True,
-                    "fallback_engine": "ydotool",
                 }
             return {
                 "success": True,
@@ -659,7 +538,7 @@ class TestDesktopHybridFallbackStress:
         new_callable=AsyncMock,
     )
     def test_hybrid_both_engines_fail(self, mock_hybrid):
-        """When both xdotool and ydotool fail, hybrid must report clearly."""
+        """When the desktop hybrid engine fails, it must report clearly."""
         call_idx = 0
 
         async def _both_fail(*args, **kwargs):
@@ -668,11 +547,10 @@ class TestDesktopHybridFallbackStress:
             if call_idx % 5 == 0:
                 return {
                     "success": False,
-                    "message": "xdotool: focus error; ydotool: uinput permission denied",
+                    "message": "xdotool: focus error",
                     "engine": "desktop_hybrid",
                     "primary_engine": "xdotool",
-                    "fallback_used": True,
-                    "fallback_engine": "ydotool",
+                    "fallback_used": False,
                 }
             return {
                 "success": True,
@@ -776,11 +654,11 @@ class TestDesktopHybridValidation:
 @pytest.mark.stress
 @pytest.mark.phase3
 class TestDesktopEngineIsolation:
-    """Ensure xdotool and ydotool don't cross-contaminate under stress."""
+    """Ensure desktop engines don't cross-contaminate under stress."""
 
     @patch("backend.agent.executor._send_with_retry", new_callable=AsyncMock)
     def test_engine_tags_never_cross(self, mock_send):
-        """Rapidly alternate between xdotool and ydotool; tags must match."""
+        """Rapidly alternate between desktop engines; tags must match."""
         mock_send.return_value = {"success": True, "message": "OK"}
 
         for _ in range(200):
@@ -813,8 +691,8 @@ class TestDesktopEngineIsolation:
                         _timed_execute(action, mode="desktop", engine=engine)
                     )
 
-        # 50 × 2 engines × 4 actions = 400
-        assert len(payloads) == 400
+        # 50 × 1 engine × 4 actions = 200
+        assert len(payloads) == 200
         for p in payloads:
             assert p.get("mode") == "desktop", f"Non-desktop mode in payload: {p}"
 
@@ -823,8 +701,8 @@ class TestDesktopEngineIsolation:
         "backend.engines.desktop_hybrid_engine.execute_desktop_hybrid_action",
         new_callable=AsyncMock,
     )
-    def test_concurrent_xdotool_ydotool_hybrid(self, mock_hybrid, mock_send):
-        """Concurrent dispatch to all 3 desktop engines; isolation holds."""
+    def test_concurrent_xdotool_hybrid(self, mock_hybrid, mock_send):
+        """Concurrent dispatch to desktop engines; isolation holds."""
         # Return a fresh dict each call to avoid shared-mutation races
         mock_send.side_effect = lambda *a, **kw: {"success": True, "message": "OK"}
         mock_hybrid.side_effect = lambda *a, **kw: {
@@ -895,29 +773,4 @@ class TestDesktopMemoryGrowth:
         growth_mb = metrics.memory_growth_bytes / (1024 * 1024)
         assert growth_mb < STRESS.max_memory_growth_mb, (
             f"xdotool memory grew {growth_mb:.1f}MB over {DESKTOP_LOOP_CYCLES} cycles"
-        )
-
-    @patch("backend.agent.executor._send_with_retry", new_callable=AsyncMock)
-    def test_ydotool_memory_bounded(self, mock_send):
-        """Memory must not grow excessively over 50 cycles for ydotool."""
-        mock_send.return_value = {"success": True, "message": "OK"}
-        metrics = DesktopStressMetrics()
-
-        tracemalloc.start()
-        metrics.sample_memory()
-
-        for cycle in range(DESKTOP_LOOP_CYCLES):
-            for action in _build_terminal_cycle_actions():
-                run_async(
-                    _timed_execute(action, mode="desktop", engine="ydotool")
-                )
-            if cycle % 5 == 0:
-                metrics.sample_memory()
-
-        metrics.sample_memory()
-        tracemalloc.stop()
-
-        growth_mb = metrics.memory_growth_bytes / (1024 * 1024)
-        assert growth_mb < STRESS.max_memory_growth_mb, (
-            f"ydotool memory grew {growth_mb:.1f}MB over {DESKTOP_LOOP_CYCLES} cycles"
         )

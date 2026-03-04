@@ -487,8 +487,8 @@ backend/
 
 docker/
   Dockerfile             – Ubuntu 24.04, XFCE 4, Chrome, Firefox, Playwright, AT-SPI
-  entrypoint.sh          – Xvfb + XFCE + x11vnc + noVNC + ydotoold + agent service
-  agent_service.py       – Synchronous HTTP server: browser / desktop / ydotool dispatch
+  entrypoint.sh          – Xvfb + XFCE + x11vnc + noVNC + agent service
+  agent_service.py       – Synchronous HTTP server: browser / desktop dispatch
 
 frontend/
   src/App.jsx            – Dashboard: Header + ControlPanel + ScreenView + LogPanel
@@ -952,16 +952,15 @@ Built from `docker/Dockerfile` on Ubuntu 24.04. The entrypoint (`docker/entrypoi
 5. **x11vnc** — VNC server on port 5900 (optional `VNC_PASSWORD` for authentication)
 6. **noVNC + websockify** — browser-accessible VNC on port 6080
 7. **Browser bootstrap** — pre-warms Chrome profile, sets default browser via `xdg-settings`
-8. **ydotoold** — ydotool daemon (if `/dev/uinput` is available)
-9. **Playwright MCP server** — `@playwright/mcp` HTTP transport on port 8931 (headless, `--no-sandbox`)
-10. **Agent Service** — `agent_service.py` HTTP server on port 9222
+8. **Playwright MCP server** — `@playwright/mcp` HTTP transport on port 8931 (headless, `--no-sandbox`)
+9. **Agent Service** — `agent_service.py` HTTP server on port 9222
 
 ### Pre-installed Software
 
 - Google Chrome (stable), Firefox
 - Playwright Chromium + Firefox browsers
 - Playwright MCP server (`@playwright/mcp` via npm)
-- xdotool, wmctrl, xclip, ydotool, scrot
+- xdotool, wmctrl, xclip, scrot
 - AT-SPI2 accessibility stack (`at-spi2-core`, `gir1.2-atspi-2.0`, `python3-gi`)
 - ffmpeg (for video capture)
 - Node.js 20 LTS
@@ -974,7 +973,7 @@ A synchronous `BaseHTTPRequestHandler` HTTP server (~2800 lines) running inside 
 |---|---|---|
 | `/health` | GET | Liveness check |
 | `/screenshot` | GET | Capture via Playwright or scrot (query param `mode`) |
-| `/action` | POST | Execute a single action (dispatches to browser/desktop/ydotool handler) |
+| `/action` | POST | Execute a single action (dispatches to browser/desktop handler) |
 | `/mode` | POST | Switch default mode at runtime |
 
 ### Port Map
@@ -1443,8 +1442,8 @@ Line 185: docker_manager.py    – Container lifecycle via docker CLI subprocess
 Line 186: parity_check.py      – tools_list.txt ↔ ActionType ↔ MCP handler audit
 Line 188: docker/
 Line 189: Dockerfile             – Ubuntu 24.04, XFCE 4, Chrome, Firefox, Playwright, AT-SPI
-Line 190: entrypoint.sh          – Xvfb + XFCE + x11vnc + noVNC + ydotoold + agent service
-Line 191: agent_service.py       – Synchronous HTTP server: browser / desktop / ydotool dispatch
+Line 190: entrypoint.sh          – Xvfb + XFCE + x11vnc + noVNC + agent service
+Line 191: agent_service.py       – Synchronous HTTP server: browser / desktop dispatch
 Line 193: frontend/
 Line 194: src/App.jsx            – Dashboard: Header + ControlPanel + ScreenView + LogPanel
 Line 195: src/pages/Workbench.jsx – Workbench UI: browser/desktop mode, timeline, log viewer
@@ -1799,260 +1798,259 @@ Line 651: 4. **XFCE 4** — full desktop environment with window manager
 Line 652: 5. **x11vnc** — VNC server on port 5900 (optional `VNC_PASSWORD` for authentication)
 Line 653: 6. **noVNC + websockify** — browser-accessible VNC on port 6080
 Line 654: 7. **Browser bootstrap** — pre-warms Chrome profile, sets default browser via `xdg-settings`
-Line 655: 8. **ydotoold** — ydotool daemon (if `/dev/uinput` is available)
-Line 656: 9. **Playwright MCP server** — `@playwright/mcp` HTTP transport on port 8931 (headless, `--no-sandbox`)
-Line 657: 10. **Agent Service** — `agent_service.py` HTTP server on port 9222
-Line 659: ### Pre-installed Software
-Line 661: - Google Chrome (stable), Firefox
-Line 662: - Playwright Chromium + Firefox browsers
-Line 663: - Playwright MCP server (`@playwright/mcp` via npm)
-Line 664: - xdotool, wmctrl, xclip, ydotool, scrot
-Line 665: - AT-SPI2 accessibility stack (`at-spi2-core`, `gir1.2-atspi-2.0`, `python3-gi`)
-Line 666: - ffmpeg (for video capture)
-Line 667: - Node.js 20 LTS
-Line 669: ### Agent Service (`docker/agent_service.py`)
-Line 671: A synchronous `BaseHTTPRequestHandler` HTTP server (~2800 lines) running inside the container. Handles:
-Line 673: | Endpoint | Method | Purpose |
-Line 674: |---|---|---|
-Line 675: | `/health` | GET | Liveness check |
-Line 676: | `/screenshot` | GET | Capture via Playwright or scrot (query param `mode`) |
-Line 677: | `/action` | POST | Execute a single action (dispatches to browser/desktop/ydotool handler) |
-Line 678: | `/mode` | POST | Switch default mode at runtime |
-Line 680: ### Port Map
-Line 682: | Port | Service | Binding |
-Line 683: |---|---|---|
-Line 684: | 5900 | VNC (x11vnc) | `127.0.0.1:5900` |
-Line 685: | 6080 | noVNC (websockify) | `127.0.0.1:6080` |
-Line 686: | 8931 | Playwright MCP server | `127.0.0.1:8931` |
-Line 687: | 9222 | Agent Service API | `127.0.0.1:9222` |
-Line 688: | 9223 | Chromium CDP (browser attach) | `127.0.0.1:9223` |
-Line 690: ---
-Line 692: ## 📝 Configuration
-Line 694: ### Environment Variables (`backend/config.py`)
-Line 696: The table below lists all user-facing settings from `backend/config.py`. The first two rows are **API keys** resolved via `resolve_api_key()` (not `Config` dataclass fields, but still read from env / `.env`). The remaining rows are `Config` fields — only the **env-configurable** ones are read at startup via `Config.from_env()`. Compile-time defaults must be changed by editing `config.py` directly.
-Line 698: | Variable | Default | Env? | Description |
-Line 699: |---|---|---|---|
-Line 700: | `GOOGLE_API_KEY` | — | ✅ | Google Gemini API key (resolved by `resolve_api_key()`, not a `Config` field) |
-Line 701: | `ANTHROPIC_API_KEY` | — | ✅ | Anthropic Claude API key (resolved by `resolve_api_key()`, not a `Config` field) |
-Line 702: | `GEMINI_MODEL` | `gemini-3-flash-preview` | ✅ | Default Gemini model name |
-Line 703: | `CONTAINER_NAME` | `cua-environment` | ✅ | Docker container name |
-Line 704: | `CONTAINER_IMAGE` | `cua-ubuntu:latest` | — | Docker image tag — not in `from_env()` |
-Line 705: | `AGENT_SERVICE_HOST` | `127.0.0.1` | ✅ | Agent service hostname (use IPv4 — see note below) |
-Line 706: | `AGENT_SERVICE_PORT` | `9222` | ✅ | Agent service port |
-Line 707: | `AGENT_MODE` | `browser` | ✅ | Default agent mode |
-Line 708: | `PLAYWRIGHT_MCP_HOST` | `127.0.0.1` | ✅ | MCP server hostname (use IPv4 — see note below) |
-Line 709: | `PLAYWRIGHT_MCP_PORT` | `8931` | ✅ | MCP server port |
-Line 710: | `PLAYWRIGHT_MCP_PATH` | `/mcp` | ✅ | MCP JSON-RPC endpoint path |
-Line 711: | `PLAYWRIGHT_MCP_AUTOSTART` | `0` | ✅ | Auto-launch MCP subprocess (`0`/`1`) |
-Line 712: | `PLAYWRIGHT_MCP_COMMAND` | `npx` | ✅ | Executable that starts the MCP server |
-Line 713: | `PLAYWRIGHT_MCP_ARGS` | `-y @playwright/mcp@latest` | ✅ | Arguments passed to the MCP command |
-Line 714: | `SCREEN_WIDTH` | `1440` | ✅ | Virtual display width (pixels) |
-Line 715: | `SCREEN_HEIGHT` | `900` | ✅ | Virtual display height (pixels) |
-Line 716: | `SCREENSHOT_FORMAT` | `png` | — | Screenshot image format — not in `from_env()` |
-Line 717: | `SCREENSHOT_INTERVAL_SEC` | `1.0` | — | Video capture interval (seconds) — not in `from_env()` |
-Line 718: | `MAX_STEPS` | `50` | ✅ | Default max agent steps |
-Line 719: | `STEP_TIMEOUT` | `30.0` | ✅ | Per-step timeout (seconds) |
-Line 720: | `GEMINI_RETRY_ATTEMPTS` | `3` | ✅ | Model query retry count |
-Line 721: | `DEBUG` | `false` | ✅ | Enable debug logging and uvicorn reload |
-Line 722: | `GEMINI_RETRY_DELAY` | `2.0` | — | Delay between retries (seconds) — not in `from_env()` |
-Line 723: | `ACTION_DELAY_MS` | `500` | — | Post-action delay (milliseconds) — not in `from_env()` |
-Line 724: | `WS_SCREENSHOT_INTERVAL` | `1.5` | — | WebSocket screenshot push interval (seconds) — not in `from_env()` |
-Line 725: | `HOST` | `0.0.0.0` | — | Backend bind address — not in `from_env()` |
-Line 726: | `PORT` | `8000` | — | Backend port — not in `from_env()` |
-Line 728: **Container-side environment variables** (set in `docker-compose.yml` / `entrypoint.sh`, not in `config.py`):
-Line 730: | Variable | Default | Description |
-Line 731: |---|---|---|
-Line 732: | `VNC_PASSWORD` | *(unset)* | Optional VNC password for x11vnc authentication (`entrypoint.sh:L103`) |
-Line 733: | `DISPLAY` | `:99` | X11 display (set by entrypoint) |
-Line 734: | `SCREEN_DEPTH` | `24` | X11 color depth |
-Line 736: > **Windows note:** Prefer `127.0.0.1` over `localhost` because Docker ports are often bound on IPv4 only.
-Line 738: Configuration is loaded once at import time via `Config.from_env()` into a module-level singleton. The `.env` file (if present in project root) is loaded with `python-dotenv` but does not override existing system environment variables.
-Line 740: ---
-Line 742: ## 📦 Setup & Installation
-Line 744: ### Prerequisites
-Line 746: - **Docker** — with BuildKit support
-Line 747: - **Python 3.10+** — for the backend
-Line 748: - **Node.js 18+** — for the frontend and Playwright MCP
-Line 750: ### Quickstart (Automated)
-Line 752: **Windows:**
-Line 753: ```bat
-Line 754: setup.bat
-Line 755: ```
-Line 757: **Linux / macOS:**
-Line 758: ```bash
-Line 759: bash setup.sh
-Line 760: ```
-Line 762: Both scripts: verify prerequisites → build Docker image (`cua-ubuntu:latest`) → create Python venv → install pip dependencies → install frontend npm packages.
-Line 764: ### Manual Setup
-Line 766: **Step 1 — Build the Docker image:**
-Line 767: ```bash
-Line 768: docker build -t cua-ubuntu:latest -f docker/Dockerfile .
-Line 769: ```
-Line 771: **Step 2 — Set up the Python backend:**
-Line 772: ```bash
-Line 773: python -m venv .venv
-Line 775: # Windows
-Line 776: .venv\Scripts\activate
-Line 777: # Linux / macOS
-Line 778: source .venv/bin/activate
-Line 780: pip install --upgrade pip
-Line 781: pip install -r requirements.txt
-Line 782: ```
-Line 784: **Step 3 — Set up the frontend:**
-Line 785: ```bash
-Line 786: cd frontend
-Line 787: npm install
-Line 788: cd ..
-Line 789: ```
-Line 791: **Step 4 — Configure API keys** (at least one required):
-Line 792: ```bash
-Line 793: # Option A: .env file in project root
-Line 794: echo "GOOGLE_API_KEY=your-key-here" >> .env
-Line 796: # Option B: system environment variable
-Line 797: export GOOGLE_API_KEY=your-key-here
-Line 799: # Option C: paste directly in the UI at runtime
-Line 800: ```
-Line 802: ---
-Line 804: ## ▶️ Running the Application
-Line 806: ### Start All Components
-Line 808: **Terminal 1 — Docker container:**
-Line 809: ```bash
-Line 810: docker compose up -d
-Line 811: ```
-Line 813: **Terminal 2 — Backend:**
-Line 814: ```bash
-Line 815: # Activate venv first
-Line 816: # Windows: .venv\Scripts\activate
-Line 817: # Linux:   source .venv/bin/activate
-Line 819: python -m backend.main
-Line 820: ```
-Line 822: **Terminal 3 — Frontend:**
-Line 823: ```bash
-Line 824: cd frontend
-Line 825: npm run dev
-Line 826: ```
-Line 828: **Open:** http://127.0.0.1:3000
-Line 830: > If you skip `docker compose up -d`, the container starts automatically when you launch an agent task from the UI.
-Line 832: ### What the User Sees
-Line 834: 1. **Dashboard** (`/`) — container status, agent service health, live screen view, control panel, log viewer.
-Line 835: 2. **Workbench** (`/workbench`) — full configuration: run mode (browser/desktop), provider, model, API key source (manual/`.env`/system), engine selection, max steps, task input. Real-time timeline showing each step's action, coordinates, reasoning, and errors. Live log viewer with download-to-file support.
-Line 837: ### Viewing the Desktop
-Line 839: Three options for observing the container's desktop:
-Line 841: | Method | Access | Source |
-Line 842: |---|---|---|
-Line 843: | **noVNC** (interactive) | http://127.0.0.1:6080 (recommended) or VNC tab in ScreenView | Proxied via `/vnc/websockify` |
-Line 844: | **WebRTC** (low-latency) | Toggle in ScreenView component | ffmpeg x11grab → aiortc |
-Line 845: | **Screenshot stream** | Default in ScreenView | Periodic base64 PNGs via WebSocket |
-Line 847: ### Stop
-Line 849: ```bash
-Line 850: docker compose down        # Stop container
-Line 851: # Ctrl+C in backend and frontend terminals
-Line 852: ```
-Line 854: ---
-Line 856: ## 🧪 Testing
-Line 858: ### Framework
-Line 860: - **pytest** with custom markers for test categorization
-Line 861: - **431 tests** across unit and stress test suites
-Line 862: - **All tests are hermetic** — they use mocks/fakes/patches and do not require a running container or network access
-Line 864: ### Test Structure
-Line 866: | Path | Tests | Description |
-Line 867: |---|---|---|
-Line 868: | `tests/test_engine_isolation.py` | 15 | Strict engine isolation, no cross-engine fallback |
-Line 869: | `tests/test_engine_capabilities.py` | — | Engine capability schema validation |
-Line 870: | `tests/test_engine_certification.py` | — | Certification framework tests |
-Line 871: | `tests/test_prompt_and_recovery.py` | — | Prompt and recovery logic tests |
-Line 872: | `tests/stress/test_phase1_engine_stress.py` | — | Phase 1: All 3 engines stress (boundary inputs, concurrent dispatch) |
-Line 873: | `tests/stress/test_phase2_browser_engine_stress.py` | — | Phase 2: Browser engine stress (Playwright MCP) |
-Line 874: | `tests/stress/test_phase3_desktop_engine_stress.py` | — | Phase 3: Desktop engine stress (accessibility + computer_use) |
-Line 875: | `tests/stress/test_phase4_accessibility_stress.py` | — | Phase 4: Accessibility engine stress (AT-SPI) |
-Line 876: | `tests/stress/test_phase5_hybrid_fallback_stress.py` | — | Phase 5: Engine fallback and recovery |
-Line 877: | `tests/stress/test_phase6_agent_loop_stress.py` | — | Phase 6: Agent loop stress (stuck detection, error recovery) |
-Line 878: | `tests/stress/test_phase7_frontend_stress.py` | — | Phase 7: Frontend interaction stress (FastAPI + WebSocket + Vite) |
-Line 879: | `tests/stress/test_phase8_soak_test.py` | — | Phase 8: Soak test (engine rotation, resource monitoring) |
-Line 881: ### Running Tests
-Line 883: ```bash
-Line 884: # Activate virtual environment first
-Line 885: # Windows: .venv\Scripts\activate
-Line 887: # Run all tests
-Line 888: pytest tests/ -v
-Line 890: # Run a specific phase
-Line 891: pytest tests/stress/test_phase1_engine_stress.py -v
-Line 893: # Run with short tracebacks
-Line 894: pytest tests/ --tb=short -q
-Line 895: ```
-Line 897: ### Stress Test Harness
-Line 899: A standalone CLI stress harness exists at `backend/tests/stress_system.py` for running real concurrent agent sessions against the live backend + Docker container:
-Line 901: ```bash
-Line 902: python backend/tests/stress_system.py --engine all --concurrency 2 --iterations 10
-Line 903: ```
-Line 905: It produces a **CUA FULL SYSTEM STRESS REPORT** with per-engine metrics (total calls, failures, disconnects, avg/max latency, memory delta, CPU peak) and an overall pass/fail verdict.
-Line 907: ---
-Line 909: ## 🔧 Troubleshooting
-Line 911: ### "Agent Service Down" / timeouts (Windows)
-Line 912: - Ensure Docker ports are reachable on IPv4:
-Line 913: - Use `127.0.0.1` (not `localhost`) for `AGENT_SERVICE_HOST` and `PLAYWRIGHT_MCP_HOST`.
-Line 914: - Quick checks:
-Line 915: - `curl http://127.0.0.1:9222/health`
-Line 916: - Open `http://127.0.0.1:6080`
-Line 918: ### Start rejects with 400/429
-Line 919: `POST /api/agent/start` returns:
-Line 920: - **400** for validation problems (invalid model/provider/engine/task/api key)
-Line 921: - **429** for rate limiting or concurrency cap
-Line 922: The frontend surfaces these as `{ error: "..." }` messages.
-Line 924: ### noVNC loads but desktop is black
-Line 925: - Wait ~5–15 seconds after container start (XFCE session boot)
-Line 926: - Check container logs: `docker compose logs -f`
-Line 928: ---
-Line 930: ## ⚠️ Limitations
-Line 932: The following are constraints observed directly in the codebase:
-Line 934: 1. **In-memory session state only** — no persistence. Backend restart loses all active sessions (`server.py` uses plain dicts).
-Line 935: 2. **Model allowlist (intentional)** — the UI exposes only the models listed in `backend/allowed_models.json`. This keeps demos stable; edit the allowlist to add more.
-Line 936: 3. **No authentication** — the API accepts requests from any local client without auth tokens. WebSocket connections are unauthenticated.
-Line 937: 4. **Coordinate-dependent engines** — `computer_use` (in desktop mode) relies on the model correctly predicting pixel coordinates from screenshots. Accuracy depends on model vision quality.
-Line 938: 5. **AT-SPI availability** — the `omni_accessibility` engine requires the D-Bus session bus and AT-SPI2 bindings to be running inside the container (Linux). On Windows/macOS it uses native platform APIs. Applications that don't expose accessibility trees are invisible to this engine.
-Line 939: 6. **Fixed viewport** — the display resolution is fixed at 1440×900 (set in Dockerfile and config). The coordinate validation and system prompts assume this size.
-Line 940: 7. **Sequential engine execution** — each session uses exactly one engine. There is no mechanism to switch engines mid-session or combine engine capabilities.
-Line 941: 8. **Rate limiting is in-memory** — the sliding-window rate limiter resets on backend restart.
-Line 942: 9. **WebRTC max 2 connections** — `_MAX_CONNECTIONS = 2` in `webrtc_server.py`.
-Line 943: 10. **Context window truncation** — only the last 15 actions are sent to the model. Long sessions lose early context.
-Line 944: 11. **`run_command` security** — while the allowlist and blocked-pattern list exist, `python3 -c "..."` is permitted and can execute arbitrary code inside the container.
-Line 946: ---
-Line 948: ## 🔮 Future Improvements
-Line 950: Based on patterns observable in the codebase:
-Line 952: 1. **Persistent session storage** — the `AgentSession` Pydantic model is structured for serialization. Adding a database or file-backed store is a natural extension.
-Line 953: 2. **Additional model support** — the `model_router.py` dispatch pattern and `_VALID_MODELS_BY_PROVIDER` allowlist are designed for easy extension to new models.
-Line 954: 3. **Wayland support** — `engine_capabilities.json` already declares `wayland_support: true` for the `omni_accessibility` engine. The schema is future-proofed.
-Line 955: 4. **`allowed_domains` enforcement** — the `StartTaskRequest` model accepts an `allowed_domains` list, but no enforcement logic exists in the agent loop or executor yet.
-Line 956: 5. **Custom system prompts** — the `StartTaskRequest` accepts a `system_prompt` field, but it is not currently passed through to the model clients.
-Line 957: 6. **Engine certification CI gate** — `backend/health/engine_certifier.py` implements a full certification framework. Integrating it into CI would gate deployments on engine health.
-Line 959: ---
-Line 961: ## 🤝 Contributing
-Line 963: | Step | What to do |
-Line 964: |:---:|---|
-Line 965: | 🍿 | **Fork** the repo and create a feature branch |
-Line 966: | 🧪 | Write a **failing test first** (TDD) — all tests must be hermetic (mocked IO, no network) |
-Line 967: | ✅ | Run the full suite: `pytest tests/ -v` |
-Line 968: | 📊 | Keep code coverage **≥ 80%** on changed files |
-Line 969: | ✍️ | Follow existing style: small functions, clear names, minimal comments that explain *why* |
-Line 970: | 🚀 | Open a PR with a descriptive title and reference any related issues |
-Line 972: See the [🧪 Testing](#testing) section for how to run unit and stress tests.
-Line 974: ---
-Line 976: ## 🛡️ Security Reporting
-Line 978: If you discover a **security vulnerability**, please **do not** open a public issue.
-Line 979: Instead, email the maintainer privately or use GitHub's [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability).
-Line 980: We aim to acknowledge reports within 48 hours and issue a fix within 7 days for critical issues.
-Line 982: ---
-Line 984: ## 📄 License
-Line 986: This project is licensed under the **MIT License** — see [LICENSE](LICENSE) for details.
-Line 988: ---
-Line 990: <div align="center">
-Line 992: ### 💬 Validation Statement
-Line 994: *This README aims to stay code-accurate. Every claim traces to a specific file, function, class, constant, or configuration value in the repository. Where behavior is ambiguous in code, the document describes what the code does, not what it might intend.*
-Line 996: *If you find drift between the docs and the code, please [open an issue](https://github.com/pypi-ahmad/cua-workbench/issues).*
-Line 998: ---
-Line 1000: **[Back to Top](#-cua-workbench)**  •  **[Quickstart](#-quickstart-tldr)**  •  **[Contributing](#-contributing)**
-Line 1002: Made with ❤️ for the Computer-Using Agent community
-Line 1004: </div>
+Line 655: 8. **Playwright MCP server** — `@playwright/mcp` HTTP transport on port 8931 (headless, `--no-sandbox`)
+Line 656: 9. **Agent Service** — `agent_service.py` HTTP server on port 9222
+Line 658: ### Pre-installed Software
+Line 660: - Google Chrome (stable), Firefox
+Line 661: - Playwright Chromium + Firefox browsers
+Line 662: - Playwright MCP server (`@playwright/mcp` via npm)
+Line 663: - xdotool, wmctrl, xclip, scrot
+Line 664: - AT-SPI2 accessibility stack (`at-spi2-core`, `gir1.2-atspi-2.0`, `python3-gi`)
+Line 665: - ffmpeg (for video capture)
+Line 666: - Node.js 20 LTS
+Line 668: ### Agent Service (`docker/agent_service.py`)
+Line 670: A synchronous `BaseHTTPRequestHandler` HTTP server (~2800 lines) running inside the container. Handles:
+Line 672: | Endpoint | Method | Purpose |
+Line 673: |---|---|---|
+Line 674: | `/health` | GET | Liveness check |
+Line 675: | `/screenshot` | GET | Capture via Playwright or scrot (query param `mode`) |
+Line 676: | `/action` | POST | Execute a single action (dispatches to browser/desktop handler) |
+Line 677: | `/mode` | POST | Switch default mode at runtime |
+Line 679: ### Port Map
+Line 681: | Port | Service | Binding |
+Line 682: |---|---|---|
+Line 683: | 5900 | VNC (x11vnc) | `127.0.0.1:5900` |
+Line 684: | 6080 | noVNC (websockify) | `127.0.0.1:6080` |
+Line 685: | 8931 | Playwright MCP server | `127.0.0.1:8931` |
+Line 686: | 9222 | Agent Service API | `127.0.0.1:9222` |
+Line 687: | 9223 | Chromium CDP (browser attach) | `127.0.0.1:9223` |
+Line 689: ---
+Line 691: ## 📝 Configuration
+Line 693: ### Environment Variables (`backend/config.py`)
+Line 695: The table below lists all user-facing settings from `backend/config.py`. The first two rows are **API keys** resolved via `resolve_api_key()` (not `Config` dataclass fields, but still read from env / `.env`). The remaining rows are `Config` fields — only the **env-configurable** ones are read at startup via `Config.from_env()`. Compile-time defaults must be changed by editing `config.py` directly.
+Line 697: | Variable | Default | Env? | Description |
+Line 698: |---|---|---|---|
+Line 699: | `GOOGLE_API_KEY` | — | ✅ | Google Gemini API key (resolved by `resolve_api_key()`, not a `Config` field) |
+Line 700: | `ANTHROPIC_API_KEY` | — | ✅ | Anthropic Claude API key (resolved by `resolve_api_key()`, not a `Config` field) |
+Line 701: | `GEMINI_MODEL` | `gemini-3-flash-preview` | ✅ | Default Gemini model name |
+Line 702: | `CONTAINER_NAME` | `cua-environment` | ✅ | Docker container name |
+Line 703: | `CONTAINER_IMAGE` | `cua-ubuntu:latest` | — | Docker image tag — not in `from_env()` |
+Line 704: | `AGENT_SERVICE_HOST` | `127.0.0.1` | ✅ | Agent service hostname (use IPv4 — see note below) |
+Line 705: | `AGENT_SERVICE_PORT` | `9222` | ✅ | Agent service port |
+Line 706: | `AGENT_MODE` | `browser` | ✅ | Default agent mode |
+Line 707: | `PLAYWRIGHT_MCP_HOST` | `127.0.0.1` | ✅ | MCP server hostname (use IPv4 — see note below) |
+Line 708: | `PLAYWRIGHT_MCP_PORT` | `8931` | ✅ | MCP server port |
+Line 709: | `PLAYWRIGHT_MCP_PATH` | `/mcp` | ✅ | MCP JSON-RPC endpoint path |
+Line 710: | `PLAYWRIGHT_MCP_AUTOSTART` | `0` | ✅ | Auto-launch MCP subprocess (`0`/`1`) |
+Line 711: | `PLAYWRIGHT_MCP_COMMAND` | `npx` | ✅ | Executable that starts the MCP server |
+Line 712: | `PLAYWRIGHT_MCP_ARGS` | `-y @playwright/mcp@latest` | ✅ | Arguments passed to the MCP command |
+Line 713: | `SCREEN_WIDTH` | `1440` | ✅ | Virtual display width (pixels) |
+Line 714: | `SCREEN_HEIGHT` | `900` | ✅ | Virtual display height (pixels) |
+Line 715: | `SCREENSHOT_FORMAT` | `png` | — | Screenshot image format — not in `from_env()` |
+Line 716: | `SCREENSHOT_INTERVAL_SEC` | `1.0` | — | Video capture interval (seconds) — not in `from_env()` |
+Line 717: | `MAX_STEPS` | `50` | ✅ | Default max agent steps |
+Line 718: | `STEP_TIMEOUT` | `30.0` | ✅ | Per-step timeout (seconds) |
+Line 719: | `GEMINI_RETRY_ATTEMPTS` | `3` | ✅ | Model query retry count |
+Line 720: | `DEBUG` | `false` | ✅ | Enable debug logging and uvicorn reload |
+Line 721: | `GEMINI_RETRY_DELAY` | `2.0` | — | Delay between retries (seconds) — not in `from_env()` |
+Line 722: | `ACTION_DELAY_MS` | `500` | — | Post-action delay (milliseconds) — not in `from_env()` |
+Line 723: | `WS_SCREENSHOT_INTERVAL` | `1.5` | — | WebSocket screenshot push interval (seconds) — not in `from_env()` |
+Line 724: | `HOST` | `0.0.0.0` | — | Backend bind address — not in `from_env()` |
+Line 725: | `PORT` | `8000` | — | Backend port — not in `from_env()` |
+Line 727: **Container-side environment variables** (set in `docker-compose.yml` / `entrypoint.sh`, not in `config.py`):
+Line 729: | Variable | Default | Description |
+Line 730: |---|---|---|
+Line 731: | `VNC_PASSWORD` | *(unset)* | Optional VNC password for x11vnc authentication (`entrypoint.sh:L103`) |
+Line 732: | `DISPLAY` | `:99` | X11 display (set by entrypoint) |
+Line 733: | `SCREEN_DEPTH` | `24` | X11 color depth |
+Line 735: > **Windows note:** Prefer `127.0.0.1` over `localhost` because Docker ports are often bound on IPv4 only.
+Line 737: Configuration is loaded once at import time via `Config.from_env()` into a module-level singleton. The `.env` file (if present in project root) is loaded with `python-dotenv` but does not override existing system environment variables.
+Line 739: ---
+Line 741: ## 📦 Setup & Installation
+Line 743: ### Prerequisites
+Line 745: - **Docker** — with BuildKit support
+Line 746: - **Python 3.10+** — for the backend
+Line 747: - **Node.js 18+** — for the frontend and Playwright MCP
+Line 749: ### Quickstart (Automated)
+Line 751: **Windows:**
+Line 752: ```bat
+Line 753: setup.bat
+Line 754: ```
+Line 756: **Linux / macOS:**
+Line 757: ```bash
+Line 758: bash setup.sh
+Line 759: ```
+Line 761: Both scripts: verify prerequisites → build Docker image (`cua-ubuntu:latest`) → create Python venv → install pip dependencies → install frontend npm packages.
+Line 763: ### Manual Setup
+Line 765: **Step 1 — Build the Docker image:**
+Line 766: ```bash
+Line 767: docker build -t cua-ubuntu:latest -f docker/Dockerfile .
+Line 768: ```
+Line 770: **Step 2 — Set up the Python backend:**
+Line 771: ```bash
+Line 772: python -m venv .venv
+Line 774: # Windows
+Line 775: .venv\Scripts\activate
+Line 776: # Linux / macOS
+Line 777: source .venv/bin/activate
+Line 779: pip install --upgrade pip
+Line 780: pip install -r requirements.txt
+Line 781: ```
+Line 783: **Step 3 — Set up the frontend:**
+Line 784: ```bash
+Line 785: cd frontend
+Line 786: npm install
+Line 787: cd ..
+Line 788: ```
+Line 790: **Step 4 — Configure API keys** (at least one required):
+Line 791: ```bash
+Line 792: # Option A: .env file in project root
+Line 793: echo "GOOGLE_API_KEY=your-key-here" >> .env
+Line 795: # Option B: system environment variable
+Line 796: export GOOGLE_API_KEY=your-key-here
+Line 798: # Option C: paste directly in the UI at runtime
+Line 799: ```
+Line 801: ---
+Line 803: ## ▶️ Running the Application
+Line 805: ### Start All Components
+Line 807: **Terminal 1 — Docker container:**
+Line 808: ```bash
+Line 809: docker compose up -d
+Line 810: ```
+Line 812: **Terminal 2 — Backend:**
+Line 813: ```bash
+Line 814: # Activate venv first
+Line 815: # Windows: .venv\Scripts\activate
+Line 816: # Linux:   source .venv/bin/activate
+Line 818: python -m backend.main
+Line 819: ```
+Line 821: **Terminal 3 — Frontend:**
+Line 822: ```bash
+Line 823: cd frontend
+Line 824: npm run dev
+Line 825: ```
+Line 827: **Open:** http://127.0.0.1:3000
+Line 829: > If you skip `docker compose up -d`, the container starts automatically when you launch an agent task from the UI.
+Line 831: ### What the User Sees
+Line 833: 1. **Dashboard** (`/`) — container status, agent service health, live screen view, control panel, log viewer.
+Line 834: 2. **Workbench** (`/workbench`) — full configuration: run mode (browser/desktop), provider, model, API key source (manual/`.env`/system), engine selection, max steps, task input. Real-time timeline showing each step's action, coordinates, reasoning, and errors. Live log viewer with download-to-file support.
+Line 836: ### Viewing the Desktop
+Line 838: Three options for observing the container's desktop:
+Line 840: | Method | Access | Source |
+Line 841: |---|---|---|
+Line 842: | **noVNC** (interactive) | http://127.0.0.1:6080 (recommended) or VNC tab in ScreenView | Proxied via `/vnc/websockify` |
+Line 843: | **WebRTC** (low-latency) | Toggle in ScreenView component | ffmpeg x11grab → aiortc |
+Line 844: | **Screenshot stream** | Default in ScreenView | Periodic base64 PNGs via WebSocket |
+Line 846: ### Stop
+Line 848: ```bash
+Line 849: docker compose down        # Stop container
+Line 850: # Ctrl+C in backend and frontend terminals
+Line 851: ```
+Line 853: ---
+Line 855: ## 🧪 Testing
+Line 857: ### Framework
+Line 859: - **pytest** with custom markers for test categorization
+Line 860: - **431 tests** across unit and stress test suites
+Line 861: - **All tests are hermetic** — they use mocks/fakes/patches and do not require a running container or network access
+Line 863: ### Test Structure
+Line 865: | Path | Tests | Description |
+Line 866: |---|---|---|
+Line 867: | `tests/test_engine_isolation.py` | 15 | Strict engine isolation, no cross-engine fallback |
+Line 868: | `tests/test_engine_capabilities.py` | — | Engine capability schema validation |
+Line 869: | `tests/test_engine_certification.py` | — | Certification framework tests |
+Line 870: | `tests/test_prompt_and_recovery.py` | — | Prompt and recovery logic tests |
+Line 871: | `tests/stress/test_phase1_engine_stress.py` | — | Phase 1: All 3 engines stress (boundary inputs, concurrent dispatch) |
+Line 872: | `tests/stress/test_phase2_browser_engine_stress.py` | — | Phase 2: Browser engine stress (Playwright MCP) |
+Line 873: | `tests/stress/test_phase3_desktop_engine_stress.py` | — | Phase 3: Desktop engine stress (accessibility + computer_use) |
+Line 874: | `tests/stress/test_phase4_accessibility_stress.py` | — | Phase 4: Accessibility engine stress (AT-SPI) |
+Line 875: | `tests/stress/test_phase5_hybrid_fallback_stress.py` | — | Phase 5: Engine fallback and recovery |
+Line 876: | `tests/stress/test_phase6_agent_loop_stress.py` | — | Phase 6: Agent loop stress (stuck detection, error recovery) |
+Line 877: | `tests/stress/test_phase7_frontend_stress.py` | — | Phase 7: Frontend interaction stress (FastAPI + WebSocket + Vite) |
+Line 878: | `tests/stress/test_phase8_soak_test.py` | — | Phase 8: Soak test (engine rotation, resource monitoring) |
+Line 880: ### Running Tests
+Line 882: ```bash
+Line 883: # Activate virtual environment first
+Line 884: # Windows: .venv\Scripts\activate
+Line 886: # Run all tests
+Line 887: pytest tests/ -v
+Line 889: # Run a specific phase
+Line 890: pytest tests/stress/test_phase1_engine_stress.py -v
+Line 892: # Run with short tracebacks
+Line 893: pytest tests/ --tb=short -q
+Line 894: ```
+Line 896: ### Stress Test Harness
+Line 898: A standalone CLI stress harness exists at `backend/tests/stress_system.py` for running real concurrent agent sessions against the live backend + Docker container:
+Line 900: ```bash
+Line 901: python backend/tests/stress_system.py --engine all --concurrency 2 --iterations 10
+Line 902: ```
+Line 904: It produces a **CUA FULL SYSTEM STRESS REPORT** with per-engine metrics (total calls, failures, disconnects, avg/max latency, memory delta, CPU peak) and an overall pass/fail verdict.
+Line 906: ---
+Line 908: ## 🔧 Troubleshooting
+Line 910: ### "Agent Service Down" / timeouts (Windows)
+Line 911: - Ensure Docker ports are reachable on IPv4:
+Line 912: - Use `127.0.0.1` (not `localhost`) for `AGENT_SERVICE_HOST` and `PLAYWRIGHT_MCP_HOST`.
+Line 913: - Quick checks:
+Line 914: - `curl http://127.0.0.1:9222/health`
+Line 915: - Open `http://127.0.0.1:6080`
+Line 917: ### Start rejects with 400/429
+Line 918: `POST /api/agent/start` returns:
+Line 919: - **400** for validation problems (invalid model/provider/engine/task/api key)
+Line 920: - **429** for rate limiting or concurrency cap
+Line 921: The frontend surfaces these as `{ error: "..." }` messages.
+Line 923: ### noVNC loads but desktop is black
+Line 924: - Wait ~5–15 seconds after container start (XFCE session boot)
+Line 925: - Check container logs: `docker compose logs -f`
+Line 927: ---
+Line 929: ## ⚠️ Limitations
+Line 931: The following are constraints observed directly in the codebase:
+Line 933: 1. **In-memory session state only** — no persistence. Backend restart loses all active sessions (`server.py` uses plain dicts).
+Line 934: 2. **Model allowlist (intentional)** — the UI exposes only the models listed in `backend/allowed_models.json`. This keeps demos stable; edit the allowlist to add more.
+Line 935: 3. **No authentication** — the API accepts requests from any local client without auth tokens. WebSocket connections are unauthenticated.
+Line 936: 4. **Coordinate-dependent engines** — `computer_use` (in desktop mode) relies on the model correctly predicting pixel coordinates from screenshots. Accuracy depends on model vision quality.
+Line 937: 5. **AT-SPI availability** — the `omni_accessibility` engine requires the D-Bus session bus and AT-SPI2 bindings to be running inside the container (Linux). On Windows/macOS it uses native platform APIs. Applications that don't expose accessibility trees are invisible to this engine.
+Line 938: 6. **Fixed viewport** — the display resolution is fixed at 1440×900 (set in Dockerfile and config). The coordinate validation and system prompts assume this size.
+Line 939: 7. **Sequential engine execution** — each session uses exactly one engine. There is no mechanism to switch engines mid-session or combine engine capabilities.
+Line 940: 8. **Rate limiting is in-memory** — the sliding-window rate limiter resets on backend restart.
+Line 941: 9. **WebRTC max 2 connections** — `_MAX_CONNECTIONS = 2` in `webrtc_server.py`.
+Line 942: 10. **Context window truncation** — only the last 15 actions are sent to the model. Long sessions lose early context.
+Line 943: 11. **`run_command` security** — while the allowlist and blocked-pattern list exist, `python3 -c "..."` is permitted and can execute arbitrary code inside the container.
+Line 945: ---
+Line 947: ## 🔮 Future Improvements
+Line 949: Based on patterns observable in the codebase:
+Line 951: 1. **Persistent session storage** — the `AgentSession` Pydantic model is structured for serialization. Adding a database or file-backed store is a natural extension.
+Line 952: 2. **Additional model support** — the `model_router.py` dispatch pattern and `_VALID_MODELS_BY_PROVIDER` allowlist are designed for easy extension to new models.
+Line 953: 3. **Wayland support** — `engine_capabilities.json` already declares `wayland_support: true` for the `omni_accessibility` engine. The schema is future-proofed.
+Line 954: 4. **`allowed_domains` enforcement** — the `StartTaskRequest` model accepts an `allowed_domains` list, but no enforcement logic exists in the agent loop or executor yet.
+Line 955: 5. **Custom system prompts** — the `StartTaskRequest` accepts a `system_prompt` field, but it is not currently passed through to the model clients.
+Line 956: 6. **Engine certification CI gate** — `backend/health/engine_certifier.py` implements a full certification framework. Integrating it into CI would gate deployments on engine health.
+Line 958: ---
+Line 960: ## 🤝 Contributing
+Line 962: | Step | What to do |
+Line 963: |:---:|---|
+Line 964: | 🍿 | **Fork** the repo and create a feature branch |
+Line 965: | 🧪 | Write a **failing test first** (TDD) — all tests must be hermetic (mocked IO, no network) |
+Line 966: | ✅ | Run the full suite: `pytest tests/ -v` |
+Line 967: | 📊 | Keep code coverage **≥ 80%** on changed files |
+Line 968: | ✍️ | Follow existing style: small functions, clear names, minimal comments that explain *why* |
+Line 969: | 🚀 | Open a PR with a descriptive title and reference any related issues |
+Line 971: See the [🧪 Testing](#testing) section for how to run unit and stress tests.
+Line 973: ---
+Line 975: ## 🛡️ Security Reporting
+Line 977: If you discover a **security vulnerability**, please **do not** open a public issue.
+Line 978: Instead, email the maintainer privately or use GitHub's [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability).
+Line 979: We aim to acknowledge reports within 48 hours and issue a fix within 7 days for critical issues.
+Line 981: ---
+Line 983: ## 📄 License
+Line 985: This project is licensed under the **MIT License** — see [LICENSE](LICENSE) for details.
+Line 987: ---
+Line 989: <div align="center">
+Line 991: ### 💬 Validation Statement
+Line 993: *This README aims to stay code-accurate. Every claim traces to a specific file, function, class, constant, or configuration value in the repository. Where behavior is ambiguous in code, the document describes what the code does, not what it might intend.*
+Line 995: *If you find drift between the docs and the code, please [open an issue](https://github.com/pypi-ahmad/cua-workbench/issues).*
+Line 997: ---
+Line 999: **[Back to Top](#-cua-workbench)**  •  **[Quickstart](#-quickstart-tldr)**  •  **[Contributing](#-contributing)**
+Line 1001: Made with ❤️ for the Computer-Using Agent community
+Line 1003: </div>
 
 
 === FILE: append.py ===
@@ -2097,6 +2095,9 @@ services:
       - SCREEN_HEIGHT=900
       - SCREEN_DEPTH=24
       - AGENT_SERVICE_PORT=9222
+      - AGENT_MODE=browser
+      - PLAYWRIGHT_MCP_PORT=8931
+      # - VNC_PASSWORD=changeme   # uncomment to require VNC auth
     ports:
       - "127.0.0.1:5900:5900"
       - "127.0.0.1:6080:6080"
@@ -2112,9 +2113,7 @@ services:
         limits:
           memory: 4g
           cpus: "2"
-    # Required for ydotool (uinput kernel device)
-    devices:
-      - /dev/uinput:/dev/uinput
+
 --- EXPLANATION ---
 This is the source code for docker-compose.yml.
 Line 1: services:
@@ -2129,24 +2128,24 @@ Line 9: - SCREEN_WIDTH=1440
 Line 10: - SCREEN_HEIGHT=900
 Line 11: - SCREEN_DEPTH=24
 Line 12: - AGENT_SERVICE_PORT=9222
-Line 13: ports:
-Line 14: - "127.0.0.1:5900:5900"
-Line 15: - "127.0.0.1:6080:6080"
-Line 16: - "127.0.0.1:8931:8931"
-Line 17: - "127.0.0.1:9222:9222"
-Line 18: - "127.0.0.1:9223:9223"
-Line 19: shm_size: "2gb"
-Line 20: restart: unless-stopped
-Line 21: security_opt:
-Line 22: - no-new-privileges:true
-Line 23: deploy:
-Line 24: resources:
-Line 25: limits:
-Line 26: memory: 4g
-Line 27: cpus: "2"
-Line 28: # Required for ydotool (uinput kernel device)
-Line 29: devices:
-Line 30: - /dev/uinput:/dev/uinput
+Line 13: - AGENT_MODE=browser
+Line 14: - PLAYWRIGHT_MCP_PORT=8931
+Line 15: # - VNC_PASSWORD=changeme   # uncomment to require VNC auth
+Line 16: ports:
+Line 17: - "127.0.0.1:5900:5900"
+Line 18: - "127.0.0.1:6080:6080"
+Line 19: - "127.0.0.1:8931:8931"
+Line 20: - "127.0.0.1:9222:9222"
+Line 21: - "127.0.0.1:9223:9223"
+Line 22: shm_size: "2gb"
+Line 23: restart: unless-stopped
+Line 24: security_opt:
+Line 25: - no-new-privileges:true
+Line 26: deploy:
+Line 27: resources:
+Line 28: limits:
+Line 29: memory: 4g
+Line 30: cpus: "2"
 
 
 === FILE: setup.bat ===

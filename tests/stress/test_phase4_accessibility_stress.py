@@ -931,7 +931,7 @@ class TestA11yEngineIsolation:
             "fallback_used": False,
         }
 
-        engines_to_test = ["omni_accessibility", "xdotool", "ydotool", "desktop_hybrid"]
+        engines_to_test = ["omni_accessibility", "xdotool", "desktop_hybrid"]
         # Note: computer_use excluded — it uses its own native CU loop, not execute_action()
         per_engine: Dict[str, List[str]] = {e: [] for e in engines_to_test}
 

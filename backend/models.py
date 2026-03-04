@@ -46,7 +46,7 @@ class ActionType(str, enum.Enum):
     HOVER_SELECTOR = "hover_selector"
     DRAG_SELECTOR = "drag_selector"
 
-    # ── Low Level Mouse (xdotool/ydotool) ─────────────────────────────────
+    # ── Low Level Mouse (xdotool) ─────────────────────────────────────
     MOUSE_MOVE = "mousemove"
     MOUSE_RELATIVE = "mouse_relative"
     MOUSEDOWN = "mousedown"
@@ -68,7 +68,7 @@ class ActionType(str, enum.Enum):
     PRESS = "press"  # Playwright specific alias for key
     SELECT_OPTION = "select_option"
     
-    # ── ydotool Specific ──────────────────────────────────────────────────
+    # ── Desktop Specific ──────────────────────────────────────────────────
     KEY_SEQUENCE = "key_sequence"
     COMBINED_INPUT = "combined_input"
 

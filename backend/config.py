@@ -34,7 +34,7 @@ class Config:
     # Agent service inside container
     agent_service_host: str = "127.0.0.1"
     agent_service_port: int = 9222
-    agent_mode: str = "browser"  # "browser", "desktop", or "ydotool"
+    agent_mode: str = "browser"  # "browser" or "desktop"
 
     # Playwright MCP service
     playwright_mcp_host: str = "127.0.0.1"

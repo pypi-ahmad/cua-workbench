@@ -44,7 +44,6 @@ _REQUIREMENT_BINARY_MAP: Dict[str, str] = {
     "wmctrl": "wmctrl",
     "scrot": "scrot",
     "xclip": "xclip",
-    "ydotool": "ydotool",
     "playwright": "npx",
     "node.js": "node",
     "node": "node",
@@ -64,7 +63,6 @@ _ENV_CHECKS: Dict[str, str] = {
 
 # Special filesystem checks keyed on requirement keywords.
 _FS_CHECKS: Dict[str, str] = {
-    "/dev/uinput": "/dev/uinput",
 }
 
 

@@ -312,7 +312,7 @@ class DesktopExecutor:
     All commands are executed inside the Docker container by sending
     HTTP requests to the agent_service (port 9222 by default), so the
     backend can run on **any host OS** — including Windows — while
-    ``xdotool``, ``scrot``, and ``ydotool`` run in the Linux container.
+    ``xdotool`` and ``scrot`` run in the Linux container.
 
     Screenshots are retrieved via ``GET /screenshot?mode=desktop`` on the
     same agent_service.  If the service is unreachable, a ``docker exec``
@@ -1259,8 +1259,7 @@ class ComputerUseEngine:
 
     Replaces:
     - xdotool engine (raw pixel, no CU protocol)
-    - ydotool engine (raw pixel, no CU protocol)
-    - desktop_hybrid engine (xdotool→ydotool fallback, no CU protocol)
+    - desktop engine (xdotool, raw pixel, no CU protocol)
 
     Keeps untouched:
     - Playwright engine (existing path via agent_service)

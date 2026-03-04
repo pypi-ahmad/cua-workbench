@@ -10,6 +10,9 @@ services:
       - SCREEN_HEIGHT=900
       - SCREEN_DEPTH=24
       - AGENT_SERVICE_PORT=9222
+      - AGENT_MODE=browser
+      - PLAYWRIGHT_MCP_PORT=8931
+      # - VNC_PASSWORD=changeme   # uncomment to require VNC auth
     ports:
       - "127.0.0.1:5900:5900"
       - "127.0.0.1:6080:6080"
@@ -25,6 +28,4 @@ services:
         limits:
           memory: 4g
           cpus: "2"
-    # Required for ydotool (uinput kernel device)
-    devices:
-      - /dev/uinput:/dev/uinput
+

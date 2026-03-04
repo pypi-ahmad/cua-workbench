@@ -429,7 +429,6 @@ class TestNoUnsupportedActions:
         ("playwright", "browser"),
         ("playwright_mcp", "browser"),
         ("xdotool", "desktop"),
-        ("ydotool", "desktop"),
         ("desktop_hybrid", "desktop"),
     ])
     def test_no_unsupported_for_engine(self, engine, mode):
@@ -1211,9 +1210,9 @@ class TestSessionMetadata:
 @pytest.mark.stress
 @pytest.mark.phase6
 class TestDesktopEngineAgentLoop:
-    """Agent loop stress with desktop engines (xdotool, ydotool, desktop_hybrid)."""
+    """Agent loop stress with desktop engines (xdotool, desktop_hybrid)."""
 
-    @pytest.mark.parametrize("engine", ["xdotool", "ydotool", "desktop_hybrid"])
+    @pytest.mark.parametrize("engine", ["xdotool", "desktop_hybrid"])
     def test_desktop_engine_30_runs(self, engine):
         """30 runs with desktop engines complete without unsupported action errors.
 

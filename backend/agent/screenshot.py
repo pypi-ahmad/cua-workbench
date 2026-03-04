@@ -37,7 +37,7 @@ async def capture_screenshot(mode: str = "browser", engine: str | None = None) -
     screenshot comes from the in-container agent service as before.
 
     Args:
-        mode: 'browser', 'desktop', or 'ydotool'.
+        mode: 'browser' or 'desktop'.
         engine: Optional engine name — 'playwright_mcp' triggers MCP route.
 
     Returns:

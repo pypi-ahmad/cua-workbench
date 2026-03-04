@@ -1,10 +1,9 @@
 """Internal agent service — runs INSIDE the Docker container.
 
-Provides a lightweight HTTP API with three automation modes:
+Provides a lightweight HTTP API with two automation modes:
 
   • browser  — Playwright (page.mouse.click, page.keyboard.type, page.goto)
   • desktop  — xdotool + scrot (works with ANY X11 application)
-  • ydotool  — uinput-based input (requires /dev/uinput access)
 
 The backend selects the mode per-request via a `mode` field.  Screenshots
 and actions are dispatched to the appropriate handler automatically.
@@ -52,7 +51,7 @@ _lock = Lock()
 SCREEN_WIDTH = int(os.environ.get("SCREEN_WIDTH", "1440"))
 SCREEN_HEIGHT = int(os.environ.get("SCREEN_HEIGHT", "900"))
 SERVICE_PORT = int(os.environ.get("AGENT_SERVICE_PORT", "9222"))
-DEFAULT_MODE = os.environ.get("AGENT_MODE", "browser")  # "browser", "desktop", or "ydotool"
+DEFAULT_MODE = os.environ.get("AGENT_MODE", "browser")  # "browser" or "desktop"
 ACTION_DELAY = float(os.environ.get("ACTION_DELAY", "0.05"))
 
 
@@ -102,7 +101,7 @@ _ALLOWED_COMMANDS = frozenset({
     "uname", "hostname", "uptime",
     "python3", "python", "pip", "pip3", "node", "npm", "npx",
     "curl", "wget",
-    "xdg-open", "xdotool", "ydotool", "xclip", "scrot", "wmctrl",
+    "xdg-open", "xdotool", "xclip", "scrot", "wmctrl",
     "xfce4-terminal", "xterm",
     # Desktop apps accessible via accessibility / run_command
     "gnome-control-center", "gnome-settings", "gnome-calculator",
@@ -110,6 +109,12 @@ _ALLOWED_COMMANDS = frozenset({
     "xfce4-settings-manager", "xfce4-settings-editor",
     "xfce4-taskmanager", "thunar", "mousepad",
     "firefox", "google-chrome",
+    # Browsers added via Dockerfile
+    "brave-browser", "microsoft-edge", "microsoft-edge-stable",
+    # Desktop apps added via Dockerfile
+    "vlc", "libreoffice", "soffice",
+    "evince", "gnome-terminal", "flameshot", "xournalpp",
+    "htop",
 })
 
 # Ensure DISPLAY is set for all subprocesses (Critical Desktop Fix)
@@ -128,14 +133,6 @@ def _init_browser():
     except FileNotFoundError:
         logger.warning("xclip not found - clipboard actions (paste/copy) in desktop mode may fail")
     
-    try:
-        # Check if ydotool is available and we have access to /dev/uinput
-        subprocess.run(["ydotool", "--help"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if not os.access("/dev/uinput", os.W_OK):
-             logger.warning("/dev/uinput not writable - ydotool might fail (check container privileges)")
-    except FileNotFoundError:
-        logger.warning("ydotool not found - ydotool mode will fallback to xdotool")
-
     from playwright.sync_api import sync_playwright
 
     logger.info("Initializing Playwright...")
@@ -1080,7 +1077,7 @@ def _xdo_drag(x1: int, y1: int, x2: int, y2: int) -> dict:
     return {"success": True, "message": f"Dragged ({x1},{y1}) → ({x2},{y2})"}
 
 
-# ── Deterministic browser launch (shared by xdotool & ydotool open_url) ────
+# ── Deterministic browser launch (shared by xdotool open_url) ─────────────
 
 # Pre-created profile directory (seeded at build-time in Dockerfile)
 _CHROME_PROFILE_DIR = "/tmp/chrome-profile"
@@ -1448,230 +1445,8 @@ def _xdo_focus_click(identifier: str, x: int, y: int) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Actions — ydotool (desktop mode alternative, uses /dev/uinput)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _ydo(args: list[str]) -> str:
-    """Run a ydotool command, return stdout."""
-    result = subprocess.run(
-        ["ydotool"] + args,
-        capture_output=True, text=True, timeout=10,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"ydotool {' '.join(args)} failed: {result.stderr.strip()}")
-    return result.stdout.strip()
-
-
-def _ydo_click(x: int, y: int) -> dict:
-    """Click at (x,y) via ydotool."""
-    _ydo(["mousemove", "--absolute", "-x", str(x), "-y", str(y)])
-    _ydo(["click", "0xC0"])  # left button down+up
-    return {"success": True, "message": f"Clicked at ({x}, {y})"}
-
-
-def _ydo_double_click(x: int, y: int) -> dict:
-    """Double-click at (x,y) via ydotool."""
-    _ydo(["mousemove", "--absolute", "-x", str(x), "-y", str(y)])
-    time.sleep(0.08)
-    _ydo(["click", "0xC0"])
-    return {"success": True, "message": f"Double-clicked at ({x}, {y})"}
-
-
-def _ydo_right_click(x: int, y: int) -> dict:
-    """Right-click at (x,y) via ydotool."""
-    _ydo(["mousemove", "--absolute", "-x", str(x), "-y", str(y)])
-    _ydo(["click", "0xC1"])  # right button down+up
-    return {"success": True, "message": f"Right-clicked at ({x}, {y})"}
-
-
-def _ydo_type(text: str) -> dict:
-    """Type text via ydotool."""
-    time.sleep(ACTION_DELAY)
-    _ydo(["type", "--", text])
-    return {"success": True, "message": f"Typed: {text[:50]}"}
-
-
-def _ydo_scroll(x: int, y: int, direction: str) -> dict:
-    """Scroll at (x,y) via ydotool wheel events."""
-    _ydo(["mousemove", "--absolute", "-x", str(x), "-y", str(y)])
-    # Wheel: negative = up, positive = down
-    delta = "-5" if direction == "up" else "5"
-    _ydo(["mousemove", "--wheel", delta])
-    return {"success": True, "message": f"Scrolled {direction} at ({x}, {y})"}
-
-
-def _ydo_key(key: str) -> dict:
-    """Press a key via ydotool using evdev keycodes."""
-    combo = _map_key_combo_ydotool(key)
-    _ydo(["key", combo])
-    return {"success": True, "message": f"Pressed key: {key}"}
-
-
-def _ydo_drag(x1: int, y1: int, x2: int, y2: int) -> dict:
-    """Drag from (x1,y1) to (x2,y2) via ydotool."""
-    _ydo(["mousemove", "--absolute", "-x", str(x1), "-y", str(y1)])
-    _ydo(["click", "0x40"])  # left button down
-    _ydo(["mousemove", "--absolute", "-x", str(x2), "-y", str(y2)])
-    _ydo(["click", "0x80"])  # left button up
-    return {"success": True, "message": f"Dragged ({x1},{y1}) → ({x2},{y2})"}
-
-
-def _ydo_mouse_relative(x: int, y: int) -> dict:
-    """Move the mouse cursor by a relative offset."""
-    _ydo(["mousemove", "-x", str(x), "-y", str(y)])
-    return {"success": True, "message": f"Moved mouse relative by {x},{y}"}
-
-
-def _ydo_keydown(key: str) -> dict:
-    """Hold a key down via ydotool."""
-    combo = _map_key_combo_ydotool(key)
-    _ydo(["key", f"{combo}:1"])
-    return {"success": True, "message": f"Key down: {key}"}
-
-
-def _ydo_keyup(key: str) -> dict:
-    """Release a held key via ydotool."""
-    combo = _map_key_combo_ydotool(key)
-    _ydo(["key", f"{combo}:0"])
-    return {"success": True, "message": f"Key up: {key}"}
-
-
-def _ydo_key_sequence(keys_str: str) -> dict:
-    """Press a space-separated sequence of keys via ydotool."""
-    for key in keys_str.split():
-        _ydo_key(key)
-    return {"success": True, "message": f"Key sequence: {keys_str}"}
-
-
-def _ydo_combined_input(text: str) -> dict:
-    """Send combined key input via ydotool (space-separated keys)."""
-    for key in text.split():
-        _ydo_key(key)
-    return {"success": True, "message": f"Combined input: {text}"}
-
-
-def _ydo_scroll_up() -> dict:
-    """Scroll up at the current cursor position via ydotool."""
-    _ydo(["mousemove", "--wheel", "-5"])
-    return {"success": True, "message": "Scrolled up"}
-
-
-def _ydo_scroll_down() -> dict:
-    """Scroll down at the current cursor position via ydotool."""
-    _ydo(["mousemove", "--wheel", "5"])
-    return {"success": True, "message": "Scrolled down"}
-
-
-def _ydo_open_url(url: str) -> dict:
-    """Open URL in a deterministic browser — avoids xdg-open first-run problems."""
-    return _open_url_in_browser(url)
-
-
-def _ydo_hover(x: int, y: int) -> dict:
-    """Move the mouse to (x,y) without clicking."""
-    _ydo(["mousemove", "--absolute", "-x", str(x), "-y", str(y)])
-    return {"success": True, "message": f"Hovered at ({x}, {y})"}
-
-
-def _ydo_middle_click(x: int, y: int) -> dict:
-    """Middle-click at (x,y) via ydotool."""
-    _ydo(["mousemove", "--absolute", "-x", str(x), "-y", str(y)])
-    _ydo(["click", "0xC2"])  # middle button down+up
-    return {"success": True, "message": f"Middle-clicked at ({x}, {y})"}
-
-
-def _ydo_paste(text: str) -> dict:
-    """Copy text to clipboard then paste via Ctrl+V (or Ctrl+Shift+V in terminals)."""
-    subprocess.run(
-        ["xclip", "-selection", "clipboard"],
-        input=text.encode(), check=True, timeout=5,
-    )
-    if _is_terminal_focused():
-        # Ctrl+Shift+V: ctrl(29) + shift(42) + v(47)
-        _ydo(["key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"])
-    else:
-        # Ctrl+V: ctrl(29) + v(47)
-        _ydo(["key", "29:1", "47:1", "47:0", "29:0"])
-    return {"success": True, "message": f"Pasted: {text[:50]}"}
-
-
-def _ydo_copy() -> dict:
-    """Copy selection via Ctrl+C."""
-    _ydo(["key", "29:1", "46:1", "46:0", "29:0"])
-    return {"success": True, "message": "Copied selection to clipboard"}
-
-
-def _ydo_hotkey(keys: list[str]) -> dict:
-    """Press key combo via ydotool keycodes."""
-    # Build keycode sequence: all keys down, then all keys up (reverse order)
-    codes = [_map_key_combo_ydotool(k) for k in keys]
-    # ydotool key accepts space-separated key:state pairs
-    downs = [f"{c}:1" for c in codes]
-    ups = [f"{c}:0" for c in reversed(codes)]
-    _ydo(["key"] + downs + ups)
-    return {"success": True, "message": f"Hotkey: {'+'.join(keys)}"}
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 #  Shared helpers
 # ══════════════════════════════════════════════════════════════════════════════
-
-# ── ydotool key mapping (Linux evdev keycodes) ────────────────────────────────
-# Reference: /usr/include/linux/input-event-codes.h
-_KEY_MAP_YDOTOOL: dict[str, str] = {
-    "enter": "28", "return": "28",
-    "tab": "15",
-    "escape": "1", "esc": "1",
-    "backspace": "14",
-    "delete": "111",
-    "space": "57",
-    "up": "103", "down": "108",
-    "left": "105", "right": "106",
-    "home": "102", "end": "107",
-    "pageup": "104", "pagedown": "109",
-    "insert": "110",
-    "f1": "59", "f2": "60", "f3": "61", "f4": "62",
-    "f5": "63", "f6": "64", "f7": "65", "f8": "66",
-    "f9": "67", "f10": "68", "f11": "87", "f12": "88",
-    "ctrl": "29", "control": "29",
-    "alt": "56",
-    "shift": "42",
-    "meta": "125", "super": "125", "win": "125", "cmd": "125",
-    "capslock": "58",
-    # Letters
-    "a": "30", "b": "48", "c": "46", "d": "32", "e": "18",
-    "f": "33", "g": "34", "h": "35", "i": "23", "j": "36",
-    "k": "37", "l": "38", "m": "50", "n": "49", "o": "24",
-    "p": "25", "q": "16", "r": "19", "s": "31", "t": "20",
-    "u": "22", "v": "47", "w": "17", "x": "45", "y": "21",
-    "z": "44",
-    # Numbers
-    "0": "11", "1": "2", "2": "3", "3": "4", "4": "5",
-    "5": "6", "6": "7", "7": "8", "8": "9", "9": "10",
-    # Symbols
-    "minus": "12", "equal": "13",
-    "leftbracket": "26", "rightbracket": "27",
-    "semicolon": "39", "apostrophe": "40",
-    "backslash": "43", "comma": "51", "period": "52", "slash": "53",
-    "grave": "41",
-}
-
-
-def _map_key_combo_ydotool(key: str) -> str:
-    """Map a user key string to ydotool evdev keycode(s).
-
-    For combos like 'ctrl+a', returns space-separated down/up pairs
-    for use with `ydotool key`. For simple keys, returns the keycode.
-    """
-    if "+" in key:
-        parts = [p.strip() for p in key.split("+")]
-        codes = [_KEY_MAP_YDOTOOL.get(p.lower(), p) for p in parts]
-        # For combo: all down, then all up in reverse
-        downs = [f"{c}:1" for c in codes]
-        ups = [f"{c}:0" for c in reversed(codes)]
-        return " ".join(downs + ups)
-    return _KEY_MAP_YDOTOOL.get(key.lower(), key)
-
 
 # ── wmctrl-based window management (DISPLAY-independent layer) ────────────────
 
@@ -1745,16 +1520,6 @@ def _wmctrl_resize_window(identifier: str, w: int, h: int) -> dict:
         return {"success": True, "message": f"Resized window {identifier} to {w}x{h}"}
     return {"success": False, "message": f"Failed to resize: {identifier} — {result.stderr.strip()}"}
 
-
-def _ydo_open_app(app_name: str) -> dict:
-    """Launch an application by command name (no xdotool dependency)."""
-    subprocess.Popen(
-        [app_name],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        env={**os.environ, "DISPLAY": ":99"},
-    )
-    time.sleep(1)
-    return {"success": True, "message": f"Launched: {app_name}"}
 
 
 _KEY_MAP = {
@@ -1933,11 +1698,11 @@ class AgentHandler(BaseHTTPRequestHandler):
             return
 
         if self.path.startswith("/screenshot"):
-            # Parse ?mode=desktop|browser|ydotool from query string
+            # Parse ?mode=desktop|browser from query string
             mode = self._parse_mode_from_query()
             with _lock:
                 try:
-                    if mode in ("desktop", "ydotool"):
+                    if mode == "desktop":
                         b64 = _screenshot_desktop()
                         self._respond(200, {"screenshot": b64, "method": "desktop"})
                     else:
@@ -1972,13 +1737,13 @@ class AgentHandler(BaseHTTPRequestHandler):
         if self.path == "/mode":
             # Switch default mode at runtime
             new_mode = body.get("mode", "").lower()
-            if new_mode in ("browser", "desktop", "ydotool"):
+            if new_mode in ("browser", "desktop"):
                 global DEFAULT_MODE
                 DEFAULT_MODE = new_mode
                 logger.info("Default mode switched to: %s", DEFAULT_MODE)
                 self._respond(200, {"mode": DEFAULT_MODE})
             else:
-                self._respond(400, {"error": "mode must be 'browser', 'desktop', or 'ydotool'"})
+                self._respond(400, {"error": "mode must be 'browser' or 'desktop'"})
             return
 
         self._respond(404, {"error": "not found"})
@@ -1992,7 +1757,7 @@ class AgentHandler(BaseHTTPRequestHandler):
             for part in qs.split("&"):
                 if part.startswith("mode="):
                     val = part.split("=", 1)[1].lower()
-                    if val in ("browser", "desktop", "ydotool"):
+                    if val in ("browser", "desktop"):
                         return val
         return DEFAULT_MODE
 
@@ -2029,8 +1794,6 @@ class AgentHandler(BaseHTTPRequestHandler):
                 result = self._dispatch_accessibility(action, text, target)
             elif mode == "desktop":
                 result = self._dispatch_desktop(action, x, y, text, coords, target)
-            elif mode == "ydotool":
-                result = self._dispatch_ydotool(action, x, y, text, coords, target)
             else:
                 result = self._dispatch_browser(action, x, y, text, coords, target)
         except Exception as e:
@@ -2563,251 +2326,6 @@ class AgentHandler(BaseHTTPRequestHandler):
             return {"success": False, "message": "screenshot_region needs 4 coords [x, y, width, height]"}
         else:
             return {"success": False, "message": f"Unsupported action '{action}' in desktop engine"}
-
-    def _dispatch_ydotool(self, action: str, x: int, y: int, text: str, coords: list, target: str = "") -> dict:
-        """Dispatch a single action to the ydotool engine (xdotool-free)."""
-        try:
-            # ── Mouse / Interaction ───────────────────────────────────────
-            if action == "click":
-                return _ydo_click(x, y)
-            elif action == "double_click":
-                return _ydo_double_click(x, y)
-            elif action == "right_click":
-                return _ydo_right_click(x, y)
-            elif action == "middle_click":
-                return _ydo_middle_click(x, y)
-            elif action == "hover":
-                return _ydo_hover(x, y)
-            elif action == "drag":
-                if len(coords) >= 4:
-                    return _ydo_drag(coords[0], coords[1], coords[2], coords[3])
-                return {"success": False, "message": "drag requires 4 coordinates [x1, y1, x2, y2]"}
-            elif action == "mouse_relative":
-                if len(coords) >= 2:
-                    return _ydo_mouse_relative(coords[0], coords[1])
-                return {"success": False, "message": "mouse_relative requires 2 coordinates [dx, dy]"}
-            # ── Input ─────────────────────────────────────────────────────
-            elif action == "type":
-                if coords and len(coords) >= 2:
-                    _ydo_click(coords[0], coords[1])
-                    time.sleep(0.1)
-                try:
-                    return _ydo_type(text)
-                except Exception:
-                    logger.warning("ydotool type failed, trying paste fallback")
-                    return _ydo_paste(text)
-            elif action == "type_slow":
-                # ydotool doesn't have a slow typing implemented yet but we can fallback or implement
-                if coords and len(coords) >= 2:
-                    _ydo_click(coords[0], coords[1])
-                    time.sleep(0.1)
-                try:
-                    return _ydo_type(text)  # For now just use normal type
-                except Exception:
-                    logger.warning("ydotool type failed, trying paste fallback")
-                    return _ydo_paste(text)
-            elif action == "key":
-                return _ydo_key(text)
-            elif action == "keydown":
-                return _ydo_keydown(text)
-            elif action == "keyup":
-                return _ydo_keyup(text)
-            elif action == "hotkey":
-                keys = [k.strip() for k in text.split("+")]
-                return _ydo_hotkey(keys)
-            elif action == "combined_input":
-                return _ydo_combined_input(text)
-            elif action == "key_sequence":
-                return _ydo_key_sequence(text)
-            elif action == "paste":
-                return _ydo_paste(text)
-            elif action == "copy":
-                return _ydo_copy()
-            # ── Navigation ────────────────────────────────────────────────
-            elif action == "open_url":
-                return _ydo_open_url(text)
-            # ── Scrolling ─────────────────────────────────────────────────
-            elif action == "scroll":
-                direction = text.lower() if text else "down"
-                return _ydo_scroll(x, y, direction)
-            elif action == "scroll_up":
-                return _ydo_scroll_up()
-            elif action == "scroll_down":
-                return _ydo_scroll_down()
-            # ── Desktop (wmctrl-based window ops — no xdotool) ─────────
-            elif action == "focus_window":
-                identifier = target or text
-                if not identifier:
-                    return {"success": False, "message": "focus_window requires target (window name)"}
-                return _wmctrl_focus_window(identifier)
-            elif action == "window_activate":
-                identifier = target or text
-                if not identifier:
-                    return {"success": False, "message": "window_activate requires target"}
-                return _wmctrl_focus_window(identifier)
-            elif action == "focus_mouse":
-                return _ydo_hover(x, y)
-            elif action == "open_app":
-                app = target or text
-                if not app:
-                    return {"success": False, "message": "open_app requires target (app command)"}
-                return _ydo_open_app(app)
-            elif action == "close_window":
-                identifier = target or text
-                if not identifier:
-                    return {"success": False, "message": "close_window requires target (window title or class)"}
-                return _wmctrl_close_window(identifier)
-            elif action == "window_minimize":
-                identifier = target or text
-                if not identifier:
-                    return {"success": False, "message": "window_minimize requires target"}
-                return _wmctrl_minimize_window(identifier)
-            elif action == "window_maximize":
-                identifier = target or text
-                if not identifier:
-                    return {"success": False, "message": "window_maximize requires target"}
-                return _wmctrl_maximize_window(identifier)
-            elif action == "window_move":
-                identifier = target or text
-                if not identifier or not coords or len(coords) < 2:
-                    return {"success": False, "message": "window_move requires target and 2 coordinates"}
-                return _wmctrl_move_window(identifier, coords[0], coords[1])
-            elif action == "window_resize":
-                identifier = target or text
-                if not identifier or not coords or len(coords) < 2:
-                    return {"success": False, "message": "window_resize requires target and 2 coordinates"}
-                return _wmctrl_resize_window(identifier, coords[0], coords[1])
-            elif action == "search_window":
-                identifier = target or text
-                if not identifier:
-                    return {"success": False, "message": "search_window requires target"}
-                return _wmctrl_search_window(identifier)
-            elif action == "focus_click":
-                # Focus via wmctrl, then click via ydotool
-                identifier = target or text
-                if not identifier:
-                     return {"success": False, "message": "focus_click requires target (window name)"}
-                focus_res = _wmctrl_focus_window(identifier)
-                if not focus_res.get("success"):
-                    return focus_res
-                time.sleep(0.2)
-                return _ydo_click(x, y)
-            # ── Fill / Clear (ydotool approximation via keyboard) ─────────
-            elif action == "fill":
-                # click + wait + select all + delete + type with paste fallback
-                if coords and len(coords) >= 2:
-                    _ydo_click(coords[0], coords[1])
-                    time.sleep(0.1)
-                time.sleep(0.05)
-                _ydo(["key", "29:1", "30:1", "30:0", "29:0"])  # Ctrl+A
-                time.sleep(0.05)
-                _ydo(["key", "111:1", "111:0"])  # Delete
-                time.sleep(0.1)
-                value = text or ""
-                try:
-                    _ydo(["type", "--", value])
-                except Exception:
-                    logger.warning("ydotool fill type failed, using paste fallback")
-                    return _ydo_paste(value)
-                return {"success": True, "message": f"Filled (ydotool): {value[:50]}"}
-            elif action == "clear_input":
-                _ydo(["key", "29:1", "30:1", "30:0", "29:0"])  # Ctrl+A
-                time.sleep(0.05)
-                _ydo(["key", "111:1", "111:0"])  # Delete
-                return {"success": True, "message": "Cleared input (ydotool)"}
-            elif action == "select_option":
-                return {"success": False, "message": "select_option not supported in ydotool mode — use click"}
-            # ── Browser-like nav via ydotool keycodes ─────────────────
-            elif action == "reload":
-                # F5 = keycode 63
-                _ydo(["key", "63:1", "63:0"])
-                return {"success": True, "message": "Reloaded (F5)"}
-            elif action == "go_back":
-                # Alt+Left = 56 (alt) + 105 (left)
-                _ydo(["key", "56:1", "105:1", "105:0", "56:0"])
-                return {"success": True, "message": "Navigated back (Alt+Left)"}
-            elif action == "go_forward":
-                # Alt+Right = 56 (alt) + 106 (right)
-                _ydo(["key", "56:1", "106:1", "106:0", "56:0"])
-                return {"success": True, "message": "Navigated forward (Alt+Right)"}
-            elif action == "new_tab":
-                # Ctrl+T = 29 (ctrl) + 20 (t)
-                _ydo(["key", "29:1", "20:1", "20:0", "29:0"])
-                time.sleep(0.5)
-                if text:
-                    _ydo(["type", "--", text])
-                    # Enter = 28
-                    _ydo(["key", "28:1", "28:0"])
-                return {"success": True, "message": f"New tab (Ctrl+T){': ' + text[:50] if text else ''}"}
-            elif action == "close_tab":
-                # Ctrl+W = 29 (ctrl) + 17 (w)
-                _ydo(["key", "29:1", "17:1", "17:0", "29:0"])
-                return {"success": True, "message": "Closed tab (Ctrl+W)"}
-            elif action == "switch_tab":
-                identifier = target or text or ""
-                try:
-                    idx = int(identifier)
-                    if 1 <= idx <= 9:
-                        # Ctrl + number key
-                        num_keycode = str(idx + 1)  # 1=2, 2=3, ... 9=10 in evdev
-                        _ydo(["key", "29:1", f"{num_keycode}:1", f"{num_keycode}:0", "29:0"])
-                        return {"success": True, "message": f"Switched to tab {idx}"}
-                except ValueError:
-                    pass
-                # Ctrl+PageDown = 29 (ctrl) + 109 (pagedown)
-                _ydo(["key", "29:1", "109:1", "109:0", "29:0"])
-                return {"success": True, "message": "Switched to next tab (Ctrl+PageDown)"}
-            # ── Scroll to (not available) ─────────────────────────────────
-            elif action == "scroll_to":
-                return {"success": False, "message": "scroll_to not supported in ydotool mode — use scroll"}
-            # ── DOM / Semantic (not available) ─────────────────────────────
-            elif action == "get_text":
-                return {"success": False, "message": "get_text not supported in ydotool mode"}
-            elif action == "find_element":
-                return {"success": False, "message": "find_element not supported in ydotool mode"}
-            elif action == "evaluate_js":
-                return {"success": False, "message": "evaluate_js not supported in ydotool mode"}
-            elif action == "wait_for":
-                return _do_wait(3.0)  # Approximate: just wait a few seconds
-            # ── Shell / Terminal ────────────────────────────────────────────
-            elif action == "run_command":
-                cmd = text or target
-                if not cmd:
-                    return {"success": False, "message": "run_command requires text (shell command)"}
-                try:
-                    args = shlex.split(cmd)
-                except ValueError as e:
-                    return {"success": False, "message": f"Invalid command syntax: {e}"}
-                if not args:
-                    return {"success": False, "message": "Empty command"}
-                if args[0] not in _ALLOWED_COMMANDS:
-                    return {"success": False, "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_ALLOWED_COMMANDS))}"}
-                try:
-                    result = subprocess.run(
-                        args, shell=False, capture_output=True, text=True, timeout=30,
-                        env={**os.environ, "DISPLAY": ":99"},
-                    )
-                    output = (result.stdout + result.stderr).strip()[:2000]
-                    return {"success": result.returncode == 0, "message": output or f"Command exited with code {result.returncode}"}
-                except subprocess.TimeoutExpired:
-                    return {"success": False, "message": "Command timed out after 30s"}
-            elif action == "open_terminal":
-                return _open_terminal()
-            # ── Vision (scrot — no xdotool dependency) ────────────────
-            elif action in ("screenshot", "screenshot_full"):
-                b64 = _screenshot_desktop()
-                return {"success": True, "message": "Full screenshot captured", "screenshot": b64}
-            elif action == "screenshot_region":
-                if len(coords) >= 4:
-                    b64 = _xdo_screenshot_region(coords[0], coords[1], coords[2], coords[3])
-                    return {"success": True, "message": "Region screenshot captured", "screenshot": b64}
-                return {"success": False, "message": "screenshot_region needs 4 coords [x, y, width, height]"}
-            else:
-                return {"success": False, "message": f"Unsupported action '{action}' in ydotool engine"}
-        except RuntimeError as e:
-            logger.warning(f"ydotool action '{action}' failed: {e}")
-            return {"success": False, "message": f"ydotool error: {e}"}
-
 
 
 def main():
