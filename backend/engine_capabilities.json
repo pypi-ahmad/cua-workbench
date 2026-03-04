@@ -1,0 +1,476 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "2.0",
+  "description": "CUA Engine Capability Schema — machine-readable registry of every automation engine's supported actions, categories, limitations, and environment requirements. Generated from tools_list.txt sections 1-22.",
+  "engines": {
+    "playwright_mcp": {
+      "display_name": "Playwright MCP (Semantic Browser)",
+      "description": "Model Context Protocol layer over Playwright providing accessibility-tree-based semantic interaction. No coordinates or screenshots needed for most operations.",
+      "fallback_priority": 2,
+      "categories": {
+        "navigation": [
+          "open_url",
+          "reload",
+          "go_back",
+          "go_forward",
+          "new_tab",
+          "close_tab",
+          "switch_tab"
+        ],
+        "mouse": [
+          "click",
+          "double_click",
+          "hover",
+          "click_coordinates",
+          "drag_coordinates"
+        ],
+        "keyboard": [
+          "type",
+          "fill",
+          "key",
+          "hotkey",
+          "clear_input",
+          "paste",
+          "copy",
+          "select_option"
+        ],
+        "dom": [
+          "get_text",
+          "get_accessibility_tree",
+          "get_snapshot",
+          "find_by_role",
+          "find_by_text",
+          "find_by_label",
+          "find_element",
+          "get_all_text",
+          "get_links"
+        ],
+        "wait": [
+          "wait",
+          "wait_for"
+        ],
+        "scroll": [
+          "scroll",
+          "scroll_to",
+          "scroll_into_view"
+        ],
+        "screenshot": [
+          "screenshot"
+        ],
+        "javascript": [
+          "evaluate_js",
+          "evaluate_on_selector"
+        ],
+        "extraction": [
+          "extract_data",
+          "scrape_page",
+          "get_console_logs",
+          "monitor_console"
+        ],
+        "file": [
+          "generate_pdf",
+          "export_page_pdf"
+        ],
+        "auth": [
+          "get_current_url",
+          "get_page_title"
+        ],
+        "meta": [
+          "focus_and_type",
+          "safe_type",
+          "retry_click",
+          "verify_input",
+          "paste_fallback",
+          "done",
+          "error"
+        ]
+      },
+      "allowed_actions": [
+        "open_url",
+        "reload",
+        "go_back",
+        "go_forward",
+        "new_tab",
+        "close_tab",
+        "switch_tab",
+        "click",
+        "double_click",
+        "hover",
+        "click_coordinates",
+        "drag_coordinates",
+        "type",
+        "fill",
+        "key",
+        "hotkey",
+        "clear_input",
+        "paste",
+        "copy",
+        "select_option",
+        "get_text",
+        "get_accessibility_tree",
+        "get_snapshot",
+        "find_by_role",
+        "find_by_text",
+        "find_by_label",
+        "find_element",
+        "get_all_text",
+        "get_links",
+        "wait",
+        "wait_for",
+        "scroll",
+        "scroll_to",
+        "scroll_into_view",
+        "screenshot",
+        "evaluate_js",
+        "evaluate_on_selector",
+        "extract_data",
+        "scrape_page",
+        "get_console_logs",
+        "monitor_console",
+        "generate_pdf",
+        "export_page_pdf",
+        "get_current_url",
+        "get_page_title",
+        "focus_and_type",
+        "safe_type",
+        "retry_click",
+        "verify_input",
+        "paste_fallback",
+        "done",
+        "error"
+      ],
+      "limitations": [
+        "No desktop / system-level control",
+        "Requires browser context + MCP server running",
+        "No right_click, middle_click (limited mouse support)",
+        "No window management",
+        "No network interception (use standard Playwright for that)",
+        "MCP server must be started with --no-sandbox in Docker"
+      ],
+      "environment_requirements": [
+        "playwright-mcp npm package installed",
+        "MCP server running on configured port (default 3100)",
+        "Chromium with --no-sandbox --headless flags in Docker",
+        "Node.js runtime",
+        "DISPLAY or headless mode"
+      ]
+    },
+    "omni_accessibility": {
+      "display_name": "Omni Accessibility (AT-SPI/UIA/JXA)",
+      "description": "Cross-platform accessibility automation via AT-SPI2 (Linux), UI Automation (Windows), and JXA/System Events (macOS). Provides semantic interaction with application UI components through the accessibility tree — no pixel coordinates needed.",
+      "fallback_priority": 5,
+      "categories": {
+        "discovery": [
+          "get_accessibility_tree",
+          "get_snapshot",
+          "find_by_role",
+          "find_by_text",
+          "find_by_label",
+          "find_element"
+        ],
+        "tree": [
+          "get_accessibility_tree",
+          "get_snapshot"
+        ],
+        "action": [
+          "click",
+          "double_click",
+          "right_click",
+          "hover",
+          "drag",
+          "invoke_action",
+          "select_option"
+        ],
+        "text": [
+          "type",
+          "fill",
+          "key",
+          "hotkey",
+          "clear_input",
+          "paste",
+          "copy",
+          "get_text",
+          "query_text"
+        ],
+        "value": [
+          "query_value"
+        ],
+        "state": [
+          "get_role",
+          "get_state",
+          "get_attributes"
+        ],
+        "query": [
+          "find_by_role",
+          "find_by_text",
+          "find_by_label",
+          "find_element",
+          "query_component"
+        ],
+        "component": [
+          "query_component"
+        ],
+        "event": [
+          "subscribe_event",
+          "unsubscribe_event"
+        ],
+        "navigation": [
+          "open_url",
+          "open_app",
+          "open_terminal",
+          "run_command",
+          "focus_window",
+          "close_window"
+        ],
+        "scroll": [
+          "scroll",
+          "scroll_to",
+          "scroll_into_view"
+        ],
+        "wait": [
+          "wait",
+          "wait_for"
+        ],
+        "screenshot": [
+          "screenshot",
+          "screenshot_full",
+          "screenshot_region"
+        ],
+        "meta": [
+          "focus_and_type",
+          "safe_type",
+          "retry_click",
+          "verify_input",
+          "paste_fallback",
+          "done",
+          "error"
+        ]
+      },
+      "allowed_actions": [
+        "get_accessibility_tree",
+        "get_snapshot",
+        "find_by_role",
+        "find_by_text",
+        "find_by_label",
+        "find_element",
+        "invoke_action",
+        "get_role",
+        "get_state",
+        "get_attributes",
+        "query_text",
+        "query_value",
+        "query_component",
+        "subscribe_event",
+        "unsubscribe_event",
+        "click",
+        "double_click",
+        "right_click",
+        "hover",
+        "drag",
+        "type",
+        "fill",
+        "key",
+        "hotkey",
+        "clear_input",
+        "paste",
+        "copy",
+        "get_text",
+        "select_option",
+        "open_url",
+        "open_app",
+        "open_terminal",
+        "run_command",
+        "focus_window",
+        "close_window",
+        "scroll",
+        "scroll_to",
+        "scroll_into_view",
+        "wait",
+        "wait_for",
+        "screenshot",
+        "screenshot_full",
+        "screenshot_region",
+        "focus_and_type",
+        "safe_type",
+        "retry_click",
+        "verify_input",
+        "paste_fallback",
+        "done",
+        "error"
+      ],
+      "event_types": [
+        "object:state-changed",
+        "object:children-changed",
+        "object:text-changed",
+        "window:create",
+        "window:activate"
+      ],
+      "limitations": [
+        "Linux only (AT-SPI is a D-Bus-based Linux accessibility framework)",
+        "Requires ATK bridge (at-spi2-atk) to be loaded by applications",
+        "No pixel-level control — depends on accessibility tree accuracy",
+        "Dependent on application accessibility compliance (GTK3/4, Qt5/6)",
+        "No browser DOM access (use Playwright MCP for browser semantic interactions)",
+        "Performance varies with accessibility tree depth",
+        "Cannot interact with applications that do not expose AT-SPI interfaces"
+      ],
+      "environment_requirements": [
+        "D-Bus session bus running",
+        "at-spi2-core daemon running (at-spi-bus-launcher or /usr/libexec/at-spi2-registryd)",
+        "python3-gi (PyGObject) installed as system package",
+        "gir1.2-atspi-2.0 GObject introspection bindings",
+        "Python venv created with --system-site-packages to access system GI bindings",
+        "at-spi2-atk bridge loaded (GTK_MODULES=atk-bridge)",
+        "DISPLAY set for X11 applications (or XDG_RUNTIME_DIR for Wayland)"
+      ],
+      "tooling": {
+        "core_infrastructure": [
+          "at-spi2-core",
+          "at-spi2-atk",
+          "atk-bridge",
+          "pyatspi"
+        ],
+        "inspection_tools": [
+          "accerciser",
+          "atspi-monitor",
+          "atspi-dump"
+        ],
+        "automation_frameworks": [
+          "dogtail",
+          "ldtp"
+        ],
+        "debug_utilities": [
+          "dbus-monitor",
+          "d-feet",
+          "gdbus"
+        ]
+      }
+    },
+    "computer_use": {
+      "display_name": "Computer Use (Native CU Protocol) ★ Recommended",
+      "description": "Unified engine using Gemini 3 Flash and Claude 4.6 Sonnet native Computer Use tool protocols. Structured function_call / tool_use instead of text-parsed JSON. Supports browser (Playwright) and desktop (xdotool+scrot with ydotool fallback) backends. This is the recommended engine for new tasks.",
+      "fallback_priority": 6,
+      "recommended": true,
+      "categories": {
+        "navigation": [
+          "open_web_browser",
+          "navigate",
+          "go_back",
+          "go_forward",
+          "search"
+        ],
+        "mouse": [
+          "click_at",
+          "hover_at",
+          "drag_and_drop"
+        ],
+        "keyboard": [
+          "type_text_at",
+          "key_combination"
+        ],
+        "scroll": [
+          "scroll_document",
+          "scroll_at"
+        ],
+        "wait": [
+          "wait_5_seconds"
+        ],
+        "special": [
+          "done",
+          "error"
+        ]
+      },
+      "allowed_actions": [
+        "open_web_browser",
+        "navigate",
+        "go_back",
+        "go_forward",
+        "search",
+        "click_at",
+        "hover_at",
+        "drag_and_drop",
+        "type_text_at",
+        "key_combination",
+        "scroll_document",
+        "scroll_at",
+        "wait_5_seconds",
+        "done",
+        "error"
+      ],
+      "limitations": [
+        "Action vocabulary is fixed by the model's CU tool — cannot add custom actions",
+        "Gemini uses normalized 0-999 coordinates; Claude uses real pixels",
+        "No DOM/selector-level interaction (pixel-based only)",
+        "Safety confirmations require callback handling"
+      ],
+      "environment_requirements": [
+        "Playwright Chromium (browser mode)",
+        "Xvfb + xdotool + scrot (desktop mode)",
+        "DISPLAY=:99 set for desktop mode"
+      ]
+    }
+  },
+  "capability_comparison": {
+    "_comment": "Quick-reference matrix from tools_list.txt section 20",
+    "features": {
+      "dom_awareness": {
+        "playwright_mcp": true,
+        "omni_accessibility": true,
+        "computer_use": false
+      },
+      "accessibility_tree": {
+        "playwright_mcp": true,
+        "omni_accessibility": true,
+        "computer_use": false
+      },
+      "vision_required": {
+        "playwright_mcp": false,
+        "omni_accessibility": false,
+        "computer_use": true
+      },
+      "works_outside_x11": {
+        "playwright_mcp": false,
+        "omni_accessibility": true,
+        "computer_use": true
+      },
+      "window_management": {
+        "playwright_mcp": false,
+        "omni_accessibility": true,
+        "computer_use": true
+      },
+      "desktop_app_control": {
+        "playwright_mcp": false,
+        "omni_accessibility": true,
+        "computer_use": true
+      },
+      "semantic_interaction": {
+        "playwright_mcp": true,
+        "omni_accessibility": true,
+        "computer_use": false
+      },
+      "kernel_level_input": {
+        "playwright_mcp": false,
+        "omni_accessibility": false,
+        "computer_use": false
+      },
+      "wayland_support": {
+        "playwright_mcp": false,
+        "omni_accessibility": true,
+        "computer_use": true
+      },
+      "stability": {
+        "playwright_mcp": "high",
+        "omni_accessibility": "medium",
+        "computer_use": "medium"
+      }
+    }
+  },
+  "architecture_recommendations": {
+    "_comment": "From tools_list.txt sections 21-22",
+    "browser_tasks": "playwright_mcp",
+    "desktop_tasks": "computer_use",
+    "fallback": "omni_accessibility",
+    "correct_pattern": "focus → click → wait → type → fallback paste",
+    "anti_pattern": "click → type → fail → retry loop"
+  }
+}
