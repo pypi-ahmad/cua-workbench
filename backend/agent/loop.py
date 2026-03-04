@@ -167,31 +167,29 @@ class AgentLoop:
 
         # Pre-flight: ensure Playwright MCP server is running (STDIO transport)
         if self._engine == "playwright_mcp":
+            from backend.agent.playwright_mcp_client import (
+                set_mcp_target,
+                _ensure_mcp_initialized,
+                check_mcp_health,
+            )
+            set_mcp_target(self._execution_target)
+
             if self._execution_target == "docker":
-                # Docker mode: connect to the MCP HTTP server running inside the container
-                mcp_url = f"http://{config.playwright_mcp_host}:{config.playwright_mcp_port}{config.playwright_mcp_path}"
-                self._emit_log("info", f"Using Docker Playwright MCP server at {mcp_url}...")
+                # Docker mode: STDIO tunnelled through docker exec -i <container>
+                self._emit_log("info", "Initializing Playwright MCP (STDIO via docker exec)...")
                 try:
-                    from backend.agent.playwright_mcp_client import (
-                        _ensure_docker_mcp_initialized,
-                        _reset_docker_session,
-                    )
-                    session = await _ensure_docker_mcp_initialized()
-                    tools_result = await session.list_tools()
-                    if tools_result and tools_result.tools:
-                        self._emit_log("info", f"Docker Playwright MCP session ready — {len(tools_result.tools)} tools")
+                    await _ensure_mcp_initialized()
+                    mcp_ok = await check_mcp_health()
+                    if mcp_ok:
+                        self._emit_log("info", "Docker Playwright MCP STDIO session ready")
                     else:
-                        self._emit_log("warning", "Docker MCP connected but returned no tools")
+                        self._emit_log("warning", "Docker MCP health check failed — actions may fail")
                 except Exception as e:
                     self._emit_log("warning", f"Docker MCP server unreachable: {e} — will retry on first action")
             else:
                 # Local mode: spawn MCP via STDIO on the host machine
-                self._emit_log("info", "Initializing Playwright MCP server (STDIO)...")
+                self._emit_log("info", "Initializing Playwright MCP server (STDIO local)...")
                 try:
-                    from backend.agent.playwright_mcp_client import (
-                        _ensure_mcp_initialized,
-                        check_mcp_health,
-                    )
                     await _ensure_mcp_initialized()
 
                     # Verify STDIO session is alive
@@ -366,21 +364,36 @@ class AgentLoop:
 
                 # ── Duplicate result detection (e.g. same JS output) ──────
                 if self._detect_duplicate_results():
-                    self._emit_log("warning",
-                        "Duplicate execution results detected — injecting "
-                        "completion ultimatum")
-                    self._action_history.append(AgentAction(
-                        action=ActionType.WAIT,
-                        reasoning=(
-                            "System: STOP — you have already collected this data. "
-                            "The same result has been returned multiple times. "
-                            "You MUST now either:\n"
-                            '1. Return done: {"action":"done","reasoning":"Task completed. <your summary here>"}\n'
-                            '2. Close extra tabs and return done\n'
-                            '3. Return error if something is genuinely wrong\n'
-                            "DO NOT call evaluate_js or get_text again — the data is already captured."
-                        ),
-                    ))
+                    last_result = self._result_cache[-1] if self._result_cache else ""
+                    # If the repeated results are *errors*, do NOT force
+                    # completion — the agent needs to self-correct, not quit.
+                    _is_error_dup = any(
+                        sig in last_result.lower()
+                        for sig in (
+                            "error", "failed", "not an <input>",
+                            "locator.", "tool_error", "unable to",
+                        )
+                    )
+                    if _is_error_dup:
+                        self._emit_log("warning",
+                            "Duplicate *error* results detected — skipping "
+                            "completion ultimatum (agent should self-correct)")
+                    else:
+                        self._emit_log("warning",
+                            "Duplicate execution results detected — injecting "
+                            "completion ultimatum")
+                        self._action_history.append(AgentAction(
+                            action=ActionType.WAIT,
+                            reasoning=(
+                                "System: STOP — you have already collected this data. "
+                                "The same result has been returned multiple times. "
+                                "You MUST now either:\n"
+                                '1. Return done: {"action":"done","reasoning":"Task completed. <your summary here>"}\n'
+                                '2. Close extra tabs and return done\n'
+                                '3. Return error if something is genuinely wrong\n'
+                                "DO NOT call evaluate_js or get_text again — the data is already captured."
+                            ),
+                        ))
 
                 # Note: per-action delay is handled inside executor.py
 
