@@ -16,24 +16,28 @@ CUA Workbench is designed for:
 ## Table of Contents
 
 1. [Project Overview](#project-overview)
-2. [Model Policy (UI + API)](#model-policy-ui--api)
-3. [Architecture Overview](#architecture-overview)
-4. [System Flow](#system-flow)
-5. [Agent Loop Logic](#agent-loop-logic)
-6. [Data Model & State](#data-model--state)
-7. [Core Modules](#core-modules)
-8. [Engine Breakdown](#engine-breakdown)
-9. [Security Model](#security-model)
-10. [LLM Provider Integration](#llm-provider-integration)
-11. [API Surface](#api-surface)
-12. [Docker Runtime](#docker-runtime)
-13. [Configuration](#configuration)
-14. [Setup & Installation](#setup--installation)
-15. [Running the Application](#running-the-application)
-16. [Testing](#testing)
-17. [Troubleshooting](#troubleshooting)
-18. [Limitations](#limitations)
-19. [Future Improvements](#future-improvements)
+2. [Quickstart (TL;DR)](#quickstart-tldr)
+3. [Model Policy (UI + API)](#model-policy-ui--api)
+4. [Architecture Overview](#architecture-overview)
+5. [System Flow](#system-flow)
+6. [Agent Loop Logic](#agent-loop-logic)
+7. [Data Model & State](#data-model--state)
+8. [Core Modules](#core-modules)
+9. [Engine Breakdown](#engine-breakdown)
+10. [Security Model](#security-model)
+11. [LLM Provider Integration](#llm-provider-integration)
+12. [API Surface](#api-surface)
+13. [Docker Runtime](#docker-runtime)
+14. [Configuration](#configuration)
+15. [Setup & Installation](#setup--installation)
+16. [Running the Application](#running-the-application)
+17. [Testing](#testing)
+18. [Troubleshooting](#troubleshooting)
+19. [Limitations](#limitations)
+20. [Future Improvements](#future-improvements)
+21. [Contributing](#contributing)
+22. [Security Reporting](#security-reporting)
+23. [License](#license)
 
 ---
 
@@ -54,6 +58,46 @@ CUA implements a **perceive → think → act** loop: it captures a screenshot o
 ### Problem It Solves
 
 CUA enables natural-language-driven computer control — a user describes a task in plain text (e.g., "Open Firefox and search for weather in New York"), and the agent autonomously operates the desktop to complete it, reporting progress in real time through a web UI.
+
+---
+
+## Quickstart (TL;DR)
+
+> Runs on Windows/macOS/Linux (host) and executes desktop/browser actions inside a Docker Linux sandbox.
+
+### 1) Start the Docker sandbox
+```bash
+docker compose up --build -d
+```
+
+Sanity check:
+```bash
+curl http://127.0.0.1:9222/health
+```
+
+### 2) Start the backend (FastAPI)
+```bash
+python -m backend.main
+```
+
+### 3) Start the frontend (Vite)
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### 4) Open the Workbench
+
+- UI: [http://127.0.0.1:3000](http://127.0.0.1:3000)
+- noVNC (direct): [http://127.0.0.1:6080](http://127.0.0.1:6080)
+
+### 5) Run a first task
+
+- Desktop: **"open file explorer"**
+- Browser: **"go to example.com"**
+
+> **Windows note:** Prefer `127.0.0.1` over `localhost` for internal services to avoid IPv6 binding issues with Docker.
 
 ---
 
@@ -86,7 +130,7 @@ The system is a **three-process architecture** running across the host and a Doc
 | Layer | Technology | Entry Point | Port |
 |---|---|---|---|
 | **Backend** | Python 3 / FastAPI / Uvicorn | `backend/main.py` → `backend.api.server:app` | 8000 |
-| **Frontend** | React 19 / Vite 6 / react-router-dom 7 | `frontend/src/main.jsx` | 3000 |
+| **Frontend** | React / Vite / React Router (see [`frontend/package.json`](frontend/package.json)) | `frontend/src/main.jsx` | 3000 |
 | **Container** | Ubuntu 24.04 / XFCE 4 / Xvfb / Playwright | `docker/entrypoint.sh` → `docker/agent_service.py` | 9222 |
 
 ### Component Map
@@ -763,7 +807,7 @@ cd frontend
 npm run dev
 ```
 
-**Open:** http://localhost:3000
+**Open:** http://127.0.0.1:3000
 
 > If you skip `docker compose up -d`, the container starts automatically when you launch an agent task from the UI.
 
@@ -896,6 +940,33 @@ Based on patterns observable in the codebase:
 
 ---
 
+## Contributing
+
+1. Fork the repo and create a feature branch.
+2. Write a **failing test first** (TDD) — all tests must be hermetic (mocked IO, no network).
+3. Run the full suite: `pytest tests/ -v`
+4. Keep code coverage **≥ 80%** on changed files.
+5. Follow existing style: small functions, clear names, minimal comments that explain *why*.
+6. Open a PR with a descriptive title and reference any related issues.
+
+See the [Testing](#testing) section for how to run unit and stress tests.
+
+---
+
+## Security Reporting
+
+If you discover a **security vulnerability**, please **do not** open a public issue.  
+Instead, email the maintainer privately or use GitHub's [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability).  
+We aim to acknowledge reports within 48 hours and issue a fix within 7 days for critical issues.
+
+---
+
+## License
+
+This project is licensed under the **MIT License** — see [LICENSE](LICENSE) for details.
+
+---
+
 ## Validation Statement
 
-Every claim in this document traces to a specific file, function, class, constant, or configuration value in the repository. No features are assumed, inferred from naming conventions, or extrapolated from TODO comments. Where behavior is ambiguous in code, the document describes what the code does, not what it might intend.
+This README aims to stay code-accurate. Every claim traces to a specific file, function, class, constant, or configuration value in the repository. Where behavior is ambiguous in code, the document describes what the code *does*, not what it might intend. If you find drift between the docs and the code, please [open an issue](https://github.com/pypi-ahmad/cua-workbench/issues).
