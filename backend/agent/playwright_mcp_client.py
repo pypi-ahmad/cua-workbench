@@ -279,6 +279,97 @@ async def _resolve_ref(element: str) -> str | None:
     return None
 
 
+# Roles / tags that are considered input-like (fillable / typable).
+_INPUT_ROLES = frozenset({
+    "textbox", "combobox", "searchbox", "spinbutton",
+    "input", "textarea", "select",
+})
+
+
+def _extract_input_ref_from_snapshot(snapshot_text: str, target: str) -> str | None:
+    """Resolve *target* to a **fillable** element ref from *snapshot_text*.
+
+    If *target* already looks like a ref (e.g. ``"e22"``), we still
+    validate that the matching row in the snapshot corresponds to an
+    input-like element (textbox, combobox, searchbox, etc.).  If the
+    given ref does not point to a fillable element we scan the snapshot
+    for the nearest input and return that instead.
+
+    This prevents the common Gemini mis-targeting bug where the model
+    provides a ref for a ``<tr>`` or ``<div>`` instead of the actual
+    ``<input>`` / ``<combobox>``.
+    """
+    if not target or not snapshot_text:
+        return None
+
+    target_stripped = target.strip()
+    is_ref_pattern = bool(re.fullmatch(r"[A-Za-z]\d+", target_stripped))
+
+    lines = snapshot_text.splitlines()
+
+    # Helper: check whether a snapshot line describes a fillable role.
+    def _is_input_line(line: str) -> bool:
+        ll = line.lower()
+        for role in _INPUT_ROLES:
+            if role in ll:
+                return True
+        return False
+
+    # If the model gave an explicit ref, verify it's actually inputtable.
+    if is_ref_pattern:
+        for line in lines:
+            if f"[ref={target_stripped}]" in line:
+                if _is_input_line(line):
+                    return target_stripped  # ref is valid and fillable
+                # ref exists but not an input — fall through to scan
+                break
+
+    # Scan all lines for a fillable element.
+    # Prefer a line matching *target* text; otherwise take the first input.
+    target_lower = target_stripped.lower()
+    first_input_ref: str | None = None
+    for line in lines:
+        if "[ref=" not in line:
+            continue
+        match = re.search(r"\[ref=([^\]]+)\]", line)
+        if not match:
+            continue
+        ref = match.group(1)
+        if _is_input_line(line):
+            if first_input_ref is None:
+                first_input_ref = ref
+            if target_lower in line.lower():
+                return ref
+
+    return first_input_ref
+
+
+async def _resolve_input_ref(element: str) -> str | None:
+    """Take a browser snapshot and resolve *element* to a **fillable** ref.
+
+    Unlike ``_resolve_ref`` which accepts any element type, this variant
+    specifically seeks ``textbox``, ``combobox``, ``searchbox``, etc.
+    so that fill / type actions target the correct node.
+    """
+    if not element:
+        return None
+
+    for attempt in range(2):
+        snapshot = await _mcp_call("browser_snapshot", {})
+        if snapshot.get("success"):
+            ref = _extract_input_ref_from_snapshot(
+                snapshot.get("message", ""), element,
+            )
+            if ref:
+                return ref
+        if attempt == 0:
+            await asyncio.sleep(0.2)
+
+    # Final fallback: use generic resolution so we don't return None
+    # when the snapshot has unusual roles.
+    return await _resolve_ref(element)
+
+
 # ── Screenshot via MCP ─────────────────────────────────────────────────────────
 
 async def capture_mcp_screenshot() -> str:
@@ -355,24 +446,37 @@ async def mcp_hover(element: str) -> dict:
 
 
 async def mcp_type(element: str, text: str) -> dict:
-    """Type *text* into the element resolved via accessibility snapshot."""
-    ref = await _resolve_ref(element)
+    """Type *text* into the element resolved via accessibility snapshot.
+
+    Uses ``_resolve_input_ref`` to ensure the resolved ref actually
+    points to a fillable element (textbox, combobox, searchbox, etc.)
+    instead of a non-input element the model may have mis-targeted.
+    """
+    ref = await _resolve_input_ref(element)
     if not ref:
         return {"success": False, "message": f"Unable to resolve element ref for type target: {element}"}
     return await _mcp_call("browser_type", {"element": element, "ref": ref, "text": text})
 
 
 async def mcp_fill(element: str, value: str) -> dict:
-    """Fill *value* into the element (clears first)."""
-    ref = await _resolve_ref(element)
+    """Fill *value* into the element (clears first).
+
+    Uses ``_resolve_input_ref`` to ensure the resolved ref actually
+    points to a fillable element (textbox, combobox, searchbox, etc.)
+    instead of a non-input element the model may have mis-targeted.
+    """
+    ref = await _resolve_input_ref(element)
     if not ref:
         return {"success": False, "message": f"Unable to resolve element ref for fill target: {element}"}
     return await _mcp_call("browser_type", {"element": element, "ref": ref, "text": value})
 
 
 async def mcp_select_option(element: str, value: str) -> dict:
-    """Select *value* from a <select> element."""
-    ref = await _resolve_ref(element)
+    """Select *value* from a <select> element.
+
+    Uses ``_resolve_input_ref`` to find the actual ``<select>`` / combobox.
+    """
+    ref = await _resolve_input_ref(element)
     if not ref:
         return {"success": False, "message": f"Unable to resolve element ref for select_option target: {element}"}
     return await _mcp_call("browser_select_option", {"element": element, "ref": ref, "values": [value]})
@@ -895,7 +999,14 @@ async def execute_mcp_action_docker(
 
         handler = MCP_TOOL_HANDLERS.get(action)
         if handler:
-            return await handler(text, target)
+            try:
+                return await handler(text, target)
+            except asyncio.CancelledError:
+                logger.error("Docker MCP action '%s' was cancelled (asyncio.CancelledError)", action)
+                return {"success": False, "message": f"Docker MCP action '{action}' was cancelled — check container connectivity"}
+            except Exception as exc:
+                logger.error("Docker MCP action '%s' raised: %s", action, exc, exc_info=True)
+                return {"success": False, "message": f"Docker MCP action '{action}' error: {exc}"}
 
         return {"success": False, "message": f"Unsupported action '{action}' in playwright_mcp (docker) engine"}
     finally:
