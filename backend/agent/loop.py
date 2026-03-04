@@ -462,12 +462,49 @@ class AgentLoop:
                 self.session.status = SessionStatus.ERROR
                 return self.session
 
+        # CU action name → ActionType best-effort mapping for the step timeline
+        _CU_ACTION_MAP = {
+            "click_at": ActionType.CLICK, "double_click": ActionType.DOUBLE_CLICK,
+            "right_click": ActionType.RIGHT_CLICK, "triple_click": ActionType.CLICK,
+            "hover_at": ActionType.HOVER, "type_text_at": ActionType.TYPE,
+            "type_at_cursor": ActionType.TYPE, "key_combination": ActionType.KEY,
+            "scroll_document": ActionType.SCROLL, "scroll_at": ActionType.SCROLL,
+            "drag_and_drop": ActionType.DRAG, "navigate": ActionType.OPEN_URL,
+            "open_web_browser": ActionType.OPEN_URL, "search": ActionType.OPEN_URL,
+            "go_back": ActionType.GO_BACK, "go_forward": ActionType.GO_FORWARD,
+            "wait_5_seconds": ActionType.WAIT,
+        }
+
         def _on_turn(record: CUTurnRecord) -> None:
             """Map CU turn records to session step records + broadcast."""
+            # Build an AgentAction from the first CU action in this turn
+            agent_action = None
+            if record.actions:
+                first = record.actions[0]
+                action_type = _CU_ACTION_MAP.get(first.name)
+                if action_type:
+                    agent_action = AgentAction(
+                        action=action_type,
+                        reasoning=record.model_text[:500] if record.model_text else None,
+                    )
+                    # Attach coordinates/text from extra data if available
+                    px = first.extra.get("pixel_x")
+                    py = first.extra.get("pixel_y")
+                    if px is not None and py is not None:
+                        agent_action.coordinates = [px, py]
+                    if first.extra.get("text"):
+                        agent_action.text = str(first.extra["text"])
+                else:
+                    # Unknown CU action — log it but still record the step
+                    self._emit_log(
+                        "warning",
+                        f"Unmapped CU action '{first.name}' — not in ActionType enum",
+                    )
             step = StepRecord(
                 step_number=record.turn,
                 screenshot_b64=record.screenshot_b64,
                 raw_model_response=record.model_text,
+                action=agent_action,
             )
             self.session.steps.append(step)
             self._fire_callback(self._on_step, step)
