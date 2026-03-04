@@ -705,6 +705,11 @@ class GeminiCUClient:
 
         # Initial screenshot
         screenshot_bytes = await executor.capture_screenshot()
+        if not screenshot_bytes or len(screenshot_bytes) < 100:
+            if on_log:
+                on_log("error", "Initial screenshot capture failed or returned empty bytes")
+            return "Error: Could not capture initial screenshot"
+
         contents = [
             types.Content(
                 role="user",
@@ -721,12 +726,34 @@ class GeminiCUClient:
             if on_log:
                 on_log("info", f"Gemini CU turn {turn + 1}/{turn_limit}")
 
-            response = await asyncio.to_thread(
-                self._client.models.generate_content,
-                model=self._model,
-                contents=contents,
-                config=config,
-            )
+            try:
+                response = await asyncio.to_thread(
+                    self._client.models.generate_content,
+                    model=self._model,
+                    contents=contents,
+                    config=config,
+                )
+            except Exception as api_err:
+                error_msg = str(api_err)
+                if on_log:
+                    on_log("error", f"Gemini API error at turn {turn + 1}: {error_msg}")
+                # Try to provide actionable info for common error patterns
+                if "INVALID_ARGUMENT" in error_msg:
+                    if on_log:
+                        on_log("error",
+                            "INVALID_ARGUMENT usually means: (1) screenshot too large/corrupt, "
+                            "(2) model doesn't support computer_use tool, or "
+                            "(3) conversation context exceeded limits. "
+                            f"Contents length: {len(contents)} turns, "
+                            f"last screenshot: {len(screenshot_bytes)} bytes")
+                final_text = f"Gemini API error: {error_msg}"
+                break
+
+            if not response.candidates:
+                if on_log:
+                    on_log("error", f"Gemini returned no candidates at turn {turn + 1}")
+                final_text = "Error: Gemini returned no candidates"
+                break
 
             candidate = response.candidates[0]
             contents.append(candidate.content)
@@ -777,12 +804,18 @@ class GeminiCUClient:
                 results.append(result)
 
             # Emit turn record
-            screenshot_bytes = await executor.capture_screenshot()
-            screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
+            try:
+                screenshot_bytes = await executor.capture_screenshot()
+            except Exception as ss_err:
+                if on_log:
+                    on_log("warning", f"Screenshot capture failed at turn {turn + 1}: {ss_err}")
+                screenshot_bytes = b""
+
+            screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode() if screenshot_bytes else ""
             if on_turn:
                 on_turn(CUTurnRecord(
                     turn=turn + 1, model_text=turn_text,
-                    actions=results, screenshot_b64=screenshot_b64,
+                    actions=results, screenshot_b64=screenshot_b64 or None,
                 ))
 
             if terminated:
@@ -798,7 +831,14 @@ class GeminiCUClient:
                     resp_data["error"] = r.error
                 if r.safety_decision == SafetyDecision.REQUIRE_CONFIRMATION:
                     resp_data["safety_acknowledgement"] = "true"
-                resp_data.update(r.extra)
+                # Merge extra data, converting non-serializable types (tuples → lists)
+                for k, v in r.extra.items():
+                    if isinstance(v, tuple):
+                        resp_data[k] = list(v)
+                    elif isinstance(v, (str, int, float, bool, type(None), list, dict)):
+                        resp_data[k] = v
+                    else:
+                        resp_data[k] = str(v)
 
                 fr_parts.append(
                     types.Part(
@@ -808,10 +848,15 @@ class GeminiCUClient:
                     )
                 )
 
-            # Attach screenshot to the function response turn
-            fr_parts.append(
-                types.Part.from_bytes(data=screenshot_bytes, mime_type="image/png")
-            )
+            # Attach screenshot to the function response turn (only if valid)
+            if screenshot_bytes and len(screenshot_bytes) >= 100:
+                fr_parts.append(
+                    types.Part.from_bytes(data=screenshot_bytes, mime_type="image/png")
+                )
+            else:
+                if on_log:
+                    on_log("warning", "Skipping screenshot attachment — empty or too small")
+
             contents.append(types.Content(role="user", parts=fr_parts))
 
         return final_text

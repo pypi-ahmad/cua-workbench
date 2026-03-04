@@ -4032,7 +4032,20 @@ async function request(path, options = {}) {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   })
-  return res.json()
+  if (!res.ok) {
+    let message
+    try {
+      message = await res.text()
+    } catch {
+      message = res.statusText
+    }
+    throw new Error(message || res.statusText)
+  }
+  const ct = res.headers.get('content-type') || ''
+  if (ct.includes('application/json')) {
+    return res.json()
+  }
+  return res.text()
 }
 
 export async function getHealth() {
@@ -4056,18 +4069,41 @@ export async function buildImage() {
 }
 
 export async function startAgent({ task, apiKey, model, maxSteps, mode, engine, provider }) {
-  return request('/agent/start', {
-    method: 'POST',
-    body: JSON.stringify({
-      task,
-      api_key: apiKey,
-      model,
-      max_steps: maxSteps,
-      mode,
-      engine,
-      provider,
-    }),
-  })
+  // Bypass generic request() — validation errors return HTTP 400/429 with JSON body.
+  // Always returns { error?: string, ... } so callers can inspect data.error without catching.
+  try {
+    const res = await fetch(`${API_BASE}/agent/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        task,
+        api_key: apiKey,
+        model,
+        max_steps: maxSteps,
+        mode,
+        engine,
+        provider,
+      }),
+    })
+
+    const ct = res.headers.get('content-type') || ''
+    let data
+    if (ct.includes('application/json')) {
+      data = await res.json()
+    } else {
+      const text = await res.text()
+      data = { error: text || res.statusText }
+    }
+
+    // Normalize non-2xx into error if backend didn't already provide one
+    if (!res.ok && !data?.error) {
+      data = { ...data, error: res.statusText }
+    }
+
+    return data
+  } catch (e) {
+    return { error: String(e?.message || e) }
+  }
 }
 
 export async function stopAgent(sessionId) {
@@ -4100,6 +4136,10 @@ export async function getKeyStatuses() {
 export async function getEngines() {
   return request('/engines')
 }
+
+export async function getModels() {
+  return request('/models')
+}
 --- EXPLANATION ---
 This is the source code for frontend/src/api.js.
 Line 1: const API_BASE = '/api'
@@ -4108,61 +4148,97 @@ Line 4: const res = await fetch(`${API_BASE}${path}`, {
 Line 5: headers: { 'Content-Type': 'application/json' },
 Line 6: ...options,
 Line 7: })
-Line 8: return res.json()
-Line 9: }
-Line 11: export async function getHealth() {
-Line 12: return request('/health')
-Line 13: }
-Line 15: export async function getContainerStatus() {
-Line 16: return request('/container/status')
-Line 17: }
-Line 19: export async function startContainer() {
-Line 20: return request('/container/start', { method: 'POST' })
-Line 21: }
-Line 23: export async function stopContainer() {
-Line 24: return request('/container/stop', { method: 'POST' })
-Line 25: }
-Line 27: export async function buildImage() {
-Line 28: return request('/container/build', { method: 'POST' })
-Line 29: }
-Line 31: export async function startAgent({ task, apiKey, model, maxSteps, mode, engine, provider }) {
-Line 32: return request('/agent/start', {
-Line 33: method: 'POST',
-Line 34: body: JSON.stringify({
-Line 35: task,
-Line 36: api_key: apiKey,
-Line 37: model,
-Line 38: max_steps: maxSteps,
-Line 39: mode,
-Line 40: engine,
-Line 41: provider,
-Line 42: }),
-Line 43: })
-Line 44: }
-Line 46: export async function stopAgent(sessionId) {
-Line 47: return request(`/agent/stop/${sessionId}`, { method: 'POST' })
-Line 48: }
-Line 50: export async function setAgentMode(mode) {
-Line 51: return request('/agent-service/mode', {
-Line 52: method: 'POST',
-Line 53: body: JSON.stringify({ mode }),
-Line 54: })
-Line 55: }
-Line 57: export async function getAgentStatus(sessionId) {
-Line 58: return request(`/agent/status/${sessionId}`)
-Line 59: }
-Line 61: export async function getScreenshot() {
-Line 62: return request('/screenshot')
-Line 63: }
-Line 65: export async function getAgentServiceHealth() {
-Line 66: return request('/agent-service/health')
-Line 67: }
-Line 69: export async function getKeyStatuses() {
-Line 70: return request('/keys/status')
-Line 71: }
-Line 73: export async function getEngines() {
-Line 74: return request('/engines')
-Line 75: }
+Line 8: if (!res.ok) {
+Line 9: let message
+Line 10: try {
+Line 11: message = await res.text()
+Line 12: } catch {
+Line 13: message = res.statusText
+Line 14: }
+Line 15: throw new Error(message || res.statusText)
+Line 16: }
+Line 17: const ct = res.headers.get('content-type') || ''
+Line 18: if (ct.includes('application/json')) {
+Line 19: return res.json()
+Line 20: }
+Line 21: return res.text()
+Line 22: }
+Line 24: export async function getHealth() {
+Line 25: return request('/health')
+Line 26: }
+Line 28: export async function getContainerStatus() {
+Line 29: return request('/container/status')
+Line 30: }
+Line 32: export async function startContainer() {
+Line 33: return request('/container/start', { method: 'POST' })
+Line 34: }
+Line 36: export async function stopContainer() {
+Line 37: return request('/container/stop', { method: 'POST' })
+Line 38: }
+Line 40: export async function buildImage() {
+Line 41: return request('/container/build', { method: 'POST' })
+Line 42: }
+Line 44: export async function startAgent({ task, apiKey, model, maxSteps, mode, engine, provider }) {
+Line 45: // Bypass generic request() — validation errors return HTTP 400/429 with JSON body.
+Line 46: // Always returns { error?: string, ... } so callers can inspect data.error without catching.
+Line 47: try {
+Line 48: const res = await fetch(`${API_BASE}/agent/start`, {
+Line 49: method: 'POST',
+Line 50: headers: { 'Content-Type': 'application/json' },
+Line 51: body: JSON.stringify({
+Line 52: task,
+Line 53: api_key: apiKey,
+Line 54: model,
+Line 55: max_steps: maxSteps,
+Line 56: mode,
+Line 57: engine,
+Line 58: provider,
+Line 59: }),
+Line 60: })
+Line 62: const ct = res.headers.get('content-type') || ''
+Line 63: let data
+Line 64: if (ct.includes('application/json')) {
+Line 65: data = await res.json()
+Line 66: } else {
+Line 67: const text = await res.text()
+Line 68: data = { error: text || res.statusText }
+Line 69: }
+Line 71: // Normalize non-2xx into error if backend didn't already provide one
+Line 72: if (!res.ok && !data?.error) {
+Line 73: data = { ...data, error: res.statusText }
+Line 74: }
+Line 76: return data
+Line 77: } catch (e) {
+Line 78: return { error: String(e?.message || e) }
+Line 79: }
+Line 80: }
+Line 82: export async function stopAgent(sessionId) {
+Line 83: return request(`/agent/stop/${sessionId}`, { method: 'POST' })
+Line 84: }
+Line 86: export async function setAgentMode(mode) {
+Line 87: return request('/agent-service/mode', {
+Line 88: method: 'POST',
+Line 89: body: JSON.stringify({ mode }),
+Line 90: })
+Line 91: }
+Line 93: export async function getAgentStatus(sessionId) {
+Line 94: return request(`/agent/status/${sessionId}`)
+Line 95: }
+Line 97: export async function getScreenshot() {
+Line 98: return request('/screenshot')
+Line 99: }
+Line 101: export async function getAgentServiceHealth() {
+Line 102: return request('/agent-service/health')
+Line 103: }
+Line 105: export async function getKeyStatuses() {
+Line 106: return request('/keys/status')
+Line 107: }
+Line 109: export async function getEngines() {
+Line 110: return request('/engines')
+Line 111: }
+Line 113: export async function getModels() {
+Line 114: return request('/models')
+Line 115: }
 
 
 === FILE: frontend/src/index.css ===
@@ -5284,7 +5360,7 @@ Line 17: )
 --- SOURCE CODE ---
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { startAgent, stopAgent, getKeyStatuses, getEngines } from '../api'
+import { startAgent, stopAgent, getKeyStatuses, getEngines, getModels } from '../api'
 
 export default function ControlPanel({
   containerRunning,
@@ -5300,14 +5376,24 @@ export default function ControlPanel({
   const [keySource, setKeySource] = useState('ui')
   const [keyStatuses, setKeyStatuses] = useState({})
   const [provider, setProvider] = useState('google')
-  const [model, setModel] = useState('gemini-3-flash-preview')
+  const [model, setModel] = useState('')
   const [task, setTask] = useState('')
   const [maxSteps, setMaxSteps] = useState(50)
   const [engine, setEngine] = useState('playwright_mcp')
   const [engineList, setEngineList] = useState([])
   const [error, setError] = useState('')
 
-  // Fetch API key statuses and engines on mount
+  // Model lists — fetched exclusively from /api/models (no hardcoded fallback)
+  const [fetchedModels, setFetchedModels] = useState([])
+  const [modelsLoaded, setModelsLoaded] = useState(false)
+
+  // Derive per-provider lists from fetched data only
+  const toOption = (m) => ({ value: m.model_id, label: `${m.display_name} (${m.model_id})` })
+  const googleModels = fetchedModels.filter(m => m.provider === 'google').map(toOption)
+  const anthropicModels = fetchedModels.filter(m => m.provider === 'anthropic').map(toOption)
+  const models = provider === 'anthropic' ? anthropicModels : googleModels
+
+  // Fetch API key statuses, engines, and models on mount
   useEffect(() => {
     const fetchKeys = async () => {
       try {
@@ -5327,22 +5413,27 @@ export default function ControlPanel({
         if (data.engines?.length) setEngineList(data.engines)
       } catch { /* backend not ready */ }
     }
+    const fetchModelList = async () => {
+      try {
+        const data = await getModels()
+        if (data.models?.length) {
+          setFetchedModels(data.models)
+          setModelsLoaded(true)
+          // Auto-select first model for the default provider
+          const firstForProvider = data.models.find(m => m.provider === 'google')
+          if (firstForProvider) setModel(firstForProvider.model_id)
+        }
+      } catch { /* backend not ready — models will stay empty */ }
+    }
     fetchKeys()
     fetchEngines()
+    fetchModelList()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const googleModels = [
-    { value: 'gemini-3-flash-preview', label: 'Google Gemini 3 Flash Preview (gemini-3-flash-preview)' },
-  ]
-  const anthropicModels = [
-    { value: 'claude-4.6-sonnet', label: 'Anthropic Claude Sonnet 4.6 (claude-4.6-sonnet)' },
-  ]
-  const models = provider === 'anthropic' ? anthropicModels : googleModels
 
   const handleProviderChange = (newProvider) => {
     setProvider(newProvider)
-    const defaultModel = newProvider === 'anthropic' ? anthropicModels[0].value : googleModels[0].value
-    setModel(defaultModel)
+    const list = newProvider === 'anthropic' ? anthropicModels : googleModels
+    setModel(list.length > 0 ? list[0].value : '')
     // Auto-select key source
     const status = keyStatuses[newProvider]
     if (status?.available) {
@@ -5466,11 +5557,16 @@ export default function ControlPanel({
           />
         )}
 
-        <select className="model-select" value={model} onChange={(e) => setModel(e.target.value)}>
-          {models.map((m) => (
+        <select className="model-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={models.length === 0}>
+          {models.length > 0 ? models.map((m) => (
             <option key={m.value} value={m.value}>{m.label}</option>
-          ))}
+          )) : (
+            <option value="">Loading models…</option>
+          )}
         </select>
+        {modelsLoaded && models.length === 0 && (
+          <p style={{ color: 'var(--error)', fontSize: 11, margin: '4px 0 0' }}>No models available for this provider.</p>
+        )}
         <select className="model-select" value={engine} onChange={(e) => setEngine(e.target.value)} disabled={agentRunning}>
           {engineList.length > 0 ? engineList.map(e => (
             <option key={e.value} value={e.value}>{e.label}</option>
@@ -5516,10 +5612,10 @@ export default function ControlPanel({
         <div className="btn-row">
           <button
             className="btn btn-primary"
-            disabled={agentRunning || !containerRunning}
+            disabled={agentRunning || !containerRunning || models.length === 0}
             onClick={handleStart}
           >
-            {!containerRunning ? 'Start Container First' : 'Start Agent'}
+            {!containerRunning ? 'Start Container First' : models.length === 0 ? 'No Models Loaded' : 'Start Agent'}
           </button>
           <button className="btn btn-danger" disabled={!agentRunning} onClick={handleStop}>
             Stop
@@ -5583,7 +5679,7 @@ export default function ControlPanel({
 This is the source code for frontend/src/components/ControlPanel.jsx.
 Line 1: import { useState, useEffect } from 'react'
 Line 2: import { Link } from 'react-router-dom'
-Line 3: import { startAgent, stopAgent, getKeyStatuses, getEngines } from '../api'
+Line 3: import { startAgent, stopAgent, getKeyStatuses, getEngines, getModels } from '../api'
 Line 5: export default function ControlPanel({
 Line 6: containerRunning,
 Line 7: agentRunning,
@@ -5598,271 +5694,290 @@ Line 15: const [apiKey, setApiKey] = useState('')
 Line 16: const [keySource, setKeySource] = useState('ui')
 Line 17: const [keyStatuses, setKeyStatuses] = useState({})
 Line 18: const [provider, setProvider] = useState('google')
-Line 19: const [model, setModel] = useState('gemini-3-flash-preview')
+Line 19: const [model, setModel] = useState('')
 Line 20: const [task, setTask] = useState('')
 Line 21: const [maxSteps, setMaxSteps] = useState(50)
 Line 22: const [engine, setEngine] = useState('playwright_mcp')
 Line 23: const [engineList, setEngineList] = useState([])
 Line 24: const [error, setError] = useState('')
-Line 26: // Fetch API key statuses and engines on mount
-Line 27: useEffect(() => {
-Line 28: const fetchKeys = async () => {
-Line 29: try {
-Line 30: const data = await getKeyStatuses()
-Line 31: if (data.keys) {
-Line 32: const map = {}
-Line 33: data.keys.forEach(k => { map[k.provider] = k })
-Line 34: setKeyStatuses(map)
-Line 35: const current = map[provider]
-Line 36: if (current?.available) setKeySource(current.source)
-Line 37: }
-Line 38: } catch { /* backend not ready */ }
-Line 39: }
-Line 40: const fetchEngines = async () => {
-Line 41: try {
-Line 42: const data = await getEngines()
-Line 43: if (data.engines?.length) setEngineList(data.engines)
-Line 44: } catch { /* backend not ready */ }
-Line 45: }
-Line 46: fetchKeys()
-Line 47: fetchEngines()
-Line 48: }, []) // eslint-disable-line react-hooks/exhaustive-deps
-Line 50: const googleModels = [
-Line 51: { value: 'gemini-3-flash-preview', label: 'Google Gemini 3 Flash Preview (gemini-3-flash-preview)' },
-Line 52: ]
-Line 53: const anthropicModels = [
-Line 54: { value: 'claude-4.6-sonnet', label: 'Anthropic Claude Sonnet 4.6 (claude-4.6-sonnet)' },
-Line 55: ]
-Line 56: const models = provider === 'anthropic' ? anthropicModels : googleModels
-Line 58: const handleProviderChange = (newProvider) => {
-Line 59: setProvider(newProvider)
-Line 60: const defaultModel = newProvider === 'anthropic' ? anthropicModels[0].value : googleModels[0].value
-Line 61: setModel(defaultModel)
-Line 62: // Auto-select key source
-Line 63: const status = keyStatuses[newProvider]
-Line 64: if (status?.available) {
-Line 65: setKeySource(status.source)
-Line 66: } else {
-Line 67: setKeySource('ui')
-Line 68: }
-Line 69: }
-Line 71: const handleStart = async () => {
-Line 72: if (keySource === 'ui' && !apiKey.trim()) {
-Line 73: setError('API key is required')
-Line 74: return
-Line 75: }
-Line 76: if (!task.trim()) {
-Line 77: setError('Task description is required')
-Line 78: return
-Line 79: }
-Line 80: setError('')
-Line 81: clearSteps()
-Line 83: try {
-Line 84: // Derive agent service mode from engine selection
-Line 85: const engineMode = engine === 'omni_accessibility' || engine === 'computer_use' ? 'desktop' : 'browser'
-Line 86: const res = await startAgent({
-Line 87: task: task.trim(),
-Line 88: apiKey: keySource === 'ui' ? apiKey.trim() : '',
-Line 89: model,
-Line 90: maxSteps: Number(maxSteps),
-Line 91: mode: engineMode,
-Line 92: engine,
-Line 93: provider,
-Line 94: })
-Line 95: if (res.error) {
-Line 96: setError(res.error)
-Line 97: return
-Line 98: }
-Line 99: setSessionId(res.session_id)
-Line 100: setAgentRunning(true)
-Line 101: } catch (e) {
-Line 102: setError(`Failed to start agent: ${e.message}`)
-Line 103: }
-Line 104: }
-Line 106: const handleStop = async () => {
-Line 107: if (!sessionId) return
-Line 108: try {
-Line 109: await stopAgent(sessionId)
-Line 110: } catch {
-Line 111: // ignore
-Line 112: }
-Line 113: setAgentRunning(false)
-Line 114: }
-Line 116: const handleKeyDown = (e) => {
-Line 117: if (e.key === 'Enter' && e.ctrlKey && !agentRunning) {
-Line 118: handleStart()
+Line 26: // Model lists — fetched exclusively from /api/models (no hardcoded fallback)
+Line 27: const [fetchedModels, setFetchedModels] = useState([])
+Line 28: const [modelsLoaded, setModelsLoaded] = useState(false)
+Line 30: // Derive per-provider lists from fetched data only
+Line 31: const toOption = (m) => ({ value: m.model_id, label: `${m.display_name} (${m.model_id})` })
+Line 32: const googleModels = fetchedModels.filter(m => m.provider === 'google').map(toOption)
+Line 33: const anthropicModels = fetchedModels.filter(m => m.provider === 'anthropic').map(toOption)
+Line 34: const models = provider === 'anthropic' ? anthropicModels : googleModels
+Line 36: // Fetch API key statuses, engines, and models on mount
+Line 37: useEffect(() => {
+Line 38: const fetchKeys = async () => {
+Line 39: try {
+Line 40: const data = await getKeyStatuses()
+Line 41: if (data.keys) {
+Line 42: const map = {}
+Line 43: data.keys.forEach(k => { map[k.provider] = k })
+Line 44: setKeyStatuses(map)
+Line 45: const current = map[provider]
+Line 46: if (current?.available) setKeySource(current.source)
+Line 47: }
+Line 48: } catch { /* backend not ready */ }
+Line 49: }
+Line 50: const fetchEngines = async () => {
+Line 51: try {
+Line 52: const data = await getEngines()
+Line 53: if (data.engines?.length) setEngineList(data.engines)
+Line 54: } catch { /* backend not ready */ }
+Line 55: }
+Line 56: const fetchModelList = async () => {
+Line 57: try {
+Line 58: const data = await getModels()
+Line 59: if (data.models?.length) {
+Line 60: setFetchedModels(data.models)
+Line 61: setModelsLoaded(true)
+Line 62: // Auto-select first model for the default provider
+Line 63: const firstForProvider = data.models.find(m => m.provider === 'google')
+Line 64: if (firstForProvider) setModel(firstForProvider.model_id)
+Line 65: }
+Line 66: } catch { /* backend not ready — models will stay empty */ }
+Line 67: }
+Line 68: fetchKeys()
+Line 69: fetchEngines()
+Line 70: fetchModelList()
+Line 71: }, []) // eslint-disable-line react-hooks/exhaustive-deps
+Line 73: const handleProviderChange = (newProvider) => {
+Line 74: setProvider(newProvider)
+Line 75: const list = newProvider === 'anthropic' ? anthropicModels : googleModels
+Line 76: setModel(list.length > 0 ? list[0].value : '')
+Line 77: // Auto-select key source
+Line 78: const status = keyStatuses[newProvider]
+Line 79: if (status?.available) {
+Line 80: setKeySource(status.source)
+Line 81: } else {
+Line 82: setKeySource('ui')
+Line 83: }
+Line 84: }
+Line 86: const handleStart = async () => {
+Line 87: if (keySource === 'ui' && !apiKey.trim()) {
+Line 88: setError('API key is required')
+Line 89: return
+Line 90: }
+Line 91: if (!task.trim()) {
+Line 92: setError('Task description is required')
+Line 93: return
+Line 94: }
+Line 95: setError('')
+Line 96: clearSteps()
+Line 98: try {
+Line 99: // Derive agent service mode from engine selection
+Line 100: const engineMode = engine === 'omni_accessibility' || engine === 'computer_use' ? 'desktop' : 'browser'
+Line 101: const res = await startAgent({
+Line 102: task: task.trim(),
+Line 103: apiKey: keySource === 'ui' ? apiKey.trim() : '',
+Line 104: model,
+Line 105: maxSteps: Number(maxSteps),
+Line 106: mode: engineMode,
+Line 107: engine,
+Line 108: provider,
+Line 109: })
+Line 110: if (res.error) {
+Line 111: setError(res.error)
+Line 112: return
+Line 113: }
+Line 114: setSessionId(res.session_id)
+Line 115: setAgentRunning(true)
+Line 116: } catch (e) {
+Line 117: setError(`Failed to start agent: ${e.message}`)
+Line 118: }
 Line 119: }
-Line 120: }
-Line 122: return (
-Line 123: <div className="left-panel">
-Line 124: {/* API Config */}
-Line 125: <div className="panel-section">
-Line 126: <h3>API Configuration</h3>
-Line 127: <select className="model-select" value={provider} onChange={(e) => handleProviderChange(e.target.value)} disabled={agentRunning}>
-Line 128: <option value="google">Google Gemini</option>
-Line 129: <option value="anthropic">Anthropic Claude</option>
-Line 130: </select>
-Line 132: {/* Key Source Toggle */}
-Line 133: <div className="key-source-row" style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
-Line 134: <button
-Line 135: className={`key-src-btn ${keySource === 'ui' ? 'active' : ''}`}
-Line 136: onClick={() => setKeySource('ui')}
-Line 137: disabled={agentRunning}
-Line 138: style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'ui' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'ui' ? '#fff' : 'var(--text-primary)' }}
-Line 139: >
-Line 140: ✏️ Manual
-Line 141: </button>
-Line 142: <button
-Line 143: className={`key-src-btn ${keySource === 'dotenv' ? 'active' : ''}`}
-Line 144: onClick={() => setKeySource('dotenv')}
-Line 145: disabled={agentRunning || keyStatuses[provider]?.source !== 'dotenv'}
-Line 146: style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'dotenv' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'dotenv' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.source === 'dotenv' ? 1 : 0.4 }}
-Line 147: title={keyStatuses[provider]?.source === 'dotenv' ? `Found (${keyStatuses[provider]?.masked_key})` : 'No key in .env'}
-Line 148: >
-Line 149: 📄 .env {keyStatuses[provider]?.source === 'dotenv' ? '✓' : ''}
-Line 150: </button>
-Line 151: <button
-Line 152: className={`key-src-btn ${keySource === 'env' ? 'active' : ''}`}
-Line 153: onClick={() => setKeySource('env')}
-Line 154: disabled={agentRunning || keyStatuses[provider]?.source !== 'env'}
-Line 155: style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'env' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'env' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.source === 'env' ? 1 : 0.4 }}
-Line 156: title={keyStatuses[provider]?.source === 'env' ? `Found (${keyStatuses[provider]?.masked_key})` : 'No system env var'}
-Line 157: >
-Line 158: 💻 System {keyStatuses[provider]?.source === 'env' ? '✓' : ''}
-Line 159: </button>
-Line 160: </div>
-Line 162: {keySource !== 'ui' && keyStatuses[provider]?.available && (
-Line 163: <div style={{ fontSize: 11, color: 'var(--success, #4caf50)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
-Line 164: 🔑 <span>{keyStatuses[provider]?.masked_key}</span>
-Line 165: <span style={{ color: 'var(--text-secondary)' }}>({keySource === 'env' ? 'system variable' : '.env file'})</span>
-Line 166: </div>
-Line 167: )}
-Line 168: {keySource !== 'ui' && !keyStatuses[provider]?.available && (
-Line 169: <div style={{ fontSize: 11, color: 'var(--error, #f44336)', marginBottom: 6 }}>
-Line 170: ⚠️ No key found — {provider === 'google' ? 'set GOOGLE_API_KEY' : 'set ANTHROPIC_API_KEY'}
-Line 171: </div>
-Line 172: )}
-Line 174: {keySource === 'ui' && (
-Line 175: <input
-Line 176: type="password"
-Line 177: className="api-key-input"
-Line 178: placeholder={provider === 'anthropic' ? 'Anthropic API Key' : 'Gemini API Key'}
-Line 179: value={apiKey}
-Line 180: onChange={(e) => setApiKey(e.target.value)}
-Line 181: autoComplete="off"
-Line 182: />
-Line 183: )}
-Line 185: <select className="model-select" value={model} onChange={(e) => setModel(e.target.value)}>
-Line 186: {models.map((m) => (
-Line 187: <option key={m.value} value={m.value}>{m.label}</option>
-Line 188: ))}
-Line 189: </select>
-Line 190: <select className="model-select" value={engine} onChange={(e) => setEngine(e.target.value)} disabled={agentRunning}>
-Line 191: {engineList.length > 0 ? engineList.map(e => (
-Line 192: <option key={e.value} value={e.value}>{e.label}</option>
-Line 193: )) : (
-Line 194: <>
-Line 195: <option value="playwright_mcp">🌳 Playwright MCP (Semantic Browser)</option>
-Line 196: <option value="omni_accessibility">♿ Omni Accessibility (AT-SPI/UIA/JXA)</option>
-Line 197: <option value="computer_use">🖥️ Computer Use (Native CU Protocol)</option>
-Line 198: </>
-Line 199: )}
-Line 200: </select>
-Line 201: <Link to="/workbench" className="btn btn-secondary" style={{ textAlign: 'center', marginTop: 6, display: 'block', textDecoration: 'none' }}>
-Line 202: Open Workbench →
-Line 203: </Link>
-Line 204: </div>
-Line 206: {/* Task Input */}
-Line 207: <div className="panel-section">
-Line 208: <h3>Task</h3>
-Line 209: <textarea
-Line 210: className="task-input"
-Line 211: placeholder="Describe what the agent should do...&#10;&#10;e.g., Open Chrome and search for 'weather in New York'"
-Line 212: value={task}
-Line 213: onChange={(e) => setTask(e.target.value)}
-Line 214: onKeyDown={handleKeyDown}
-Line 215: disabled={agentRunning}
-Line 216: />
-Line 217: <div className="step-info" style={{ marginTop: 8 }}>
-Line 218: <span>
-Line 219: Max steps: <strong>{maxSteps}</strong>
-Line 220: </span>
-Line 221: <input
-Line 222: type="number"
-Line 223: className="max-steps-input"
-Line 224: min={1}
-Line 225: max={200}
-Line 226: value={maxSteps}
-Line 227: onChange={(e) => setMaxSteps(e.target.value)}
-Line 228: disabled={agentRunning}
-Line 229: />
-Line 230: </div>
-Line 231: {error && <p style={{ color: 'var(--error)', fontSize: 12, marginTop: 6 }}>{error}</p>}
-Line 232: <div className="btn-row">
-Line 233: <button
-Line 234: className="btn btn-primary"
-Line 235: disabled={agentRunning || !containerRunning}
-Line 236: onClick={handleStart}
-Line 237: >
-Line 238: {!containerRunning ? 'Start Container First' : 'Start Agent'}
-Line 239: </button>
-Line 240: <button className="btn btn-danger" disabled={!agentRunning} onClick={handleStop}>
-Line 241: Stop
-Line 242: </button>
-Line 243: </div>
-Line 244: </div>
-Line 246: {/* Action History */}
-Line 247: <div className="panel-section" style={{ flexShrink: 0 }}>
-Line 248: <h3>Action History ({steps.length}){maxSteps > 0 && agentRunning && ` / ${maxSteps}`}</h3>
-Line 249: {agentRunning && steps.length > 0 && (
-Line 250: <div className="progress-bar">
-Line 251: <div
-Line 252: className="progress-fill"
-Line 253: style={{ width: `${Math.min((steps.length / maxSteps) * 100, 100)}%` }}
-Line 254: />
-Line 255: </div>
-Line 256: )}
-Line 257: </div>
-Line 258: <div className="action-list">
-Line 259: {steps.length === 0 && (
-Line 260: <p style={{ color: 'var(--text-secondary)', fontSize: 13, padding: '8px 0' }}>
-Line 261: No actions yet. Start the agent to begin.
-Line 262: </p>
-Line 263: )}
-Line 264: {steps.map((step, i) => (
-Line 265: <div key={i} className={`action-item ${step.error ? 'has-error' : ''}`}>
-Line 266: <span className="action-step">#{step.step_number}</span>
-Line 267: <div className="action-details">
-Line 268: <div className="action-header">
-Line 269: <span className={`action-badge action-badge--${step.action?.action || 'unknown'}`}>
-Line 270: {step.action?.action || 'unknown'}
-Line 271: </span>
-Line 272: {step.action?.coordinates && (
-Line 273: <span className="action-coords">
-Line 274: ({step.action.coordinates[0]}, {step.action.coordinates[1]})
-Line 275: </span>
+Line 121: const handleStop = async () => {
+Line 122: if (!sessionId) return
+Line 123: try {
+Line 124: await stopAgent(sessionId)
+Line 125: } catch {
+Line 126: // ignore
+Line 127: }
+Line 128: setAgentRunning(false)
+Line 129: }
+Line 131: const handleKeyDown = (e) => {
+Line 132: if (e.key === 'Enter' && e.ctrlKey && !agentRunning) {
+Line 133: handleStart()
+Line 134: }
+Line 135: }
+Line 137: return (
+Line 138: <div className="left-panel">
+Line 139: {/* API Config */}
+Line 140: <div className="panel-section">
+Line 141: <h3>API Configuration</h3>
+Line 142: <select className="model-select" value={provider} onChange={(e) => handleProviderChange(e.target.value)} disabled={agentRunning}>
+Line 143: <option value="google">Google Gemini</option>
+Line 144: <option value="anthropic">Anthropic Claude</option>
+Line 145: </select>
+Line 147: {/* Key Source Toggle */}
+Line 148: <div className="key-source-row" style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+Line 149: <button
+Line 150: className={`key-src-btn ${keySource === 'ui' ? 'active' : ''}`}
+Line 151: onClick={() => setKeySource('ui')}
+Line 152: disabled={agentRunning}
+Line 153: style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'ui' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'ui' ? '#fff' : 'var(--text-primary)' }}
+Line 154: >
+Line 155: ✏️ Manual
+Line 156: </button>
+Line 157: <button
+Line 158: className={`key-src-btn ${keySource === 'dotenv' ? 'active' : ''}`}
+Line 159: onClick={() => setKeySource('dotenv')}
+Line 160: disabled={agentRunning || keyStatuses[provider]?.source !== 'dotenv'}
+Line 161: style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'dotenv' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'dotenv' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.source === 'dotenv' ? 1 : 0.4 }}
+Line 162: title={keyStatuses[provider]?.source === 'dotenv' ? `Found (${keyStatuses[provider]?.masked_key})` : 'No key in .env'}
+Line 163: >
+Line 164: 📄 .env {keyStatuses[provider]?.source === 'dotenv' ? '✓' : ''}
+Line 165: </button>
+Line 166: <button
+Line 167: className={`key-src-btn ${keySource === 'env' ? 'active' : ''}`}
+Line 168: onClick={() => setKeySource('env')}
+Line 169: disabled={agentRunning || keyStatuses[provider]?.source !== 'env'}
+Line 170: style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'env' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'env' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.source === 'env' ? 1 : 0.4 }}
+Line 171: title={keyStatuses[provider]?.source === 'env' ? `Found (${keyStatuses[provider]?.masked_key})` : 'No system env var'}
+Line 172: >
+Line 173: 💻 System {keyStatuses[provider]?.source === 'env' ? '✓' : ''}
+Line 174: </button>
+Line 175: </div>
+Line 177: {keySource !== 'ui' && keyStatuses[provider]?.available && (
+Line 178: <div style={{ fontSize: 11, color: 'var(--success, #4caf50)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+Line 179: 🔑 <span>{keyStatuses[provider]?.masked_key}</span>
+Line 180: <span style={{ color: 'var(--text-secondary)' }}>({keySource === 'env' ? 'system variable' : '.env file'})</span>
+Line 181: </div>
+Line 182: )}
+Line 183: {keySource !== 'ui' && !keyStatuses[provider]?.available && (
+Line 184: <div style={{ fontSize: 11, color: 'var(--error, #f44336)', marginBottom: 6 }}>
+Line 185: ⚠️ No key found — {provider === 'google' ? 'set GOOGLE_API_KEY' : 'set ANTHROPIC_API_KEY'}
+Line 186: </div>
+Line 187: )}
+Line 189: {keySource === 'ui' && (
+Line 190: <input
+Line 191: type="password"
+Line 192: className="api-key-input"
+Line 193: placeholder={provider === 'anthropic' ? 'Anthropic API Key' : 'Gemini API Key'}
+Line 194: value={apiKey}
+Line 195: onChange={(e) => setApiKey(e.target.value)}
+Line 196: autoComplete="off"
+Line 197: />
+Line 198: )}
+Line 200: <select className="model-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={models.length === 0}>
+Line 201: {models.length > 0 ? models.map((m) => (
+Line 202: <option key={m.value} value={m.value}>{m.label}</option>
+Line 203: )) : (
+Line 204: <option value="">Loading models…</option>
+Line 205: )}
+Line 206: </select>
+Line 207: {modelsLoaded && models.length === 0 && (
+Line 208: <p style={{ color: 'var(--error)', fontSize: 11, margin: '4px 0 0' }}>No models available for this provider.</p>
+Line 209: )}
+Line 210: <select className="model-select" value={engine} onChange={(e) => setEngine(e.target.value)} disabled={agentRunning}>
+Line 211: {engineList.length > 0 ? engineList.map(e => (
+Line 212: <option key={e.value} value={e.value}>{e.label}</option>
+Line 213: )) : (
+Line 214: <>
+Line 215: <option value="playwright_mcp">🌳 Playwright MCP (Semantic Browser)</option>
+Line 216: <option value="omni_accessibility">♿ Omni Accessibility (AT-SPI/UIA/JXA)</option>
+Line 217: <option value="computer_use">🖥️ Computer Use (Native CU Protocol)</option>
+Line 218: </>
+Line 219: )}
+Line 220: </select>
+Line 221: <Link to="/workbench" className="btn btn-secondary" style={{ textAlign: 'center', marginTop: 6, display: 'block', textDecoration: 'none' }}>
+Line 222: Open Workbench →
+Line 223: </Link>
+Line 224: </div>
+Line 226: {/* Task Input */}
+Line 227: <div className="panel-section">
+Line 228: <h3>Task</h3>
+Line 229: <textarea
+Line 230: className="task-input"
+Line 231: placeholder="Describe what the agent should do...&#10;&#10;e.g., Open Chrome and search for 'weather in New York'"
+Line 232: value={task}
+Line 233: onChange={(e) => setTask(e.target.value)}
+Line 234: onKeyDown={handleKeyDown}
+Line 235: disabled={agentRunning}
+Line 236: />
+Line 237: <div className="step-info" style={{ marginTop: 8 }}>
+Line 238: <span>
+Line 239: Max steps: <strong>{maxSteps}</strong>
+Line 240: </span>
+Line 241: <input
+Line 242: type="number"
+Line 243: className="max-steps-input"
+Line 244: min={1}
+Line 245: max={200}
+Line 246: value={maxSteps}
+Line 247: onChange={(e) => setMaxSteps(e.target.value)}
+Line 248: disabled={agentRunning}
+Line 249: />
+Line 250: </div>
+Line 251: {error && <p style={{ color: 'var(--error)', fontSize: 12, marginTop: 6 }}>{error}</p>}
+Line 252: <div className="btn-row">
+Line 253: <button
+Line 254: className="btn btn-primary"
+Line 255: disabled={agentRunning || !containerRunning || models.length === 0}
+Line 256: onClick={handleStart}
+Line 257: >
+Line 258: {!containerRunning ? 'Start Container First' : models.length === 0 ? 'No Models Loaded' : 'Start Agent'}
+Line 259: </button>
+Line 260: <button className="btn btn-danger" disabled={!agentRunning} onClick={handleStop}>
+Line 261: Stop
+Line 262: </button>
+Line 263: </div>
+Line 264: </div>
+Line 266: {/* Action History */}
+Line 267: <div className="panel-section" style={{ flexShrink: 0 }}>
+Line 268: <h3>Action History ({steps.length}){maxSteps > 0 && agentRunning && ` / ${maxSteps}`}</h3>
+Line 269: {agentRunning && steps.length > 0 && (
+Line 270: <div className="progress-bar">
+Line 271: <div
+Line 272: className="progress-fill"
+Line 273: style={{ width: `${Math.min((steps.length / maxSteps) * 100, 100)}%` }}
+Line 274: />
+Line 275: </div>
 Line 276: )}
-Line 277: {step.action?.text && step.action.action !== 'done' && (
-Line 278: <span className="action-text" title={step.action.text}>
-Line 279: &ldquo;{step.action.text.length > 30 ? step.action.text.slice(0, 30) + '...' : step.action.text}&rdquo;
-Line 280: </span>
-Line 281: )}
-Line 282: </div>
-Line 283: {step.action?.reasoning && (
-Line 284: <p className="action-reasoning">{step.action.reasoning}</p>
-Line 285: )}
-Line 286: {step.error && (
-Line 287: <p className="action-reasoning" style={{ color: 'var(--error)' }}>
-Line 288: {step.error}
-Line 289: </p>
-Line 290: )}
-Line 291: </div>
-Line 292: </div>
-Line 293: ))}
-Line 294: </div>
-Line 295: </div>
-Line 296: )
-Line 297: }
+Line 277: </div>
+Line 278: <div className="action-list">
+Line 279: {steps.length === 0 && (
+Line 280: <p style={{ color: 'var(--text-secondary)', fontSize: 13, padding: '8px 0' }}>
+Line 281: No actions yet. Start the agent to begin.
+Line 282: </p>
+Line 283: )}
+Line 284: {steps.map((step, i) => (
+Line 285: <div key={i} className={`action-item ${step.error ? 'has-error' : ''}`}>
+Line 286: <span className="action-step">#{step.step_number}</span>
+Line 287: <div className="action-details">
+Line 288: <div className="action-header">
+Line 289: <span className={`action-badge action-badge--${step.action?.action || 'unknown'}`}>
+Line 290: {step.action?.action || 'unknown'}
+Line 291: </span>
+Line 292: {step.action?.coordinates && (
+Line 293: <span className="action-coords">
+Line 294: ({step.action.coordinates[0]}, {step.action.coordinates[1]})
+Line 295: </span>
+Line 296: )}
+Line 297: {step.action?.text && step.action.action !== 'done' && (
+Line 298: <span className="action-text" title={step.action.text}>
+Line 299: &ldquo;{step.action.text.length > 30 ? step.action.text.slice(0, 30) + '...' : step.action.text}&rdquo;
+Line 300: </span>
+Line 301: )}
+Line 302: </div>
+Line 303: {step.action?.reasoning && (
+Line 304: <p className="action-reasoning">{step.action.reasoning}</p>
+Line 305: )}
+Line 306: {step.error && (
+Line 307: <p className="action-reasoning" style={{ color: 'var(--error)' }}>
+Line 308: {step.error}
+Line 309: </p>
+Line 310: )}
+Line 311: </div>
+Line 312: </div>
+Line 313: ))}
+Line 314: </div>
+Line 315: </div>
+Line 316: )
+Line 317: }
 
 
 === FILE: frontend/src/components/Header.jsx ===
@@ -6059,8 +6174,8 @@ Line 47: }
 --- SOURCE CODE ---
 import { useState, useEffect, useRef, useCallback } from 'react'
 
-// Derive the backend API base from the current page location
-const API_BASE = `http://${window.location.hostname || 'localhost'}:8000`
+// Derive the backend API base from the current page location (protocol-safe)
+const API_BASE = window.location.origin
 
 export default function ScreenView({ screenshot, containerRunning }) {
   // Default to VNC (interactive) when container is running, as requested by audit
@@ -6169,7 +6284,7 @@ export default function ScreenView({ screenshot, containerRunning }) {
 
   // Route noVNC through the backend reverse proxy (same origin) so the
   // browser never needs direct access to Docker-mapped port 6080.
-  const vncUrl = `${API_BASE}/vnc/vnc.html?autoconnect=true&resize=scale&path=vnc/websockify`
+  const vncUrl = `/vnc/vnc.html?autoconnect=true&resize=scale&path=vnc/websockify`
 
   // When container is running and VNC mode enabled, show interactive desktop
   if (containerRunning && useVnc) {
@@ -6270,8 +6385,8 @@ export default function ScreenView({ screenshot, containerRunning }) {
 --- EXPLANATION ---
 This is the source code for frontend/src/components/ScreenView.jsx.
 Line 1: import { useState, useEffect, useRef, useCallback } from 'react'
-Line 3: // Derive the backend API base from the current page location
-Line 4: const API_BASE = `http://${window.location.hostname || 'localhost'}:8000`
+Line 3: // Derive the backend API base from the current page location (protocol-safe)
+Line 4: const API_BASE = window.location.origin
 Line 6: export default function ScreenView({ screenshot, containerRunning }) {
 Line 7: // Default to VNC (interactive) when container is running, as requested by audit
 Line 8: const [useVnc, setUseVnc] = useState(true)
@@ -6363,7 +6478,7 @@ Line 108: }
 Line 109: }, [containerRunning, useVnc, cleanup])
 Line 111: // Route noVNC through the backend reverse proxy (same origin) so the
 Line 112: // browser never needs direct access to Docker-mapped port 6080.
-Line 113: const vncUrl = `${API_BASE}/vnc/vnc.html?autoconnect=true&resize=scale&path=vnc/websockify`
+Line 113: const vncUrl = `/vnc/vnc.html?autoconnect=true&resize=scale&path=vnc/websockify`
 Line 115: // When container is running and VNC mode enabled, show interactive desktop
 Line 116: if (containerRunning && useVnc) {
 Line 117: return (
@@ -6462,7 +6577,8 @@ Line 210: }
 --- SOURCE CODE ---
 import { useEffect, useRef, useState, useCallback } from 'react'
 
-const WS_URL = `ws://${window.location.hostname}:8000/ws`
+const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+const WS_URL = `${WS_PROTOCOL}//${window.location.host}/ws`
 
 export default function useWebSocket() {
   const wsRef = useRef(null)
@@ -6549,79 +6665,80 @@ export default function useWebSocket() {
 --- EXPLANATION ---
 This is the source code for frontend/src/hooks/useWebSocket.js.
 Line 1: import { useEffect, useRef, useState, useCallback } from 'react'
-Line 3: const WS_URL = `ws://${window.location.hostname}:8000/ws`
-Line 5: export default function useWebSocket() {
-Line 6: const wsRef = useRef(null)
-Line 7: const [connected, setConnected] = useState(false)
-Line 8: const [lastScreenshot, setLastScreenshot] = useState(null)
-Line 9: const [logs, setLogs] = useState([])
-Line 10: const [steps, setSteps] = useState([])
-Line 11: const [agentFinished, setAgentFinished] = useState(null)
-Line 12: const reconnectTimer = useRef(null)
-Line 14: const connect = useCallback(() => {
-Line 15: if (wsRef.current?.readyState === WebSocket.OPEN) return
-Line 17: const ws = new WebSocket(WS_URL)
-Line 18: wsRef.current = ws
-Line 20: ws.onopen = () => {
-Line 21: setConnected(true)
-Line 22: // Heartbeat
-Line 23: const ping = setInterval(() => {
-Line 24: if (ws.readyState === WebSocket.OPEN) {
-Line 25: ws.send(JSON.stringify({ type: 'ping' }))
-Line 26: }
-Line 27: }, 15000)
-Line 28: ws._pingInterval = ping
-Line 29: }
-Line 31: ws.onmessage = (event) => {
-Line 32: try {
-Line 33: const msg = JSON.parse(event.data)
-Line 35: switch (msg.event) {
-Line 36: case 'screenshot':
-Line 37: case 'screenshot_stream':
-Line 38: setLastScreenshot(msg.screenshot)
-Line 39: break
-Line 40: case 'log':
-Line 41: setLogs((prev) => [...prev.slice(-200), msg.log])
-Line 42: break
-Line 43: case 'step':
-Line 44: setSteps((prev) => [...prev, msg.step])
-Line 45: break
-Line 46: case 'agent_finished':
-Line 47: setAgentFinished(msg)
-Line 48: break
-Line 49: case 'pong':
-Line 50: break
-Line 51: default:
-Line 52: break
-Line 53: }
-Line 54: } catch {
-Line 55: // ignore parse errors
-Line 56: }
+Line 3: const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+Line 4: const WS_URL = `${WS_PROTOCOL}//${window.location.host}/ws`
+Line 6: export default function useWebSocket() {
+Line 7: const wsRef = useRef(null)
+Line 8: const [connected, setConnected] = useState(false)
+Line 9: const [lastScreenshot, setLastScreenshot] = useState(null)
+Line 10: const [logs, setLogs] = useState([])
+Line 11: const [steps, setSteps] = useState([])
+Line 12: const [agentFinished, setAgentFinished] = useState(null)
+Line 13: const reconnectTimer = useRef(null)
+Line 15: const connect = useCallback(() => {
+Line 16: if (wsRef.current?.readyState === WebSocket.OPEN) return
+Line 18: const ws = new WebSocket(WS_URL)
+Line 19: wsRef.current = ws
+Line 21: ws.onopen = () => {
+Line 22: setConnected(true)
+Line 23: // Heartbeat
+Line 24: const ping = setInterval(() => {
+Line 25: if (ws.readyState === WebSocket.OPEN) {
+Line 26: ws.send(JSON.stringify({ type: 'ping' }))
+Line 27: }
+Line 28: }, 15000)
+Line 29: ws._pingInterval = ping
+Line 30: }
+Line 32: ws.onmessage = (event) => {
+Line 33: try {
+Line 34: const msg = JSON.parse(event.data)
+Line 36: switch (msg.event) {
+Line 37: case 'screenshot':
+Line 38: case 'screenshot_stream':
+Line 39: setLastScreenshot(msg.screenshot)
+Line 40: break
+Line 41: case 'log':
+Line 42: setLogs((prev) => [...prev.slice(-200), msg.log])
+Line 43: break
+Line 44: case 'step':
+Line 45: setSteps((prev) => [...prev, msg.step])
+Line 46: break
+Line 47: case 'agent_finished':
+Line 48: setAgentFinished(msg)
+Line 49: break
+Line 50: case 'pong':
+Line 51: break
+Line 52: default:
+Line 53: break
+Line 54: }
+Line 55: } catch {
+Line 56: // ignore parse errors
 Line 57: }
-Line 59: ws.onclose = () => {
-Line 60: setConnected(false)
-Line 61: clearInterval(ws._pingInterval)
-Line 62: // Reconnect after 2s
-Line 63: reconnectTimer.current = setTimeout(connect, 2000)
-Line 64: }
-Line 66: ws.onerror = () => {
-Line 67: ws.close()
-Line 68: }
-Line 69: }, [])
-Line 71: useEffect(() => {
-Line 72: connect()
-Line 73: return () => {
-Line 74: clearTimeout(reconnectTimer.current)
-Line 75: if (wsRef.current) {
-Line 76: wsRef.current.close()
-Line 77: }
+Line 58: }
+Line 60: ws.onclose = () => {
+Line 61: setConnected(false)
+Line 62: clearInterval(ws._pingInterval)
+Line 63: // Reconnect after 2s
+Line 64: reconnectTimer.current = setTimeout(connect, 2000)
+Line 65: }
+Line 67: ws.onerror = () => {
+Line 68: ws.close()
+Line 69: }
+Line 70: }, [])
+Line 72: useEffect(() => {
+Line 73: connect()
+Line 74: return () => {
+Line 75: clearTimeout(reconnectTimer.current)
+Line 76: if (wsRef.current) {
+Line 77: wsRef.current.close()
 Line 78: }
-Line 79: }, [connect])
-Line 81: const clearLogs = useCallback(() => setLogs([]), [])
-Line 82: const clearSteps = useCallback(() => setSteps([]), [])
-Line 83: const clearFinished = useCallback(() => setAgentFinished(null), [])
-Line 85: return { connected, lastScreenshot, logs, steps, agentFinished, clearLogs, clearSteps, clearFinished }
-Line 86: }
+Line 79: }
+Line 80: }, [connect])
+Line 82: const clearLogs = useCallback(() => setLogs([]), [])
+Line 83: const clearSteps = useCallback(() => setSteps([]), [])
+Line 84: const clearFinished = useCallback(() => setAgentFinished(null), [])
+Line 86: return { connected, lastScreenshot, logs, steps, agentFinished, clearLogs, clearSteps, clearFinished }
+Line 87: }
 
 
 === FILE: frontend/src/pages/Workbench.css ===
@@ -7021,7 +7138,7 @@ Line 201: }
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import useWebSocket from '../hooks/useWebSocket'
-import { startAgent, stopAgent, getContainerStatus, startContainer, getKeyStatuses, getEngines } from '../api'
+import { startAgent, stopAgent, getContainerStatus, startContainer, getKeyStatuses, getEngines, getModels } from '../api'
 import ScreenView from '../components/ScreenView'
 import './Workbench.css'
 
@@ -7034,13 +7151,7 @@ const DEFAULT_DESKTOP_ENGINES = [
   { value: 'computer_use', label: '🖥️ Computer Use (Native CU Protocol)' },
 ]
 
-const GOOGLE_MODELS = [
-  { value: 'gemini-3-flash-preview', label: 'Google Gemini 3 Flash Preview (gemini-3-flash-preview)' },
-]
-
-const ANTHROPIC_MODELS = [
-  { value: 'claude-4.6-sonnet', label: 'Anthropic Claude Sonnet 4.6 (claude-4.6-sonnet)' },
-]
+// No hardcoded fallback — models come exclusively from GET /api/models.
 
 export default function Workbench() {
   const { connected, lastScreenshot, logs, steps, agentFinished, clearLogs, clearSteps, clearFinished } = useWebSocket()
@@ -7055,7 +7166,7 @@ export default function Workbench() {
   // Config
   const [runMode, setRunMode] = useState('browser') // 'browser' | 'desktop'
   const [provider, setProvider] = useState('google')
-  const [model, setModel] = useState('gemini-3-flash-preview')
+  const [model, setModel] = useState('')
   const [engine, setEngine] = useState('playwright_mcp')
   const [apiKey, setApiKey] = useState('')
   const [keySource, setKeySource] = useState('ui') // 'ui' | 'env' | 'dotenv'
@@ -7071,6 +7182,12 @@ export default function Workbench() {
   const timelineRef = useRef(null)
   const logRef = useRef(null)
 
+  // Dynamic model list — fetched exclusively from GET /api/models (no fallback)
+  const [fetchedModels, setFetchedModels] = useState([])
+  const [modelsLoaded, setModelsLoaded] = useState(false)
+  const toModelOption = (m) => ({ value: m.model_id, label: `${m.display_name} (${m.model_id})` })
+  const GOOGLE_MODELS = fetchedModels.filter(m => m.provider === 'google').map(toModelOption)
+  const ANTHROPIC_MODELS = fetchedModels.filter(m => m.provider === 'anthropic').map(toModelOption)
   const models = provider === 'anthropic' ? ANTHROPIC_MODELS : GOOGLE_MODELS
 
   // Dynamic engine lists (fetched from backend, with fallback)
@@ -7096,7 +7213,7 @@ export default function Workbench() {
     return () => clearInterval(id)
   }, [refreshContainer])
 
-  // Fetch API key statuses and engines on mount
+  // Fetch API key statuses, engines, and models on mount
   useEffect(() => {
     const fetchKeys = async () => {
       try {
@@ -7122,8 +7239,21 @@ export default function Workbench() {
         }
       } catch { /* backend not ready yet */ }
     }
+    const fetchModelList = async () => {
+      try {
+        const data = await getModels()
+        if (data.models?.length) {
+          setFetchedModels(data.models)
+          setModelsLoaded(true)
+          // Auto-select first model for the default provider
+          const firstForProvider = data.models.find(m => m.provider === 'google')
+          if (firstForProvider) setModel(firstForProvider.model_id)
+        }
+      } catch { /* backend not ready — models stay empty, Start disabled */ }
+    }
     fetchKeys()
     fetchEngines()
+    fetchModelList()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-stop frontend when agent finishes (done/error/max-steps)
@@ -7156,7 +7286,8 @@ export default function Workbench() {
 
   // Sync model when provider changes
   useEffect(() => {
-    setModel(provider === 'anthropic' ? ANTHROPIC_MODELS[0].value : GOOGLE_MODELS[0].value)
+    const list = provider === 'anthropic' ? ANTHROPIC_MODELS : GOOGLE_MODELS
+    setModel(list.length > 0 ? list[0].value : '')
     // Auto-select key source based on availability
     const status = keyStatuses[provider]
     if (status?.available) {
@@ -7283,9 +7414,14 @@ export default function Workbench() {
               <option value="anthropic">Anthropic Claude</option>
             </select>
             <label className="wb-label">Model</label>
-            <select className="wb-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={agentRunning}>
-              {models.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            <select className="wb-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={agentRunning || models.length === 0}>
+              {models.length > 0 ? models.map(m => <option key={m.value} value={m.value}>{m.label}</option>) : (
+                <option value="">Loading models…</option>
+              )}
             </select>
+            {modelsLoaded && models.length === 0 && (
+              <p className="wb-error" style={{ margin: '4px 0 0', fontSize: 11 }}>No models available for this provider.</p>
+            )}
             <label className="wb-label">API Key Source</label>
             <div className="wb-key-source-group">
               <button className={`wb-key-src-btn ${keySource === 'ui' ? 'active' : ''}`} onClick={() => setKeySource('ui')} disabled={agentRunning} title="Enter key manually">
@@ -7348,8 +7484,8 @@ export default function Workbench() {
             />
             {error && <p className="wb-error">{error}</p>}
             <div className="wb-btn-row">
-              <button className="wb-btn wb-btn-primary" onClick={handleStart} disabled={agentRunning}>
-                {agentRunning ? 'Running...' : 'Start Agent'}
+              <button className="wb-btn wb-btn-primary" onClick={handleStart} disabled={agentRunning || models.length === 0}>
+                {agentRunning ? 'Running...' : models.length === 0 ? 'No Models Loaded' : 'Start Agent'}
               </button>
               <button className="wb-btn wb-btn-danger" onClick={handleStop} disabled={!agentRunning}>Stop</button>
               <button className="wb-btn wb-btn-secondary" onClick={() => { clearSteps(); clearLogs() }} disabled={agentRunning}>Clear</button>
@@ -7433,7 +7569,7 @@ This is the source code for frontend/src/pages/Workbench.jsx.
 Line 1: import { useState, useEffect, useRef, useCallback } from 'react'
 Line 2: import { Link } from 'react-router-dom'
 Line 3: import useWebSocket from '../hooks/useWebSocket'
-Line 4: import { startAgent, stopAgent, getContainerStatus, startContainer, getKeyStatuses, getEngines } from '../api'
+Line 4: import { startAgent, stopAgent, getContainerStatus, startContainer, getKeyStatuses, getEngines, getModels } from '../api'
 Line 5: import ScreenView from '../components/ScreenView'
 Line 6: import './Workbench.css'
 Line 8: const DEFAULT_BROWSER_ENGINES = [
@@ -7443,35 +7579,36 @@ Line 12: const DEFAULT_DESKTOP_ENGINES = [
 Line 13: { value: 'omni_accessibility', label: '♿ Omni Accessibility (AT-SPI/UIA/JXA)' },
 Line 14: { value: 'computer_use', label: '🖥️ Computer Use (Native CU Protocol)' },
 Line 15: ]
-Line 17: const GOOGLE_MODELS = [
-Line 18: { value: 'gemini-3-flash-preview', label: 'Google Gemini 3 Flash Preview (gemini-3-flash-preview)' },
-Line 19: ]
-Line 21: const ANTHROPIC_MODELS = [
-Line 22: { value: 'claude-4.6-sonnet', label: 'Anthropic Claude Sonnet 4.6 (claude-4.6-sonnet)' },
-Line 23: ]
-Line 25: export default function Workbench() {
-Line 26: const { connected, lastScreenshot, logs, steps, agentFinished, clearLogs, clearSteps, clearFinished } = useWebSocket()
-Line 28: // Container state
-Line 29: const [containerRunning, setContainerRunning] = useState(false)
-Line 31: // Agent state
-Line 32: const [agentRunning, setAgentRunning] = useState(false)
-Line 33: const [sessionId, setSessionId] = useState(null)
-Line 35: // Config
-Line 36: const [runMode, setRunMode] = useState('browser') // 'browser' | 'desktop'
-Line 37: const [provider, setProvider] = useState('google')
-Line 38: const [model, setModel] = useState('gemini-3-flash-preview')
-Line 39: const [engine, setEngine] = useState('playwright_mcp')
-Line 40: const [apiKey, setApiKey] = useState('')
-Line 41: const [keySource, setKeySource] = useState('ui') // 'ui' | 'env' | 'dotenv'
-Line 42: const [keyStatuses, setKeyStatuses] = useState({}) // { google: {...}, anthropic: {...} }
-Line 43: const [task, setTask] = useState('')
-Line 44: const [maxSteps, setMaxSteps] = useState(50)
-Line 45: const [error, setError] = useState('')
-Line 47: // Timeline expansion
-Line 48: const [expandedStep, setExpandedStep] = useState(null)
-Line 50: // Refs
-Line 51: const timelineRef = useRef(null)
-Line 52: const logRef = useRef(null)
+Line 17: // No hardcoded fallback — models come exclusively from GET /api/models.
+Line 19: export default function Workbench() {
+Line 20: const { connected, lastScreenshot, logs, steps, agentFinished, clearLogs, clearSteps, clearFinished } = useWebSocket()
+Line 22: // Container state
+Line 23: const [containerRunning, setContainerRunning] = useState(false)
+Line 25: // Agent state
+Line 26: const [agentRunning, setAgentRunning] = useState(false)
+Line 27: const [sessionId, setSessionId] = useState(null)
+Line 29: // Config
+Line 30: const [runMode, setRunMode] = useState('browser') // 'browser' | 'desktop'
+Line 31: const [provider, setProvider] = useState('google')
+Line 32: const [model, setModel] = useState('')
+Line 33: const [engine, setEngine] = useState('playwright_mcp')
+Line 34: const [apiKey, setApiKey] = useState('')
+Line 35: const [keySource, setKeySource] = useState('ui') // 'ui' | 'env' | 'dotenv'
+Line 36: const [keyStatuses, setKeyStatuses] = useState({}) // { google: {...}, anthropic: {...} }
+Line 37: const [task, setTask] = useState('')
+Line 38: const [maxSteps, setMaxSteps] = useState(50)
+Line 39: const [error, setError] = useState('')
+Line 41: // Timeline expansion
+Line 42: const [expandedStep, setExpandedStep] = useState(null)
+Line 44: // Refs
+Line 45: const timelineRef = useRef(null)
+Line 46: const logRef = useRef(null)
+Line 48: // Dynamic model list — fetched exclusively from GET /api/models (no fallback)
+Line 49: const [fetchedModels, setFetchedModels] = useState([])
+Line 50: const [modelsLoaded, setModelsLoaded] = useState(false)
+Line 51: const toModelOption = (m) => ({ value: m.model_id, label: `${m.display_name} (${m.model_id})` })
+Line 52: const GOOGLE_MODELS = fetchedModels.filter(m => m.provider === 'google').map(toModelOption)
+Line 53: const ANTHROPIC_MODELS = fetchedModels.filter(m => m.provider === 'anthropic').map(toModelOption)
 Line 54: const models = provider === 'anthropic' ? ANTHROPIC_MODELS : GOOGLE_MODELS
 Line 56: // Dynamic engine lists (fetched from backend, with fallback)
 Line 57: const [fetchedBrowserEngines, setFetchedBrowserEngines] = useState([])
@@ -7493,7 +7630,7 @@ Line 74: refreshContainer()
 Line 75: const id = setInterval(refreshContainer, 5000)
 Line 76: return () => clearInterval(id)
 Line 77: }, [refreshContainer])
-Line 79: // Fetch API key statuses and engines on mount
+Line 79: // Fetch API key statuses, engines, and models on mount
 Line 80: useEffect(() => {
 Line 81: const fetchKeys = async () => {
 Line 82: try {
@@ -7519,289 +7656,308 @@ Line 101: setFetchedDesktopEngines(data.engines.filter(e => e.category === 'desk
 Line 102: }
 Line 103: } catch { /* backend not ready yet */ }
 Line 104: }
-Line 105: fetchKeys()
-Line 106: fetchEngines()
-Line 107: }, []) // eslint-disable-line react-hooks/exhaustive-deps
-Line 109: // Auto-stop frontend when agent finishes (done/error/max-steps)
-Line 110: useEffect(() => {
-Line 111: if (agentFinished && agentRunning) {
-Line 112: setAgentRunning(false)
-Line 113: setSessionId(null)
-Line 114: clearFinished()
-Line 115: }
-Line 116: }, [agentFinished, agentRunning, clearFinished])
-Line 118: // Auto-scroll timeline
-Line 119: useEffect(() => {
-Line 120: if (timelineRef.current) {
-Line 121: timelineRef.current.scrollTop = timelineRef.current.scrollHeight
-Line 122: }
-Line 123: }, [steps])
-Line 125: // Auto-scroll logs
-Line 126: useEffect(() => {
-Line 127: if (logRef.current) {
-Line 128: logRef.current.scrollTop = logRef.current.scrollHeight
-Line 129: }
-Line 130: }, [logs])
-Line 132: // Sync engine when runMode changes
-Line 133: useEffect(() => {
-Line 134: setEngine(runMode === 'browser' ? 'playwright_mcp' : 'computer_use')
-Line 135: }, [runMode])
-Line 137: // Sync model when provider changes
-Line 138: useEffect(() => {
-Line 139: setModel(provider === 'anthropic' ? ANTHROPIC_MODELS[0].value : GOOGLE_MODELS[0].value)
-Line 140: // Auto-select key source based on availability
-Line 141: const status = keyStatuses[provider]
-Line 142: if (status?.available) {
-Line 143: setKeySource(status.source)
-Line 144: } else {
-Line 145: setKeySource('ui')
-Line 146: }
-Line 147: }, [provider, keyStatuses])
-Line 149: const handleStart = async () => {
-Line 150: if (keySource === 'ui' && !apiKey.trim()) return setError('API key is required')
-Line 151: if (!task.trim()) return setError('Task description is required')
-Line 152: setError('')
-Line 153: clearSteps()
-Line 154: clearLogs()
-Line 156: try {
-Line 157: if (!containerRunning) {
-Line 158: await startContainer()
-Line 159: await refreshContainer()
+Line 105: const fetchModelList = async () => {
+Line 106: try {
+Line 107: const data = await getModels()
+Line 108: if (data.models?.length) {
+Line 109: setFetchedModels(data.models)
+Line 110: setModelsLoaded(true)
+Line 111: // Auto-select first model for the default provider
+Line 112: const firstForProvider = data.models.find(m => m.provider === 'google')
+Line 113: if (firstForProvider) setModel(firstForProvider.model_id)
+Line 114: }
+Line 115: } catch { /* backend not ready — models stay empty, Start disabled */ }
+Line 116: }
+Line 117: fetchKeys()
+Line 118: fetchEngines()
+Line 119: fetchModelList()
+Line 120: }, []) // eslint-disable-line react-hooks/exhaustive-deps
+Line 122: // Auto-stop frontend when agent finishes (done/error/max-steps)
+Line 123: useEffect(() => {
+Line 124: if (agentFinished && agentRunning) {
+Line 125: setAgentRunning(false)
+Line 126: setSessionId(null)
+Line 127: clearFinished()
+Line 128: }
+Line 129: }, [agentFinished, agentRunning, clearFinished])
+Line 131: // Auto-scroll timeline
+Line 132: useEffect(() => {
+Line 133: if (timelineRef.current) {
+Line 134: timelineRef.current.scrollTop = timelineRef.current.scrollHeight
+Line 135: }
+Line 136: }, [steps])
+Line 138: // Auto-scroll logs
+Line 139: useEffect(() => {
+Line 140: if (logRef.current) {
+Line 141: logRef.current.scrollTop = logRef.current.scrollHeight
+Line 142: }
+Line 143: }, [logs])
+Line 145: // Sync engine when runMode changes
+Line 146: useEffect(() => {
+Line 147: setEngine(runMode === 'browser' ? 'playwright_mcp' : 'computer_use')
+Line 148: }, [runMode])
+Line 150: // Sync model when provider changes
+Line 151: useEffect(() => {
+Line 152: const list = provider === 'anthropic' ? ANTHROPIC_MODELS : GOOGLE_MODELS
+Line 153: setModel(list.length > 0 ? list[0].value : '')
+Line 154: // Auto-select key source based on availability
+Line 155: const status = keyStatuses[provider]
+Line 156: if (status?.available) {
+Line 157: setKeySource(status.source)
+Line 158: } else {
+Line 159: setKeySource('ui')
 Line 160: }
-Line 162: const engineMode = engine === 'omni_accessibility' || engine === 'computer_use' ? 'desktop' : 'browser'
-Line 164: const res = await startAgent({
-Line 165: task: task.trim(),
-Line 166: apiKey: keySource === 'ui' ? apiKey.trim() : '', // empty = backend resolves from env
-Line 167: model,
-Line 168: maxSteps: Number(maxSteps),
-Line 169: mode: engineMode,
-Line 170: engine,
-Line 171: provider,
-Line 172: })
-Line 173: if (res.error) return setError(res.error)
-Line 174: setSessionId(res.session_id)
-Line 175: setAgentRunning(true)
-Line 176: } catch (e) {
-Line 177: setError(`Failed to start: ${e.message}`)
-Line 178: }
-Line 179: }
-Line 181: const handleStop = async () => {
-Line 182: if (!sessionId) return
-Line 183: try { await stopAgent(sessionId) } catch { /* ignore */ }
-Line 184: setAgentRunning(false)
-Line 185: setSessionId(null)
-Line 186: }
-Line 188: const handleDownloadLogs = () => {
-Line 189: if (logs.length === 0) return
-Line 190: const now = new Date()
-Line 191: const pad = (n, w = 2) => String(n).padStart(w, '0')
-Line 192: const filename = `CUA_logs_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.txt`
-Line 193: const lines = logs.map(log => {
-Line 194: const ts = formatTime(log.timestamp)
-Line 195: return `[${ts}] [${(log.level || '').toUpperCase()}] ${log.message}`
-Line 196: })
-Line 197: const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
-Line 198: const url = URL.createObjectURL(blob)
-Line 199: const a = document.createElement('a')
-Line 200: a.href = url
-Line 201: a.download = filename
-Line 202: a.click()
-Line 203: URL.revokeObjectURL(url)
-Line 204: }
-Line 206: const formatTime = (ts) => {
-Line 207: try { return new Date(ts).toLocaleTimeString('en-US', { hour12: false }) }
-Line 208: catch { return '--:--:--' }
-Line 209: }
-Line 211: const getActionIcon = (action) => {
-Line 212: const icons = {
-Line 213: click: '🖱️', double_click: '🖱️', right_click: '🖱️', hover: '👆',
-Line 214: type: '⌨️', fill: '📝', key: '⌨️', hotkey: '⌨️', paste: '📋', copy: '📋',
-Line 215: open_url: '🌐', reload: '🔄', go_back: '◀', go_forward: '▶',
-Line 216: new_tab: '➕', close_tab: '✖', switch_tab: '🔀',
-Line 217: scroll: '📜', scroll_to: '📜',
-Line 218: get_text: '📖', find_element: '🔍', evaluate_js: '💻',
-Line 219: focus_window: '🪟', open_app: '🚀',
-Line 220: wait: '⏳', wait_for: '⏳', screenshot_region: '📸',
-Line 221: done: '✅', error: '❌',
-Line 222: }
-Line 223: return icons[action] || '⚡'
-Line 224: }
-Line 226: return (
-Line 227: <div className="wb">
-Line 228: {/* Header */}
-Line 229: <header className="wb-header">
-Line 230: <div className="wb-header-left">
-Line 231: <Link to="/" className="wb-back">← Back</Link>
-Line 232: <h1>CUA Workbench</h1>
-Line 233: <span className={`wb-status-pill ${containerRunning ? 'up' : 'down'}`}>
-Line 234: {containerRunning ? 'Container Up' : 'Container Down'}
-Line 235: </span>
-Line 236: <span className={`wb-status-pill ${connected ? 'up' : 'down'}`}>
-Line 237: {connected ? 'WS Connected' : 'WS Disconnected'}
-Line 238: </span>
-Line 239: {agentRunning && <span className="wb-status-pill running">Agent Running</span>}
-Line 240: </div>
-Line 241: <div className="wb-header-right">
-Line 242: <span className="wb-step-counter">Steps: {steps.length}/{maxSteps}</span>
-Line 243: </div>
-Line 244: </header>
-Line 246: <div className="wb-body">
-Line 247: {/* Left: Config */}
-Line 248: <aside className="wb-sidebar">
-Line 249: {/* Run Mode Toggle */}
-Line 250: <div className="wb-section">
-Line 251: <label className="wb-label">Run Mode</label>
-Line 252: <div className="wb-toggle-group">
-Line 253: <button className={`wb-toggle ${runMode === 'browser' ? 'active' : ''}`} onClick={() => setRunMode('browser')} disabled={agentRunning}>🌐 Browser</button>
-Line 254: <button className={`wb-toggle ${runMode === 'desktop' ? 'active' : ''}`} onClick={() => setRunMode('desktop')} disabled={agentRunning}>🖥️ Desktop</button>
-Line 255: </div>
-Line 256: </div>
-Line 258: {/* Provider & Model */}
-Line 259: <div className="wb-section">
-Line 260: <label className="wb-label">Provider</label>
-Line 261: <select className="wb-select" value={provider} onChange={(e) => setProvider(e.target.value)} disabled={agentRunning}>
-Line 262: <option value="google">Google Gemini</option>
-Line 263: <option value="anthropic">Anthropic Claude</option>
-Line 264: </select>
-Line 265: <label className="wb-label">Model</label>
-Line 266: <select className="wb-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={agentRunning}>
-Line 267: {models.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-Line 268: </select>
-Line 269: <label className="wb-label">API Key Source</label>
-Line 270: <div className="wb-key-source-group">
-Line 271: <button className={`wb-key-src-btn ${keySource === 'ui' ? 'active' : ''}`} onClick={() => setKeySource('ui')} disabled={agentRunning} title="Enter key manually">
-Line 272: ✏️ Manual
-Line 273: </button>
-Line 274: <button
-Line 275: className={`wb-key-src-btn ${keySource === 'dotenv' ? 'active' : ''} ${keyStatuses[provider]?.source === 'dotenv' ? 'available' : ''}`}
-Line 276: onClick={() => setKeySource('dotenv')}
-Line 277: disabled={agentRunning || keyStatuses[provider]?.source !== 'dotenv'}
-Line 278: title={keyStatuses[provider]?.source === 'dotenv' ? `Found in .env (${keyStatuses[provider]?.masked_key})` : 'No key in .env file'}
-Line 279: >
-Line 280: 📄 .env {keyStatuses[provider]?.source === 'dotenv' && '✓'}
-Line 281: </button>
-Line 282: <button
-Line 283: className={`wb-key-src-btn ${keySource === 'env' ? 'active' : ''} ${keyStatuses[provider]?.source === 'env' ? 'available' : ''}`}
-Line 284: onClick={() => setKeySource('env')}
-Line 285: disabled={agentRunning || keyStatuses[provider]?.source !== 'env'}
-Line 286: title={keyStatuses[provider]?.source === 'env' ? `Found in system env (${keyStatuses[provider]?.masked_key})` : 'No system env variable set'}
-Line 287: >
-Line 288: 💻 System {keyStatuses[provider]?.source === 'env' && '✓'}
-Line 289: </button>
-Line 290: </div>
-Line 291: {keySource !== 'ui' && keyStatuses[provider]?.available && (
-Line 292: <div className="wb-key-status">
-Line 293: <span className="wb-key-badge ok">🔑 {keyStatuses[provider]?.masked_key}</span>
-Line 294: <span className="wb-key-source-label">from {keySource === 'env' ? 'system variable' : '.env file'}</span>
-Line 295: </div>
-Line 296: )}
-Line 297: {keySource !== 'ui' && !keyStatuses[provider]?.available && (
-Line 298: <div className="wb-key-status">
-Line 299: <span className="wb-key-badge missing">⚠️ No key found</span>
-Line 300: <span className="wb-key-source-label">
-Line 301: {provider === 'google' ? 'Set GOOGLE_API_KEY' : 'Set ANTHROPIC_API_KEY'}
-Line 302: </span>
-Line 303: </div>
-Line 304: )}
-Line 305: {keySource === 'ui' && (
-Line 306: <>
-Line 307: <label className="wb-label">API Key</label>
-Line 308: <input type="password" className="wb-input" placeholder={provider === 'anthropic' ? 'sk-ant-...' : 'AI...'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
-Line 309: </>
-Line 310: )}
-Line 311: </div>
-Line 313: {/* Engine */}
-Line 314: <div className="wb-section">
-Line 315: <label className="wb-label">Engine</label>
-Line 316: <select className="wb-select" value={engine} onChange={(e) => setEngine(e.target.value)} disabled={agentRunning}>
-Line 317: {engines.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
-Line 318: </select>
-Line 319: <label className="wb-label">Max Steps</label>
-Line 320: <input type="number" className="wb-input wb-input-sm" min={1} max={200} value={maxSteps} onChange={(e) => setMaxSteps(e.target.value)} disabled={agentRunning} />
-Line 321: </div>
-Line 323: {/* Task */}
-Line 324: <div className="wb-section wb-section-grow">
-Line 325: <label className="wb-label">Task</label>
-Line 326: <textarea className="wb-textarea" placeholder="Describe what the agent should do..." value={task} onChange={(e) => setTask(e.target.value)} disabled={agentRunning}
-Line 327: onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey && !agentRunning) handleStart() }}
-Line 328: />
-Line 329: {error && <p className="wb-error">{error}</p>}
-Line 330: <div className="wb-btn-row">
-Line 331: <button className="wb-btn wb-btn-primary" onClick={handleStart} disabled={agentRunning}>
-Line 332: {agentRunning ? 'Running...' : 'Start Agent'}
-Line 333: </button>
-Line 334: <button className="wb-btn wb-btn-danger" onClick={handleStop} disabled={!agentRunning}>Stop</button>
-Line 335: <button className="wb-btn wb-btn-secondary" onClick={() => { clearSteps(); clearLogs() }} disabled={agentRunning}>Clear</button>
-Line 336: </div>
-Line 337: </div>
-Line 338: </aside>
-Line 340: {/* Center: Live Screen */}
-Line 341: <main className="wb-screen-area">
-Line 342: <ScreenView screenshot={lastScreenshot} containerRunning={containerRunning} />
-Line 344: {/* Progress bar */}
-Line 345: {agentRunning && steps.length > 0 && (
-Line 346: <div className="wb-progress">
-Line 347: <div className="wb-progress-fill" style={{ width: `${Math.min((steps.length / maxSteps) * 100, 100)}%` }} />
-Line 348: </div>
-Line 349: )}
-Line 350: </main>
-Line 352: {/* Right: Timeline + Logs */}
-Line 353: <aside className="wb-right-panel">
-Line 354: {/* Timeline */}
-Line 355: <div className="wb-timeline-section">
-Line 356: <div className="wb-panel-header">
-Line 357: <h3>Timeline ({steps.length})</h3>
-Line 358: </div>
-Line 359: <div className="wb-timeline" ref={timelineRef}>
-Line 360: {steps.length === 0 && <p className="wb-empty">No steps yet.</p>}
-Line 361: {steps.map((step, i) => (
-Line 362: <div key={i} className={`wb-timeline-item ${step.error ? 'has-error' : ''} ${expandedStep === i ? 'expanded' : ''}`} onClick={() => setExpandedStep(expandedStep === i ? null : i)}>
-Line 363: <div className="wb-timeline-head">
-Line 364: <span className="wb-step-num">#{step.step_number}</span>
-Line 365: <span className="wb-action-icon">{getActionIcon(step.action?.action)}</span>
-Line 366: <span className="wb-action-name">{step.action?.action || 'unknown'}</span>
-Line 367: {step.action?.target && <span className="wb-action-target" title={step.action.target}>{step.action.target.length > 20 ? step.action.target.slice(0, 20) + '…' : step.action.target}</span>}
-Line 368: {step.action?.text && step.action.action !== 'done' && (
-Line 369: <span className="wb-action-text" title={step.action.text}>"{step.action.text.length > 20 ? step.action.text.slice(0, 20) + '…' : step.action.text}"</span>
-Line 370: )}
-Line 371: <span className="wb-step-time">{formatTime(step.timestamp)}</span>
-Line 372: </div>
-Line 373: {expandedStep === i && (
-Line 374: <div className="wb-timeline-detail">
-Line 375: {step.action?.reasoning && <p className="wb-reasoning">{step.action.reasoning}</p>}
-Line 376: {step.action?.coordinates && <p className="wb-coords">Coords: [{step.action.coordinates.join(', ')}]</p>}
-Line 377: {step.error && <p className="wb-step-error">Error: {step.error}</p>}
-Line 378: <pre className="wb-json">{JSON.stringify(step.action, null, 2)}</pre>
-Line 379: </div>
-Line 380: )}
-Line 381: </div>
-Line 382: ))}
-Line 383: </div>
-Line 384: </div>
-Line 386: {/* Logs */}
-Line 387: <div className="wb-log-section">
-Line 388: <div className="wb-panel-header">
-Line 389: <h3>Logs ({logs.length})</h3>
-Line 390: <div className="wb-log-actions">
-Line 391: <button className="wb-download-btn" onClick={handleDownloadLogs} disabled={logs.length === 0} title="Download logs as .txt">⬇ Download</button>
-Line 392: <button className="wb-clear-btn" onClick={clearLogs}>Clear</button>
-Line 393: </div>
-Line 394: </div>
-Line 395: <div className="wb-logs" ref={logRef}>
-Line 396: {logs.length === 0 && <p className="wb-empty">Waiting for logs...</p>}
-Line 397: {logs.map((log, i) => (
-Line 398: <div key={i} className="wb-log-entry">
-Line 399: <span className="wb-log-time">{formatTime(log.timestamp)}</span>
-Line 400: <span className={`wb-log-level ${log.level}`}>{log.level}</span>
-Line 401: <span className="wb-log-msg">{log.message}</span>
+Line 161: }, [provider, keyStatuses])
+Line 163: const handleStart = async () => {
+Line 164: if (keySource === 'ui' && !apiKey.trim()) return setError('API key is required')
+Line 165: if (!task.trim()) return setError('Task description is required')
+Line 166: setError('')
+Line 167: clearSteps()
+Line 168: clearLogs()
+Line 170: try {
+Line 171: if (!containerRunning) {
+Line 172: await startContainer()
+Line 173: await refreshContainer()
+Line 174: }
+Line 176: const engineMode = engine === 'omni_accessibility' || engine === 'computer_use' ? 'desktop' : 'browser'
+Line 178: const res = await startAgent({
+Line 179: task: task.trim(),
+Line 180: apiKey: keySource === 'ui' ? apiKey.trim() : '', // empty = backend resolves from env
+Line 181: model,
+Line 182: maxSteps: Number(maxSteps),
+Line 183: mode: engineMode,
+Line 184: engine,
+Line 185: provider,
+Line 186: })
+Line 187: if (res.error) return setError(res.error)
+Line 188: setSessionId(res.session_id)
+Line 189: setAgentRunning(true)
+Line 190: } catch (e) {
+Line 191: setError(`Failed to start: ${e.message}`)
+Line 192: }
+Line 193: }
+Line 195: const handleStop = async () => {
+Line 196: if (!sessionId) return
+Line 197: try { await stopAgent(sessionId) } catch { /* ignore */ }
+Line 198: setAgentRunning(false)
+Line 199: setSessionId(null)
+Line 200: }
+Line 202: const handleDownloadLogs = () => {
+Line 203: if (logs.length === 0) return
+Line 204: const now = new Date()
+Line 205: const pad = (n, w = 2) => String(n).padStart(w, '0')
+Line 206: const filename = `CUA_logs_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.txt`
+Line 207: const lines = logs.map(log => {
+Line 208: const ts = formatTime(log.timestamp)
+Line 209: return `[${ts}] [${(log.level || '').toUpperCase()}] ${log.message}`
+Line 210: })
+Line 211: const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
+Line 212: const url = URL.createObjectURL(blob)
+Line 213: const a = document.createElement('a')
+Line 214: a.href = url
+Line 215: a.download = filename
+Line 216: a.click()
+Line 217: URL.revokeObjectURL(url)
+Line 218: }
+Line 220: const formatTime = (ts) => {
+Line 221: try { return new Date(ts).toLocaleTimeString('en-US', { hour12: false }) }
+Line 222: catch { return '--:--:--' }
+Line 223: }
+Line 225: const getActionIcon = (action) => {
+Line 226: const icons = {
+Line 227: click: '🖱️', double_click: '🖱️', right_click: '🖱️', hover: '👆',
+Line 228: type: '⌨️', fill: '📝', key: '⌨️', hotkey: '⌨️', paste: '📋', copy: '📋',
+Line 229: open_url: '🌐', reload: '🔄', go_back: '◀', go_forward: '▶',
+Line 230: new_tab: '➕', close_tab: '✖', switch_tab: '🔀',
+Line 231: scroll: '📜', scroll_to: '📜',
+Line 232: get_text: '📖', find_element: '🔍', evaluate_js: '💻',
+Line 233: focus_window: '🪟', open_app: '🚀',
+Line 234: wait: '⏳', wait_for: '⏳', screenshot_region: '📸',
+Line 235: done: '✅', error: '❌',
+Line 236: }
+Line 237: return icons[action] || '⚡'
+Line 238: }
+Line 240: return (
+Line 241: <div className="wb">
+Line 242: {/* Header */}
+Line 243: <header className="wb-header">
+Line 244: <div className="wb-header-left">
+Line 245: <Link to="/" className="wb-back">← Back</Link>
+Line 246: <h1>CUA Workbench</h1>
+Line 247: <span className={`wb-status-pill ${containerRunning ? 'up' : 'down'}`}>
+Line 248: {containerRunning ? 'Container Up' : 'Container Down'}
+Line 249: </span>
+Line 250: <span className={`wb-status-pill ${connected ? 'up' : 'down'}`}>
+Line 251: {connected ? 'WS Connected' : 'WS Disconnected'}
+Line 252: </span>
+Line 253: {agentRunning && <span className="wb-status-pill running">Agent Running</span>}
+Line 254: </div>
+Line 255: <div className="wb-header-right">
+Line 256: <span className="wb-step-counter">Steps: {steps.length}/{maxSteps}</span>
+Line 257: </div>
+Line 258: </header>
+Line 260: <div className="wb-body">
+Line 261: {/* Left: Config */}
+Line 262: <aside className="wb-sidebar">
+Line 263: {/* Run Mode Toggle */}
+Line 264: <div className="wb-section">
+Line 265: <label className="wb-label">Run Mode</label>
+Line 266: <div className="wb-toggle-group">
+Line 267: <button className={`wb-toggle ${runMode === 'browser' ? 'active' : ''}`} onClick={() => setRunMode('browser')} disabled={agentRunning}>🌐 Browser</button>
+Line 268: <button className={`wb-toggle ${runMode === 'desktop' ? 'active' : ''}`} onClick={() => setRunMode('desktop')} disabled={agentRunning}>🖥️ Desktop</button>
+Line 269: </div>
+Line 270: </div>
+Line 272: {/* Provider & Model */}
+Line 273: <div className="wb-section">
+Line 274: <label className="wb-label">Provider</label>
+Line 275: <select className="wb-select" value={provider} onChange={(e) => setProvider(e.target.value)} disabled={agentRunning}>
+Line 276: <option value="google">Google Gemini</option>
+Line 277: <option value="anthropic">Anthropic Claude</option>
+Line 278: </select>
+Line 279: <label className="wb-label">Model</label>
+Line 280: <select className="wb-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={agentRunning || models.length === 0}>
+Line 281: {models.length > 0 ? models.map(m => <option key={m.value} value={m.value}>{m.label}</option>) : (
+Line 282: <option value="">Loading models…</option>
+Line 283: )}
+Line 284: </select>
+Line 285: {modelsLoaded && models.length === 0 && (
+Line 286: <p className="wb-error" style={{ margin: '4px 0 0', fontSize: 11 }}>No models available for this provider.</p>
+Line 287: )}
+Line 288: <label className="wb-label">API Key Source</label>
+Line 289: <div className="wb-key-source-group">
+Line 290: <button className={`wb-key-src-btn ${keySource === 'ui' ? 'active' : ''}`} onClick={() => setKeySource('ui')} disabled={agentRunning} title="Enter key manually">
+Line 291: ✏️ Manual
+Line 292: </button>
+Line 293: <button
+Line 294: className={`wb-key-src-btn ${keySource === 'dotenv' ? 'active' : ''} ${keyStatuses[provider]?.source === 'dotenv' ? 'available' : ''}`}
+Line 295: onClick={() => setKeySource('dotenv')}
+Line 296: disabled={agentRunning || keyStatuses[provider]?.source !== 'dotenv'}
+Line 297: title={keyStatuses[provider]?.source === 'dotenv' ? `Found in .env (${keyStatuses[provider]?.masked_key})` : 'No key in .env file'}
+Line 298: >
+Line 299: 📄 .env {keyStatuses[provider]?.source === 'dotenv' && '✓'}
+Line 300: </button>
+Line 301: <button
+Line 302: className={`wb-key-src-btn ${keySource === 'env' ? 'active' : ''} ${keyStatuses[provider]?.source === 'env' ? 'available' : ''}`}
+Line 303: onClick={() => setKeySource('env')}
+Line 304: disabled={agentRunning || keyStatuses[provider]?.source !== 'env'}
+Line 305: title={keyStatuses[provider]?.source === 'env' ? `Found in system env (${keyStatuses[provider]?.masked_key})` : 'No system env variable set'}
+Line 306: >
+Line 307: 💻 System {keyStatuses[provider]?.source === 'env' && '✓'}
+Line 308: </button>
+Line 309: </div>
+Line 310: {keySource !== 'ui' && keyStatuses[provider]?.available && (
+Line 311: <div className="wb-key-status">
+Line 312: <span className="wb-key-badge ok">🔑 {keyStatuses[provider]?.masked_key}</span>
+Line 313: <span className="wb-key-source-label">from {keySource === 'env' ? 'system variable' : '.env file'}</span>
+Line 314: </div>
+Line 315: )}
+Line 316: {keySource !== 'ui' && !keyStatuses[provider]?.available && (
+Line 317: <div className="wb-key-status">
+Line 318: <span className="wb-key-badge missing">⚠️ No key found</span>
+Line 319: <span className="wb-key-source-label">
+Line 320: {provider === 'google' ? 'Set GOOGLE_API_KEY' : 'Set ANTHROPIC_API_KEY'}
+Line 321: </span>
+Line 322: </div>
+Line 323: )}
+Line 324: {keySource === 'ui' && (
+Line 325: <>
+Line 326: <label className="wb-label">API Key</label>
+Line 327: <input type="password" className="wb-input" placeholder={provider === 'anthropic' ? 'sk-ant-...' : 'AI...'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
+Line 328: </>
+Line 329: )}
+Line 330: </div>
+Line 332: {/* Engine */}
+Line 333: <div className="wb-section">
+Line 334: <label className="wb-label">Engine</label>
+Line 335: <select className="wb-select" value={engine} onChange={(e) => setEngine(e.target.value)} disabled={agentRunning}>
+Line 336: {engines.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
+Line 337: </select>
+Line 338: <label className="wb-label">Max Steps</label>
+Line 339: <input type="number" className="wb-input wb-input-sm" min={1} max={200} value={maxSteps} onChange={(e) => setMaxSteps(e.target.value)} disabled={agentRunning} />
+Line 340: </div>
+Line 342: {/* Task */}
+Line 343: <div className="wb-section wb-section-grow">
+Line 344: <label className="wb-label">Task</label>
+Line 345: <textarea className="wb-textarea" placeholder="Describe what the agent should do..." value={task} onChange={(e) => setTask(e.target.value)} disabled={agentRunning}
+Line 346: onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey && !agentRunning) handleStart() }}
+Line 347: />
+Line 348: {error && <p className="wb-error">{error}</p>}
+Line 349: <div className="wb-btn-row">
+Line 350: <button className="wb-btn wb-btn-primary" onClick={handleStart} disabled={agentRunning || models.length === 0}>
+Line 351: {agentRunning ? 'Running...' : models.length === 0 ? 'No Models Loaded' : 'Start Agent'}
+Line 352: </button>
+Line 353: <button className="wb-btn wb-btn-danger" onClick={handleStop} disabled={!agentRunning}>Stop</button>
+Line 354: <button className="wb-btn wb-btn-secondary" onClick={() => { clearSteps(); clearLogs() }} disabled={agentRunning}>Clear</button>
+Line 355: </div>
+Line 356: </div>
+Line 357: </aside>
+Line 359: {/* Center: Live Screen */}
+Line 360: <main className="wb-screen-area">
+Line 361: <ScreenView screenshot={lastScreenshot} containerRunning={containerRunning} />
+Line 363: {/* Progress bar */}
+Line 364: {agentRunning && steps.length > 0 && (
+Line 365: <div className="wb-progress">
+Line 366: <div className="wb-progress-fill" style={{ width: `${Math.min((steps.length / maxSteps) * 100, 100)}%` }} />
+Line 367: </div>
+Line 368: )}
+Line 369: </main>
+Line 371: {/* Right: Timeline + Logs */}
+Line 372: <aside className="wb-right-panel">
+Line 373: {/* Timeline */}
+Line 374: <div className="wb-timeline-section">
+Line 375: <div className="wb-panel-header">
+Line 376: <h3>Timeline ({steps.length})</h3>
+Line 377: </div>
+Line 378: <div className="wb-timeline" ref={timelineRef}>
+Line 379: {steps.length === 0 && <p className="wb-empty">No steps yet.</p>}
+Line 380: {steps.map((step, i) => (
+Line 381: <div key={i} className={`wb-timeline-item ${step.error ? 'has-error' : ''} ${expandedStep === i ? 'expanded' : ''}`} onClick={() => setExpandedStep(expandedStep === i ? null : i)}>
+Line 382: <div className="wb-timeline-head">
+Line 383: <span className="wb-step-num">#{step.step_number}</span>
+Line 384: <span className="wb-action-icon">{getActionIcon(step.action?.action)}</span>
+Line 385: <span className="wb-action-name">{step.action?.action || 'unknown'}</span>
+Line 386: {step.action?.target && <span className="wb-action-target" title={step.action.target}>{step.action.target.length > 20 ? step.action.target.slice(0, 20) + '…' : step.action.target}</span>}
+Line 387: {step.action?.text && step.action.action !== 'done' && (
+Line 388: <span className="wb-action-text" title={step.action.text}>"{step.action.text.length > 20 ? step.action.text.slice(0, 20) + '…' : step.action.text}"</span>
+Line 389: )}
+Line 390: <span className="wb-step-time">{formatTime(step.timestamp)}</span>
+Line 391: </div>
+Line 392: {expandedStep === i && (
+Line 393: <div className="wb-timeline-detail">
+Line 394: {step.action?.reasoning && <p className="wb-reasoning">{step.action.reasoning}</p>}
+Line 395: {step.action?.coordinates && <p className="wb-coords">Coords: [{step.action.coordinates.join(', ')}]</p>}
+Line 396: {step.error && <p className="wb-step-error">Error: {step.error}</p>}
+Line 397: <pre className="wb-json">{JSON.stringify(step.action, null, 2)}</pre>
+Line 398: </div>
+Line 399: )}
+Line 400: </div>
+Line 401: ))}
 Line 402: </div>
-Line 403: ))}
-Line 404: </div>
-Line 405: </div>
-Line 406: </aside>
-Line 407: </div>
-Line 408: </div>
-Line 409: )
-Line 410: }
+Line 403: </div>
+Line 405: {/* Logs */}
+Line 406: <div className="wb-log-section">
+Line 407: <div className="wb-panel-header">
+Line 408: <h3>Logs ({logs.length})</h3>
+Line 409: <div className="wb-log-actions">
+Line 410: <button className="wb-download-btn" onClick={handleDownloadLogs} disabled={logs.length === 0} title="Download logs as .txt">⬇ Download</button>
+Line 411: <button className="wb-clear-btn" onClick={clearLogs}>Clear</button>
+Line 412: </div>
+Line 413: </div>
+Line 414: <div className="wb-logs" ref={logRef}>
+Line 415: {logs.length === 0 && <p className="wb-empty">Waiting for logs...</p>}
+Line 416: {logs.map((log, i) => (
+Line 417: <div key={i} className="wb-log-entry">
+Line 418: <span className="wb-log-time">{formatTime(log.timestamp)}</span>
+Line 419: <span className={`wb-log-level ${log.level}`}>{log.level}</span>
+Line 420: <span className="wb-log-msg">{log.message}</span>
+Line 421: </div>
+Line 422: ))}
+Line 423: </div>
+Line 424: </div>
+Line 425: </aside>
+Line 426: </div>
+Line 427: </div>
+Line 428: )
+Line 429: }
 
 

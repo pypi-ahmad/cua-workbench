@@ -315,6 +315,7 @@ class StartTaskRequest(BaseModel):
     mode: str = Field(max_length=20)
     engine: str = Field(max_length=20)  # Required — no default, user must choose
     provider: str = Field(max_length=20)
+    runtime_target: str = Field(default="local", max_length=20)  # "local" or "docker"
     system_prompt: Optional[str] = Field(default=None, max_length=50_000)
     allowed_domains: Optional[list[str]] = Field(default=None, max_length=50)
 

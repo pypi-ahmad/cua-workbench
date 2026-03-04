@@ -63,121 +63,312 @@ Line 29: !requirements.txt
 
 === FILE: .gitignore ===
 --- SOURCE CODE ---
+# -------------------------
 # Python
+# -------------------------
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
+*.pyd
+*.so
 *.egg-info/
+.eggs/
 dist/
 build/
-.eggs/
 *.egg
+
+# Virtualenv
 .venv/
 venv/
 env/
 
-# Environment
-.env
+# Testing / tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+*.log
 
-# Node
+# Jupyter / notebooks
+.ipynb_checkpoints/
+
+# -------------------------
+# Environment / secrets
+# -------------------------
+.env
+.env.*
+!.env.example
+
+# -------------------------
+# Node / Frontend
+# -------------------------
 node_modules/
+frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/.cache/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
 
-# IDE
+# -------------------------
+# Playwright
+# -------------------------
+playwright-report/
+test-results/
+# Playwright trace files (*.zip in test-results, not globally)
+test-results/**/*.zip
+*.trace
+
+# -------------------------
+# IDE / Editor
+# -------------------------
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
 Thumbs.db
 
-# Docker
+# -------------------------
+# Docker / local runtime
+# -------------------------
 docker/tmp/
+docker/.cache/
+**/.docker/
+**/*.pid
 
-# Logs
-*.log
+# docker compose override (local only)
+docker-compose.override.yml
+
+# -------------------------
+# App artifacts (screenshots, recordings, reports)
+# -------------------------
+artifacts/
+outputs/
+reports/
+logs/
+recordings/
+screenshots/
+tmp/
+.cache/
+
+# If you store curated screenshots/gifs for README, keep them under:
+#   assets/
+# and do NOT ignore that folder.
 --- EXPLANATION ---
 This is the source code for .gitignore.
-Line 1: # Python
-Line 2: __pycache__/
-Line 3: *.pyc
-Line 4: *.pyo
-Line 5: *.egg-info/
-Line 6: dist/
-Line 7: build/
-Line 8: .eggs/
-Line 9: *.egg
-Line 10: .venv/
-Line 11: venv/
-Line 12: env/
-Line 14: # Environment
-Line 15: .env
-Line 17: # Node
-Line 18: node_modules/
-Line 19: frontend/dist/
-Line 20: frontend/.vite/
-Line 22: # IDE
-Line 23: .vscode/
-Line 24: .idea/
-Line 25: *.swp
-Line 26: *.swo
-Line 27: *~
-Line 29: # OS
-Line 30: .DS_Store
-Line 31: Thumbs.db
-Line 33: # Docker
-Line 34: docker/tmp/
-Line 36: # Logs
-Line 37: *.log
+Line 1: # -------------------------
+Line 2: # Python
+Line 3: # -------------------------
+Line 4: __pycache__/
+Line 5: *.py[cod]
+Line 6: *.pyo
+Line 7: *.pyd
+Line 8: *.so
+Line 9: *.egg-info/
+Line 10: .eggs/
+Line 11: dist/
+Line 12: build/
+Line 13: *.egg
+Line 15: # Virtualenv
+Line 16: .venv/
+Line 17: venv/
+Line 18: env/
+Line 20: # Testing / tooling
+Line 21: .pytest_cache/
+Line 22: .mypy_cache/
+Line 23: .ruff_cache/
+Line 24: .coverage
+Line 25: coverage.xml
+Line 26: htmlcov/
+Line 27: .tox/
+Line 28: .nox/
+Line 29: *.log
+Line 31: # Jupyter / notebooks
+Line 32: .ipynb_checkpoints/
+Line 34: # -------------------------
+Line 35: # Environment / secrets
+Line 36: # -------------------------
+Line 37: .env
+Line 38: .env.*
+Line 39: !.env.example
+Line 41: # -------------------------
+Line 42: # Node / Frontend
+Line 43: # -------------------------
+Line 44: node_modules/
+Line 45: frontend/node_modules/
+Line 46: frontend/dist/
+Line 47: frontend/.vite/
+Line 48: frontend/.cache/
+Line 49: npm-debug.log*
+Line 50: yarn-debug.log*
+Line 51: pnpm-debug.log*
+Line 53: # -------------------------
+Line 54: # Playwright
+Line 55: # -------------------------
+Line 56: playwright-report/
+Line 57: test-results/
+Line 58: # Playwright trace files (*.zip in test-results, not globally)
+Line 59: test-results/**/*.zip
+Line 60: *.trace
+Line 62: # -------------------------
+Line 63: # IDE / Editor
+Line 64: # -------------------------
+Line 65: .vscode/
+Line 66: .idea/
+Line 67: *.swp
+Line 68: *.swo
+Line 69: *~
+Line 70: .DS_Store
+Line 71: Thumbs.db
+Line 73: # -------------------------
+Line 74: # Docker / local runtime
+Line 75: # -------------------------
+Line 76: docker/tmp/
+Line 77: docker/.cache/
+Line 78: **/.docker/
+Line 79: **/*.pid
+Line 81: # docker compose override (local only)
+Line 82: docker-compose.override.yml
+Line 84: # -------------------------
+Line 85: # App artifacts (screenshots, recordings, reports)
+Line 86: # -------------------------
+Line 87: artifacts/
+Line 88: outputs/
+Line 89: reports/
+Line 90: logs/
+Line 91: recordings/
+Line 92: screenshots/
+Line 93: tmp/
+Line 94: .cache/
+Line 96: # If you store curated screenshots/gifs for README, keep them under:
+Line 97: #   assets/
+Line 98: # and do NOT ignore that folder.
+
+
+=== FILE: LICENSE ===
+--- SOURCE CODE ---
+MIT License
+
+Copyright (c) 2026 Ahmad
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+--- EXPLANATION ---
+This is the source code for LICENSE.
+Line 1: MIT License
+Line 3: Copyright (c) 2026 Ahmad
+Line 5: Permission is hereby granted, free of charge, to any person obtaining a copy
+Line 6: of this software and associated documentation files (the "Software"), to deal
+Line 7: in the Software without restriction, including without limitation the rights
+Line 8: to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+Line 9: copies of the Software, and to permit persons to whom the Software is
+Line 10: furnished to do so, subject to the following conditions:
+Line 12: The above copyright notice and this permission notice shall be included in all
+Line 13: copies or substantial portions of the Software.
+Line 15: THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+Line 16: IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+Line 17: FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+Line 18: AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+Line 19: LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+Line 20: OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+Line 21: SOFTWARE.
 
 
 === FILE: README.md ===
 --- SOURCE CODE ---
-# CUA — Computer-Using Agent
+<div align="center">
 
-An autonomous agent that perceives, reasons about, and acts on a full Linux desktop and browser through vision-language models. CUA connects Google Gemini or Anthropic Claude to three pluggable automation engines running inside a Docker-sandboxed Ubuntu environment, controlled via a React web interface.
+# 🖥️ CUA Workbench
 
----
+### Computer-Using Agent Workbench
 
-## Table of Contents
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
+[![Docker](https://img.shields.io/badge/Docker-24.04-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docker.com)
+[![Playwright](https://img.shields.io/badge/Playwright-MCP-2EAD33?style=for-the-badge&logo=playwright&logoColor=white)](https://playwright.dev)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-1. [Project Overview](#project-overview)
-2. [Architecture Overview](#architecture-overview)
-3. [System Flow](#system-flow)
-4. [Agent Loop Logic](#agent-loop-logic)
-5. [Data Model & State](#data-model--state)
-6. [Core Modules](#core-modules)
-7. [Engine Breakdown](#engine-breakdown)
-8. [Security Model](#security-model)
-9. [LLM Provider Integration](#llm-provider-integration)
-10. [API Surface](#api-surface)
-11. [Docker Runtime](#docker-runtime)
-12. [Configuration](#configuration)
-13. [Setup & Installation](#setup--installation)
-14. [Running the Application](#running-the-application)
-15. [Testing](#testing)
-16. [Limitations](#limitations)
-17. [Future Improvements](#future-improvements)
+[![Tests](https://img.shields.io/badge/Tests-431_passing-brightgreen?style=flat-square&logo=pytest&logoColor=white)](#testing)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square)](#)
+
+A cross-platform workbench for building and testing **computer-using agents**.  
+Run a full **Linux desktop + browser inside Docker**, stream it live in a **web UI**,  
+and drive it using **native Computer Use protocols** (Gemini / Claude) or **Playwright MCP**.
+
+[Getting Started](#quickstart-tldr) • [Architecture](#architecture-overview) • [API Docs](#api-surface) • [Contributing](#contributing)
+
+</div>
 
 ---
 
-## Project Overview
+### ✨ Highlights
+
+- 💻 **Windows/macOS/Linux hosts** — backend + UI run on host
+- 🔒 **Safe execution in a Docker sandbox** — desktop/browser automation happens inside the container
+- 🤖 **Provider-native computer use** — Gemini CU + Claude CU
+- 🧩 **Tooling-first automation** — Playwright MCP + accessibility engine
+
+### 🛠️ Built With
+
+| Backend | Frontend | Infrastructure | AI Providers |
+|:---:|:---:|:---:|:---:|
+| ![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white) | ![React](https://img.shields.io/badge/React-61DAFB?style=flat-square&logo=react&logoColor=black) | ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white) | ![Google](https://img.shields.io/badge/Gemini-4285F4?style=flat-square&logo=google&logoColor=white) |
+| ![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white) | ![Vite](https://img.shields.io/badge/Vite-646CFF?style=flat-square&logo=vite&logoColor=white) | ![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=flat-square&logo=ubuntu&logoColor=white) | ![Anthropic](https://img.shields.io/badge/Claude-191919?style=flat-square&logo=anthropic&logoColor=white) |
+| ![Pydantic](https://img.shields.io/badge/Pydantic-E92063?style=flat-square&logo=pydantic&logoColor=white) | ![React Router](https://img.shields.io/badge/React_Router-CA4245?style=flat-square&logo=reactrouter&logoColor=white) | ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?style=flat-square&logo=playwright&logoColor=white) | ![WebRTC](https://img.shields.io/badge/WebRTC-333333?style=flat-square&logo=webrtc&logoColor=white) |
+
+---
+
+## 📑 Table of Contents
+
+| | | |
+|---|---|---|
+| 1. [🔭 Project Overview](#project-overview) | 9. [⚙️ Engine Breakdown](#engine-breakdown) | 17. [🧪 Testing](#testing) |
+| 2. [🚀 Quickstart (TL;DR)](#quickstart-tldr) | 10. [🔐 Security Model](#security-model) | 18. [🔧 Troubleshooting](#troubleshooting) |
+| 3. [🤖 Model Policy](#model-policy-ui--api) | 11. [🧠 LLM Provider Integration](#llm-provider-integration) | 19. [⚠️ Limitations](#limitations) |
+| 4. [🏗️ Architecture Overview](#architecture-overview) | 12. [📡 API Surface](#api-surface) | 20. [🔮 Future Improvements](#future-improvements) |
+| 5. [🔄 System Flow](#system-flow) | 13. [🐳 Docker Runtime](#docker-runtime) | 21. [🤝 Contributing](#contributing) |
+| 6. [📊 Agent Loop Logic](#agent-loop-logic) | 14. [📝 Configuration](#configuration) | 22. [🛡️ Security Reporting](#security-reporting) |
+| 7. [💾 Data Model & State](#data-model--state) | 15. [📦 Setup & Installation](#setup--installation) | 23. [📄 License](#license) |
+| 8. [🧩 Core Modules](#core-modules) | 16. [▶️ Running the Application](#running-the-application) | |
+
+---
+
+## 🔭 Project Overview
 
 CUA implements a **perceive → think → act** loop: it captures a screenshot of a virtual Linux desktop, sends the image to a vision-language model alongside the user's task description, receives a structured action command, and executes that command on the desktop. This cycle repeats until the task is complete, an error is unrecoverable, or the step limit is reached.
 
 ### Key Capabilities
 
-| Capability | Implementation |
-|---|---|
-| Browser automation (accessibility-tree) | Playwright MCP server via JSON-RPC |
-| Semantic desktop automation | AT-SPI2 accessibility framework via GObject Introspection |
-| Native computer-use protocol | Gemini CU + Claude CU structured tool calls (model-driven action loop) |
-| Real-time screen streaming | WebSocket screenshots, WebRTC via ffmpeg x11grab + aiortc, noVNC |
-| Multi-provider AI | Google Gemini (`gemini-3-flash-preview`), Anthropic Claude (`claude-4.6-sonnet`) |
+| | Capability | Implementation |
+|:---:|---|---|
+| 🌐 | Browser automation (accessibility-tree) | Playwright MCP server via JSON-RPC |
+| ♿ | Semantic desktop automation | AT-SPI2 accessibility framework via GObject Introspection |
+| 🤖 | Native computer-use protocol | Gemini CU + Claude CU structured tool calls (model-driven action loop) |
+| 📹 | Real-time screen streaming | WebSocket screenshots, WebRTC via ffmpeg x11grab + aiortc, noVNC |
+| 🧠 | Multi-provider AI (model allowlist) | UI is restricted to 4 models (served by `GET /api/models`): `claude-sonnet-4-6`, `claude-opus-4-6`, `gemini-3-flash-preview`, `gemini-3.1-pro-preview` |
 
 ### Problem It Solves
 
@@ -185,14 +376,79 @@ CUA enables natural-language-driven computer control — a user describes a task
 
 ---
 
-## Architecture Overview
+## 🚀 Quickstart (TL;DR)
+
+> Runs on Windows/macOS/Linux (host) and executes desktop/browser actions inside a Docker Linux sandbox.
+
+<table>
+<tr><td>
+
+**① Start the Docker sandbox**
+```bash
+docker compose up --build -d
+```
+Sanity check: `curl http://127.0.0.1:9222/health`
+
+</td><td>
+
+**② Start the backend**
+```bash
+python -m backend.main
+```
+
+</td></tr>
+<tr><td>
+
+**③ Start the frontend**
+```bash
+cd frontend && npm install && npm run dev
+```
+
+</td><td>
+
+**④ Open the Workbench**
+- 🌐 UI: [http://127.0.0.1:3000](http://127.0.0.1:3000)
+- 📺 noVNC: [http://127.0.0.1:6080](http://127.0.0.1:6080)
+
+</td></tr>
+</table>
+
+**⑤ Run a first task** — Desktop: *"open file explorer"*  ·  Browser: *"go to example.com"*
+
+> 💡 **Windows note:** Prefer `127.0.0.1` over `localhost` to avoid IPv6 binding issues with Docker.
+
+---
+
+## 🤖 Model Policy (UI + API)
+
+The UI dropdown is intentionally restricted to **four** models:
+
+- **Anthropic**: `claude-sonnet-4-6`
+- **Anthropic**: `claude-opus-4-6`
+- **Google**: `gemini-3-flash-preview`
+- **Google**: `gemini-3.1-pro-preview`
+
+**Single source of truth:** `backend/allowed_models.json`  
+**Frontend source:** `GET /api/models`  
+**Backend enforcement:** `POST /api/agent/start` rejects any provider/model not in the allowlist.
+
+### Add more models later (extensible by design)
+1. Edit `backend/allowed_models.json`
+2. Restart the backend
+3. The UI auto-refreshes supported models from `GET /api/models`
+
+> Tip: keep the allowlist small by default. It makes demos reliable and avoids "model drift" across machines.
+
+---
+
+## 🏗️ Architecture Overview
 
 The system is a **three-process architecture** running across the host and a Docker container:
 
 | Layer | Technology | Entry Point | Port |
 |---|---|---|---|
 | **Backend** | Python 3 / FastAPI / Uvicorn | `backend/main.py` → `backend.api.server:app` | 8000 |
-| **Frontend** | React 19 / Vite 6 / react-router-dom 7 | `frontend/src/main.jsx` | 3000 |
+| **Frontend** | React / Vite / React Router (see [`frontend/package.json`](frontend/package.json)) | `frontend/src/main.jsx` | 3000 |
 | **Container** | Ubuntu 24.04 / XFCE 4 / Xvfb / Playwright | `docker/entrypoint.sh` → `docker/agent_service.py` | 9222 |
 
 ### Component Map
@@ -254,16 +510,44 @@ frontend/
 | Backend → Agent Service (screenshot) | HTTP GET | `screenshot.py` → `:9222/screenshot` |
 | Backend → Docker CLI | Subprocess | `docker_manager.py` → `docker build/run/rm/exec` |
 
+### Deployment Diagram
+
+```mermaid
+flowchart LR
+  U[User / Browser] -->|HTTP| FE[Frontend React/Vite]
+  FE -->|REST + WS| BE[Backend FastAPI]
+
+  subgraph Host OS Windows/macOS/Linux
+    FE
+    BE
+  end
+
+  subgraph Docker Ubuntu 24.04 Sandbox
+    XF[Xvfb :99 + XFCE]
+    VNC[x11vnc :5900]
+    NOVNC[noVNC + websockify :6080]
+    AS[agent_service.py :9222]
+    MCP[Playwright MCP :8931]
+    CDP[Chromium CDP :9223]
+  end
+
+  BE -->|POST /action + GET /screenshot| AS
+  BE -->|JSON-RPC| MCP
+  BE -->|CDP attach| CDP
+  BE -->|/vnc proxy| NOVNC
+  XF --> VNC --> NOVNC
+```
+
 ---
 
-## System Flow
+## 🔄 System Flow
 
 ### End-to-End Execution: User Input → Final Output
 
 ```mermaid
 flowchart TD
     A["User enters task + selects engine/provider in UI"] --> B["Frontend POST /api/agent/start"]
-    B --> C{"Backend validates inputs\n(rate limit, engine, provider, model, API key)"}
+    B --> C{"Backend validates inputs\n(rate limit + concurrency, engine, provider, model allowlist, API key)\nErrors: 400 (validation) / 429 (rate or concurrency)"}
     C -->|invalid| C1["Return error to UI"]
     C -->|valid| D["Start Docker container if not running"]
     D --> E["Create AgentLoop with callbacks"]
@@ -281,7 +565,7 @@ flowchart TD
     M --> N["Engine executes action inside container"]
     N --> O{"3 consecutive errors?"}
     O -->|yes| L
-    O -->|no| P{"Agent stuck\n(3 identical actions)?"}
+    O -->|no| P{"Agent stuck\n(N identical actions)?"}
     P -->|yes| Q["Inject recovery hint + WAIT"]
     P -->|no| R{"Max steps reached?"}
     R -->|yes| K
@@ -309,7 +593,7 @@ flowchart TD
 
 ---
 
-## Agent Loop Logic
+## 📊 Agent Loop Logic
 
 ### Core Loop (`backend/agent/loop.py`)
 
@@ -318,7 +602,11 @@ flowchart TD
 ### Failure Recovery
 
 - **Consecutive error tracking**: A counter resets on each successful step and increments on errors. At 3 consecutive errors (`MAX_CONSECUTIVE_ERRORS`), the session aborts with `ERROR` status.
-- **Duplicate action detection**: `_detect_stuck()` checks whether the last 3 actions (`MAX_DUPLICATE_ACTIONS`) have the same action type, similar coordinates (within 10px tolerance), and same text. If stuck, a `WAIT` action with a recovery hint is injected.
+- **Duplicate action detection**: `_detect_stuck()` checks whether the last N actions have the same action type, similar coordinates, and same text. If stuck, a `WAIT` action with a recovery hint is injected. Parameters are engine-aware:
+  - **Browser** (`playwright_mcp`): lookback = 3 actions, coordinate tolerance = 10 px (`MAX_DUPLICATE_ACTIONS`, `loop.py:L704`)
+  - **Desktop** (`omni_accessibility` / `computer_use`): lookback = 2 actions, coordinate tolerance = 30 px (`MAX_DUPLICATE_ACTIONS_DESKTOP`, `DESKTOP_COORD_TOLERANCE`, `loop.py:L43-44`)
+  - **Maximum stuck detections**: After 3 stuck-detection firings (`MAX_STUCK_DETECTIONS`), the loop force-terminates to prevent burning steps on ignored recovery hints.
+  - **Duplicate result detection**: If the last 2+ execution results are identical (e.g., same `evaluate_js` output), an ultimatum to return `done`/`error` is injected (`MAX_DUPLICATE_RESULTS = 2`).
 - **Recovery hints** (`_build_recovery_hint()`): Engine-specific remediation advice is injected as the reasoning for the WAIT action. For example, a stuck `CLICK` triggers advice to use `evaluate_js`, `key Enter`, or `scroll_to`. A stuck `FILL` suggests discovering field names via JS evaluation.
 
 ### State Machine
@@ -343,7 +631,7 @@ stateDiagram-v2
 
 ---
 
-## Data Model & State
+## 💾 Data Model & State
 
 ### `AgentSession` (Pydantic model, `backend/models.py`)
 
@@ -405,7 +693,7 @@ No persistent database is used. All session state lives in memory and is lost on
 
 ---
 
-## Core Modules
+## 🧩 Core Modules
 
 ### `execute_action()` — Action Executor (`backend/agent/executor.py`)
 
@@ -460,7 +748,7 @@ No persistent database is used. All session state lives in memory and is lost on
 
 ---
 
-## Engine Breakdown
+## ⚙️ Engine Breakdown
 
 Three engines are defined in `SUPPORTED_ENGINES` (sourced from `engine_capabilities.json`):
 
@@ -483,7 +771,9 @@ Three engines are defined in `SUPPORTED_ENGINES` (sourced from `engine_capabilit
 ### 3. `computer_use` — Native Computer-Use Protocol (Gemini CU / Claude CU)
 
 - **Dispatch**: `loop.py` → `_run_computer_use_engine()` → `ComputerUseEngine.execute_task()` (bypasses `executor.py` entirely — the model controls the action loop)
-- **Runtime**: Uses the provider's native computer-use tool protocol. Gemini uses `types.Tool(computer_use=ComputerUse(...))` with `ThinkingConfig`. Claude uses the `computer_20250124` tool type with `display_width_px`/`display_height_px`.
+- **Runtime**: Uses provider-native computer-use tools.
+  - **Gemini**: `computer_use` tool with screenshot/action loop (normalized coordinates).
+  - **Claude**: tool version is **auto-detected** (e.g., `computer_20250124` vs `computer_20251124` depending on model), using `client.beta.messages.create(..., betas=[...])`. `ClaudeCUClient` also accepts explicit `tool_version`/`beta_flag` params from `allowed_models.json` metadata.
 - **Execution modes**: Browser (via Playwright CDP page) or Desktop (via xdotool + scrot)
 - **Coordinate handling**: Gemini sends normalized 0–999 coordinates (denormalized to pixels by the executor); Claude sends real pixel coordinates
 - **Actions**: `click_at`, `double_click_at`, `type_text_at`, `key_combination`, `scroll_at`, `move_mouse`, `drag_to`, `wait`, `screenshot`, `navigate_to`, `go_back`, `go_forward`, `select_option`, `hover_at`, `done`
@@ -508,7 +798,7 @@ The executor enforces **strict engine isolation**: the user-chosen engine is use
 
 ---
 
-## Security Model
+## 🔐 Security Model
 
 ### Input Validation (`backend/api/server.py`, `backend/agent/executor.py`)
 
@@ -559,14 +849,16 @@ Restricted to local development origins: `localhost:5173`, `127.0.0.1:5173`, `lo
 
 ---
 
-## LLM Provider Integration
+## 🧠 LLM Provider Integration
 
-### Supported Providers
+### Supported Providers & Models (UI Allowlist)
 
-| Provider | Client Module | Model | Env Variable |
-|---|---|---|---|
-| Google Gemini | `backend/agent/gemini_client.py` | `gemini-3-flash-preview` | `GOOGLE_API_KEY` |
-| Anthropic Claude | `backend/agent/anthropic_client.py` | `claude-4.6-sonnet` | `ANTHROPIC_API_KEY` |
+| Provider | Models in UI (allowlist) | Env Variable |
+|---|---|---|
+| Google Gemini | `gemini-3-flash-preview`, `gemini-3.1-pro-preview` | `GOOGLE_API_KEY` |
+| Anthropic Claude | `claude-sonnet-4-6`, `claude-opus-4-6` | `ANTHROPIC_API_KEY` |
+
+The UI options come from `GET /api/models` (loaded from `backend/allowed_models.json`).
 
 ### Model Selection
 
@@ -604,7 +896,7 @@ The `/api/keys/status` endpoint reports which sources are available for each pro
 
 ---
 
-## API Surface
+## 📡 API Surface
 
 ### REST Endpoints (`backend/api/server.py`)
 
@@ -618,13 +910,17 @@ The `/api/keys/status` endpoint reports which sources are available for each pro
 | `GET` | `/api/agent-service/health` | Check if agent service is responding |
 | `POST` | `/api/agent-service/mode` | Switch agent service mode (browser/desktop) |
 | `GET` | `/api/keys/status` | API key availability per provider |
+| `GET` | `/api/models` | Canonical model allowlist for UI dropdowns |
+| `GET` | `/api/engines` | Available engines for UI dropdowns |
 | `GET` | `/api/screenshot` | Current screenshot as base64 |
 | `POST` | `/api/agent/start` | Start a new agent session |
 | `POST` | `/api/agent/stop/{session_id}` | Stop a running session |
 | `GET` | `/api/agent/status/{session_id}` | Session status + last action |
 | `GET` | `/api/agent/history/{session_id}` | Full step history (without screenshots) |
+| `POST` | `/api/agent/safety-confirm` | Respond to CU engine safety confirmation prompt |
 | `POST` | `/webrtc/offer` | WebRTC SDP offer/answer negotiation |
 | `GET` | `/vnc/{path}` | noVNC static file proxy |
+| `WS` | `/vnc/websockify` | noVNC WebSocket proxy to container websockify |
 
 ### WebSocket (`/ws`)
 
@@ -643,7 +939,7 @@ Client → Server: `{ type: "ping" }` for keepalive (sent every 15s by `useWebSo
 
 ---
 
-## Docker Runtime
+## 🐳 Docker Runtime
 
 ### Container: `cua-environment`
 
@@ -651,11 +947,14 @@ Built from `docker/Dockerfile` on Ubuntu 24.04. The entrypoint (`docker/entrypoi
 
 1. **D-Bus** — system + session bus (required for AT-SPI)
 2. **Xvfb** — virtual X11 framebuffer at `:99`, resolution `1440×900×24`
-3. **XFCE 4** — full desktop environment with window manager
-4. **x11vnc** — VNC server on port 5900
-5. **noVNC + websockify** — browser-accessible VNC on port 6080
-6. **ydotoold** — ydotool daemon (if `/dev/uinput` is available)
-7. **Agent Service** — `agent_service.py` HTTP server on port 9222
+3. **AT-SPI** — accessibility bridge + registry daemon (before desktop so apps register correctly)
+4. **XFCE 4** — full desktop environment with window manager
+5. **x11vnc** — VNC server on port 5900 (optional `VNC_PASSWORD` for authentication)
+6. **noVNC + websockify** — browser-accessible VNC on port 6080
+7. **Browser bootstrap** — pre-warms Chrome profile, sets default browser via `xdg-settings`
+8. **ydotoold** — ydotool daemon (if `/dev/uinput` is available)
+9. **Playwright MCP server** — `@playwright/mcp` HTTP transport on port 8931 (headless, `--no-sandbox`)
+10. **Agent Service** — `agent_service.py` HTTP server on port 9222
 
 ### Pre-installed Software
 
@@ -669,7 +968,7 @@ Built from `docker/Dockerfile` on Ubuntu 24.04. The entrypoint (`docker/entrypoi
 
 ### Agent Service (`docker/agent_service.py`)
 
-A synchronous `BaseHTTPRequestHandler` HTTP server (~2350 lines) running inside the container. Handles:
+A synchronous `BaseHTTPRequestHandler` HTTP server (~2800 lines) running inside the container. Handles:
 
 | Endpoint | Method | Purpose |
 |---|---|---|
@@ -685,44 +984,62 @@ A synchronous `BaseHTTPRequestHandler` HTTP server (~2350 lines) running inside 
 | 5900 | VNC (x11vnc) | `127.0.0.1:5900` |
 | 6080 | noVNC (websockify) | `127.0.0.1:6080` |
 | 8931 | Playwright MCP server | `127.0.0.1:8931` |
-| 9222 | Agent Service | `127.0.0.1:9222` |
+| 9222 | Agent Service API | `127.0.0.1:9222` |
+| 9223 | Chromium CDP (browser attach) | `127.0.0.1:9223` |
 
 ---
 
-## Configuration
+## 📝 Configuration
 
 ### Environment Variables (`backend/config.py`)
 
+The table below lists all user-facing settings from `backend/config.py`. The first two rows are **API keys** resolved via `resolve_api_key()` (not `Config` dataclass fields, but still read from env / `.env`). The remaining rows are `Config` fields — only the **env-configurable** ones are read at startup via `Config.from_env()`. Compile-time defaults must be changed by editing `config.py` directly.
+
+| Variable | Default | Env? | Description |
+|---|---|---|---|
+| `GOOGLE_API_KEY` | — | ✅ | Google Gemini API key (resolved by `resolve_api_key()`, not a `Config` field) |
+| `ANTHROPIC_API_KEY` | — | ✅ | Anthropic Claude API key (resolved by `resolve_api_key()`, not a `Config` field) |
+| `GEMINI_MODEL` | `gemini-3-flash-preview` | ✅ | Default Gemini model name |
+| `CONTAINER_NAME` | `cua-environment` | ✅ | Docker container name |
+| `CONTAINER_IMAGE` | `cua-ubuntu:latest` | — | Docker image tag — not in `from_env()` |
+| `AGENT_SERVICE_HOST` | `127.0.0.1` | ✅ | Agent service hostname (use IPv4 — see note below) |
+| `AGENT_SERVICE_PORT` | `9222` | ✅ | Agent service port |
+| `AGENT_MODE` | `browser` | ✅ | Default agent mode |
+| `PLAYWRIGHT_MCP_HOST` | `127.0.0.1` | ✅ | MCP server hostname (use IPv4 — see note below) |
+| `PLAYWRIGHT_MCP_PORT` | `8931` | ✅ | MCP server port |
+| `PLAYWRIGHT_MCP_PATH` | `/mcp` | ✅ | MCP JSON-RPC endpoint path |
+| `PLAYWRIGHT_MCP_AUTOSTART` | `0` | ✅ | Auto-launch MCP subprocess (`0`/`1`) |
+| `PLAYWRIGHT_MCP_COMMAND` | `npx` | ✅ | Executable that starts the MCP server |
+| `PLAYWRIGHT_MCP_ARGS` | `-y @playwright/mcp@latest` | ✅ | Arguments passed to the MCP command |
+| `SCREEN_WIDTH` | `1440` | ✅ | Virtual display width (pixels) |
+| `SCREEN_HEIGHT` | `900` | ✅ | Virtual display height (pixels) |
+| `SCREENSHOT_FORMAT` | `png` | — | Screenshot image format — not in `from_env()` |
+| `SCREENSHOT_INTERVAL_SEC` | `1.0` | — | Video capture interval (seconds) — not in `from_env()` |
+| `MAX_STEPS` | `50` | ✅ | Default max agent steps |
+| `STEP_TIMEOUT` | `30.0` | ✅ | Per-step timeout (seconds) |
+| `GEMINI_RETRY_ATTEMPTS` | `3` | ✅ | Model query retry count |
+| `DEBUG` | `false` | ✅ | Enable debug logging and uvicorn reload |
+| `GEMINI_RETRY_DELAY` | `2.0` | — | Delay between retries (seconds) — not in `from_env()` |
+| `ACTION_DELAY_MS` | `500` | — | Post-action delay (milliseconds) — not in `from_env()` |
+| `WS_SCREENSHOT_INTERVAL` | `1.5` | — | WebSocket screenshot push interval (seconds) — not in `from_env()` |
+| `HOST` | `0.0.0.0` | — | Backend bind address — not in `from_env()` |
+| `PORT` | `8000` | — | Backend port — not in `from_env()` |
+
+**Container-side environment variables** (set in `docker-compose.yml` / `entrypoint.sh`, not in `config.py`):
+
 | Variable | Default | Description |
 |---|---|---|
-| `GEMINI_MODEL` | `gemini-3-flash-preview` | Default Gemini model name |
-| `CONTAINER_NAME` | `cua-environment` | Docker container name |
-| `AGENT_SERVICE_HOST` | `localhost` | Agent service hostname |
-| `AGENT_SERVICE_PORT` | `9222` | Agent service port |
-| `AGENT_MODE` | `browser` | Default agent mode |
-| `PLAYWRIGHT_MCP_HOST` | `localhost` | MCP server hostname |
-| `PLAYWRIGHT_MCP_PORT` | `8931` | MCP server port |
-| `PLAYWRIGHT_MCP_PATH` | `/mcp` | MCP JSON-RPC endpoint path |
-| `PLAYWRIGHT_MCP_AUTOSTART` | `0` | Auto-launch MCP subprocess (`0`/`1`) |
-| `SCREEN_WIDTH` | `1440` | Virtual display width (pixels) |
-| `SCREEN_HEIGHT` | `900` | Virtual display height (pixels) |
-| `MAX_STEPS` | `50` | Default max agent steps |
-| `STEP_TIMEOUT` | `30.0` | Per-step timeout (seconds) |
-| `GEMINI_RETRY_ATTEMPTS` | `3` | Model query retry count |
-| `GEMINI_RETRY_DELAY` | `2.0` | Delay between retries (seconds) |
-| `ACTION_DELAY_MS` | `500` | Post-action delay (milliseconds) |
-| `WS_SCREENSHOT_INTERVAL` | `1.5` | WebSocket screenshot push interval (seconds) |
-| `HOST` | `0.0.0.0` | Backend bind address |
-| `PORT` | `8000` | Backend port |
-| `DEBUG` | `false` | Enable debug logging and uvicorn reload |
-| `GOOGLE_API_KEY` | — | Google Gemini API key |
-| `ANTHROPIC_API_KEY` | — | Anthropic Claude API key |
+| `VNC_PASSWORD` | *(unset)* | Optional VNC password for x11vnc authentication (`entrypoint.sh:L103`) |
+| `DISPLAY` | `:99` | X11 display (set by entrypoint) |
+| `SCREEN_DEPTH` | `24` | X11 color depth |
+
+> **Windows note:** Prefer `127.0.0.1` over `localhost` because Docker ports are often bound on IPv4 only.
 
 Configuration is loaded once at import time via `Config.from_env()` into a module-level singleton. The `.env` file (if present in project root) is loaded with `python-dotenv` but does not override existing system environment variables.
 
 ---
 
-## Setup & Installation
+## 📦 Setup & Installation
 
 ### Prerequisites
 
@@ -784,7 +1101,7 @@ export GOOGLE_API_KEY=your-key-here
 
 ---
 
-## Running the Application
+## ▶️ Running the Application
 
 ### Start All Components
 
@@ -808,7 +1125,7 @@ cd frontend
 npm run dev
 ```
 
-**Open:** http://localhost:3000
+**Open:** http://127.0.0.1:3000
 
 > If you skip `docker compose up -d`, the container starts automatically when you launch an agent task from the UI.
 
@@ -823,7 +1140,7 @@ Three options for observing the container's desktop:
 
 | Method | Access | Source |
 |---|---|---|
-| **noVNC** (interactive) | http://localhost:6080 or VNC tab in ScreenView | Proxied via `/vnc/websockify` |
+| **noVNC** (interactive) | http://127.0.0.1:6080 (recommended) or VNC tab in ScreenView | Proxied via `/vnc/websockify` |
 | **WebRTC** (low-latency) | Toggle in ScreenView component | ffmpeg x11grab → aiortc |
 | **Screenshot stream** | Default in ScreenView | Periodic base64 PNGs via WebSocket |
 
@@ -836,12 +1153,12 @@ docker compose down        # Stop container
 
 ---
 
-## Testing
+## 🧪 Testing
 
 ### Framework
 
 - **pytest** with custom markers for test categorization
-- **434 tests** across unit and stress test suites
+- **431 tests** across unit and stress test suites
 - **All tests are hermetic** — they use mocks/fakes/patches and do not require a running container or network access
 
 ### Test Structure
@@ -889,12 +1206,33 @@ It produces a **CUA FULL SYSTEM STRESS REPORT** with per-engine metrics (total c
 
 ---
 
-## Limitations
+## 🔧 Troubleshooting
+
+### "Agent Service Down" / timeouts (Windows)
+- Ensure Docker ports are reachable on IPv4:
+  - Use `127.0.0.1` (not `localhost`) for `AGENT_SERVICE_HOST` and `PLAYWRIGHT_MCP_HOST`.
+- Quick checks:
+  - `curl http://127.0.0.1:9222/health`
+  - Open `http://127.0.0.1:6080`
+
+### Start rejects with 400/429
+`POST /api/agent/start` returns:
+- **400** for validation problems (invalid model/provider/engine/task/api key)
+- **429** for rate limiting or concurrency cap
+The frontend surfaces these as `{ error: "..." }` messages.
+
+### noVNC loads but desktop is black
+- Wait ~5–15 seconds after container start (XFCE session boot)
+- Check container logs: `docker compose logs -f`
+
+---
+
+## ⚠️ Limitations
 
 The following are constraints observed directly in the codebase:
 
 1. **In-memory session state only** — no persistence. Backend restart loses all active sessions (`server.py` uses plain dicts).
-2. **Single-model allowlist per provider** — only one model is permitted for each provider: `gemini-3-flash-preview` for Google and `claude-4.6-sonnet` for Anthropic (hardcoded in `_VALID_MODELS_BY_PROVIDER`).
+2. **Model allowlist (intentional)** — the UI exposes only the models listed in `backend/allowed_models.json`. This keeps demos stable; edit the allowlist to add more.
 3. **No authentication** — the API accepts requests from any local client without auth tokens. WebSocket connections are unauthenticated.
 4. **Coordinate-dependent engines** — `computer_use` (in desktop mode) relies on the model correctly predicting pixel coordinates from screenshots. Accuracy depends on model vision quality.
 5. **AT-SPI availability** — the `omni_accessibility` engine requires the D-Bus session bus and AT-SPI2 bindings to be running inside the container (Linux). On Windows/macOS it uses native platform APIs. Applications that don't expose accessibility trees are invisible to this engine.
@@ -907,7 +1245,7 @@ The following are constraints observed directly in the codebase:
 
 ---
 
-## Future Improvements
+## 🔮 Future Improvements
 
 Based on patterns observable in the codebase:
 
@@ -920,605 +1258,801 @@ Based on patterns observable in the codebase:
 
 ---
 
-## Validation Statement
+## 🤝 Contributing
 
-Every claim in this document traces to a specific file, function, class, constant, or configuration value in the repository. No features are assumed, inferred from naming conventions, or extrapolated from TODO comments. Where behavior is ambiguous in code, the document describes what the code does, not what it might intend.
+| Step | What to do |
+|:---:|---|
+| 🍿 | **Fork** the repo and create a feature branch |
+| 🧪 | Write a **failing test first** (TDD) — all tests must be hermetic (mocked IO, no network) |
+| ✅ | Run the full suite: `pytest tests/ -v` |
+| 📊 | Keep code coverage **≥ 80%** on changed files |
+| ✍️ | Follow existing style: small functions, clear names, minimal comments that explain *why* |
+| 🚀 | Open a PR with a descriptive title and reference any related issues |
+
+See the [🧪 Testing](#testing) section for how to run unit and stress tests.
+
+---
+
+## 🛡️ Security Reporting
+
+If you discover a **security vulnerability**, please **do not** open a public issue.  
+Instead, email the maintainer privately or use GitHub's [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability).  
+We aim to acknowledge reports within 48 hours and issue a fix within 7 days for critical issues.
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License** — see [LICENSE](LICENSE) for details.
+
+---
+
+<div align="center">
+
+### 💬 Validation Statement
+
+*This README aims to stay code-accurate. Every claim traces to a specific file, function, class, constant, or configuration value in the repository. Where behavior is ambiguous in code, the document describes what the code does, not what it might intend.*
+
+*If you find drift between the docs and the code, please [open an issue](https://github.com/pypi-ahmad/cua-workbench/issues).*
+
+---
+
+**[Back to Top](#-cua-workbench)**  •  **[Quickstart](#-quickstart-tldr)**  •  **[Contributing](#-contributing)**
+
+Made with ❤️ for the Computer-Using Agent community
+
+</div>
 --- EXPLANATION ---
 This is the source code for README.md.
-Line 1: # CUA — Computer-Using Agent
-Line 3: An autonomous agent that perceives, reasons about, and acts on a full Linux desktop and browser through vision-language models. CUA connects Google Gemini or Anthropic Claude to three pluggable automation engines running inside a Docker-sandboxed Ubuntu environment, controlled via a React web interface.
-Line 5: ---
-Line 7: ## Table of Contents
-Line 9: 1. [Project Overview](#project-overview)
-Line 10: 2. [Architecture Overview](#architecture-overview)
-Line 11: 3. [System Flow](#system-flow)
-Line 12: 4. [Agent Loop Logic](#agent-loop-logic)
-Line 13: 5. [Data Model & State](#data-model--state)
-Line 14: 6. [Core Modules](#core-modules)
-Line 15: 7. [Engine Breakdown](#engine-breakdown)
-Line 16: 8. [Security Model](#security-model)
-Line 17: 9. [LLM Provider Integration](#llm-provider-integration)
-Line 18: 10. [API Surface](#api-surface)
-Line 19: 11. [Docker Runtime](#docker-runtime)
-Line 20: 12. [Configuration](#configuration)
-Line 21: 13. [Setup & Installation](#setup--installation)
-Line 22: 14. [Running the Application](#running-the-application)
-Line 23: 15. [Testing](#testing)
-Line 24: 16. [Limitations](#limitations)
-Line 25: 17. [Future Improvements](#future-improvements)
-Line 27: ---
-Line 29: ## Project Overview
-Line 31: CUA implements a **perceive → think → act** loop: it captures a screenshot of a virtual Linux desktop, sends the image to a vision-language model alongside the user's task description, receives a structured action command, and executes that command on the desktop. This cycle repeats until the task is complete, an error is unrecoverable, or the step limit is reached.
-Line 33: ### Key Capabilities
-Line 35: | Capability | Implementation |
-Line 36: |---|---|
-Line 37: | Browser automation (accessibility-tree) | Playwright MCP server via JSON-RPC |
-Line 38: | Semantic desktop automation | AT-SPI2 accessibility framework via GObject Introspection |
-Line 39: | Native computer-use protocol | Gemini CU + Claude CU structured tool calls (model-driven action loop) |
-Line 40: | Real-time screen streaming | WebSocket screenshots, WebRTC via ffmpeg x11grab + aiortc, noVNC |
-Line 41: | Multi-provider AI | Google Gemini (`gemini-3-flash-preview`), Anthropic Claude (`claude-4.6-sonnet`) |
-Line 43: ### Problem It Solves
-Line 45: CUA enables natural-language-driven computer control — a user describes a task in plain text (e.g., "Open Firefox and search for weather in New York"), and the agent autonomously operates the desktop to complete it, reporting progress in real time through a web UI.
-Line 47: ---
-Line 49: ## Architecture Overview
-Line 51: The system is a **three-process architecture** running across the host and a Docker container:
-Line 53: | Layer | Technology | Entry Point | Port |
-Line 54: |---|---|---|---|
-Line 55: | **Backend** | Python 3 / FastAPI / Uvicorn | `backend/main.py` → `backend.api.server:app` | 8000 |
-Line 56: | **Frontend** | React 19 / Vite 6 / react-router-dom 7 | `frontend/src/main.jsx` | 3000 |
-Line 57: | **Container** | Ubuntu 24.04 / XFCE 4 / Xvfb / Playwright | `docker/entrypoint.sh` → `docker/agent_service.py` | 9222 |
-Line 59: ### Component Map
-Line 61: ```
-Line 62: backend/
-Line 63: main.py                – Uvicorn launcher
-Line 64: config.py              – Config dataclass, from_env(), API key resolution
-Line 65: models.py              – ActionType enum (100+ actions), Pydantic models
-Line 66: agent/
-Line 67: loop.py              – AgentLoop: perceive → think → act orchestrator
-Line 68: executor.py          – Action dispatch: validate → normalize → route to engine
-Line 69: model_router.py      – Provider dispatch: Google Gemini or Anthropic Claude
-Line 70: gemini_client.py     – Gemini API: multi-turn, 15-action history, retries
-Line 71: anthropic_client.py  – Claude API: same interface as gemini_client
-Line 72: prompts.py           – 3 engine-specific system prompts
-Line 73: screenshot.py        – Screenshot capture via agent service + docker exec fallback
-Line 74: playwright_mcp_client.py – MCP JSON-RPC client, subprocess management
-Line 75: api/
-Line 76: server.py            – FastAPI: REST + WebSocket + WebRTC + noVNC proxy
-Line 77: engines/
-Line 78: accessibility_engine.py – AT-SPI tree walker, element cache, input fallback
-Line 79: computer_use_engine.py – Native Computer Use protocol (Gemini/Claude CU)
-Line 80: streaming/
-Line 81: video_capture.py     – ffmpeg x11grab → av.VideoFrame async generator
-Line 82: webrtc_server.py     – aiortc peer connections (max 2 concurrent)
-Line 83: tools/
-Line 84: router.py            – SUPPORTED_ENGINES set, validate_engine()
-Line 85: action_aliases.py    – ~100 action aliases + per-engine capability matrix
-Line 86: unified_schema.py    – UnifiedAction model, normalize_action()
-Line 87: health/
-Line 88: engine_certifier.py  – Runtime engine certification against capabilities schema
-Line 89: utils/
-Line 90: docker_manager.py    – Container lifecycle via docker CLI subprocess
-Line 91: parity_check.py      – tools_list.txt ↔ ActionType ↔ MCP handler audit
-Line 93: docker/
-Line 94: Dockerfile             – Ubuntu 24.04, XFCE 4, Chrome, Firefox, Playwright, AT-SPI
-Line 95: entrypoint.sh          – Xvfb + XFCE + x11vnc + noVNC + ydotoold + agent service
-Line 96: agent_service.py       – Synchronous HTTP server: browser / desktop / ydotool dispatch
-Line 98: frontend/
-Line 99: src/App.jsx            – Dashboard: Header + ControlPanel + ScreenView + LogPanel
-Line 100: src/pages/Workbench.jsx – Workbench UI: browser/desktop mode, timeline, log viewer
-Line 101: src/api.js             – REST client for all /api/* endpoints
-Line 102: src/hooks/useWebSocket.js – WebSocket client: screenshot, log, step events; auto-reconnect
-Line 103: src/components/        – ControlPanel, Header, ScreenView, LogPanel
-Line 104: ```
-Line 106: ### Communication Protocols
-Line 108: | Path | Protocol | Source → Target |
-Line 109: |---|---|---|
-Line 110: | Frontend → Backend (REST) | HTTP | `api.js` → `server.py` endpoints |
-Line 111: | Frontend → Backend (live events) | WebSocket | `useWebSocket.js` → `/ws` in `server.py` |
-Line 112: | Frontend → Backend (video) | WebRTC | `ScreenView.jsx` → `/webrtc/offer` → `webrtc_server.py` |
-Line 113: | Frontend → Container (VNC) | noVNC (WebSocket) | `ScreenView.jsx` `/vnc/websockify` proxy in `server.py` |
-Line 114: | Backend → Agent Service | HTTP POST | `executor.py` → `:9222/action` |
-Line 115: | Backend → Agent Service (screenshot) | HTTP GET | `screenshot.py` → `:9222/screenshot` |
-Line 116: | Backend → Docker CLI | Subprocess | `docker_manager.py` → `docker build/run/rm/exec` |
-Line 118: ---
-Line 120: ## System Flow
-Line 122: ### End-to-End Execution: User Input → Final Output
-Line 124: ```mermaid
-Line 125: flowchart TD
-Line 126: A["User enters task + selects engine/provider in UI"] --> B["Frontend POST /api/agent/start"]
-Line 127: B --> C{"Backend validates inputs\n(rate limit, engine, provider, model, API key)"}
-Line 128: C -->|invalid| C1["Return error to UI"]
-Line 129: C -->|valid| D["Start Docker container if not running"]
-Line 130: D --> E["Create AgentLoop with callbacks"]
-Line 131: E --> F["Spawn asyncio task → run loop"]
-Line 133: F --> G["PERCEIVE: Capture screenshot"]
-Line 134: G --> H["THINK: Send screenshot + task + history to LLM"]
-Line 135: H --> I["Parse JSON action from model response"]
-Line 136: I --> J{"Action type?"}
-Line 138: J -->|"done"| K["Mark session COMPLETED"]
-Line 139: J -->|"error"| L["Mark session ERROR"]
-Line 140: J -->|normal action| M["ACT: Validate → Normalize → Dispatch to engine"]
-Line 142: M --> N["Engine executes action inside container"]
-Line 143: N --> O{"3 consecutive errors?"}
-Line 144: O -->|yes| L
-Line 145: O -->|no| P{"Agent stuck\n(3 identical actions)?"}
-Line 146: P -->|yes| Q["Inject recovery hint + WAIT"]
-Line 147: P -->|no| R{"Max steps reached?"}
-Line 148: R -->|yes| K
-Line 149: R -->|no| G
-Line 151: K --> S["Broadcast agent_finished via WebSocket"]
-Line 152: L --> S
-Line 153: S --> T["UI shows final status"]
-Line 154: ```
-Line 156: ### Step-by-Step Breakdown
-Line 158: 1. **User submits task** via the Workbench UI (`Workbench.jsx`), selecting provider (Google/Anthropic), model, engine, and entering the task description.
-Line 159: 2. **Frontend calls** `POST /api/agent/start` with `StartTaskRequest` payload (`api.js`).
-Line 160: 3. **Backend validates** rate limit (10 starts/min), engine membership in `SUPPORTED_ENGINES`, provider/model allowlists, API key resolution (UI → .env → system env), max concurrent sessions (≤3), and task non-emptiness (`server.py`).
-Line 161: 4. **Docker container starts** automatically via `docker_manager.start_container()` if not already running.
-Line 162: 5. **`AgentLoop`** is instantiated with callbacks for log, step, and screenshot events that broadcast to all WebSocket clients (`server.py`).
-Line 163: 6. **Pre-flight checks** run per engine: agent service health for all, MCP initialization for `playwright_mcp`, AT-SPI bus check for `omni_accessibility` (`loop.py`).
-Line 164: 7. **Perceive**: `capture_screenshot()` calls the agent service (`GET :9222/screenshot?mode={mode}`) or falls back to `docker exec scrot` (`screenshot.py`).
-Line 165: 8. **Think**: `query_model()` routes to `query_gemini()` or `query_claude()` with the screenshot, task, step number, last 15 actions as history, and the engine-specific system prompt (`model_router.py`).
-Line 166: 9. **Parse**: The raw model text is stripped of markdown fences, JSON is extracted (handling nested braces), action aliases are resolved, and an `AgentAction` is validated (`gemini_client.py` / `anthropic_client.py`).
-Line 167: 10. **Act**: `execute_action()` validates the engine, normalizes the action via `UnifiedAction`, checks engine capability schema, validates coordinates (≤1440×900) and text (≤5000 chars), then dispatches to the correct engine (`executor.py`).
-Line 168: 11. **Termination**: The loop ends on `DONE` action, `ERROR` action, 3 consecutive step errors, user stop request, cancellation, or reaching `max_steps`.
-Line 169: 12. **Real-time updates**: Each step, log entry, and screenshot is broadcast to WebSocket clients. The UI renders a live timeline, log viewer, and screen view.
-Line 171: ---
-Line 173: ## Agent Loop Logic
-Line 175: ### Core Loop (`backend/agent/loop.py`)
-Line 177: `AgentLoop.run()` executes up to `max_steps` iterations. Each step runs through `_execute_step()` with a per-step timeout (`step_timeout`, default 30s).
-Line 179: ### Failure Recovery
-Line 181: - **Consecutive error tracking**: A counter resets on each successful step and increments on errors. At 3 consecutive errors (`MAX_CONSECUTIVE_ERRORS`), the session aborts with `ERROR` status.
-Line 182: - **Duplicate action detection**: `_detect_stuck()` checks whether the last 3 actions (`MAX_DUPLICATE_ACTIONS`) have the same action type, similar coordinates (within 10px tolerance), and same text. If stuck, a `WAIT` action with a recovery hint is injected.
-Line 183: - **Recovery hints** (`_build_recovery_hint()`): Engine-specific remediation advice is injected as the reasoning for the WAIT action. For example, a stuck `CLICK` triggers advice to use `evaluate_js`, `key Enter`, or `scroll_to`. A stuck `FILL` suggests discovering field names via JS evaluation.
-Line 185: ### State Machine
-Line 187: ```mermaid
-Line 188: stateDiagram-v2
-Line 189: [*] --> Idle
-Line 190: Idle --> Running : POST /api/agent/start
-Line 191: Running --> StepPerceive : next step
-Line 192: StepPerceive --> StepThink : screenshot captured
-Line 193: StepThink --> StepAct : action parsed
-Line 194: StepAct --> StepPerceive : action executed
-Line 195: StepAct --> Completed : DONE action
-Line 196: StepAct --> Error : ERROR action
-Line 197: StepAct --> Error : 3 consecutive errors
-Line 198: Running --> Completed : max_steps reached
-Line 199: Running --> Completed : user stop request
-Line 200: Running --> Completed : asyncio cancellation
-Line 201: Completed --> [*]
-Line 202: Error --> [*]
-Line 203: ```
-Line 205: ---
-Line 207: ## Data Model & State
-Line 209: ### `AgentSession` (Pydantic model, `backend/models.py`)
-Line 211: | Field | Type | Purpose |
-Line 212: |---|---|---|
-Line 213: | `session_id` | `str` (UUID) | Unique session identifier |
-Line 214: | `task` | `str` | User's task description |
-Line 215: | `status` | `SessionStatus` enum | `idle` / `running` / `paused` / `completed` / `error` |
-Line 216: | `model` | `str` | Model identifier (e.g., `gemini-3-flash-preview`) |
-Line 217: | `engine` | `str` | Automation engine (e.g., `playwright_mcp`) |
-Line 218: | `steps` | `list[StepRecord]` | Ordered list of executed steps |
-Line 219: | `max_steps` | `int` | Step limit for this session (1–200) |
-Line 220: | `created_at` | `str` (ISO 8601) | Session creation timestamp |
-Line 222: ### `StepRecord` (Pydantic model)
-Line 224: | Field | Type | Purpose |
-Line 225: |---|---|---|
-Line 226: | `step_number` | `int` | 1-based step index |
-Line 227: | `timestamp` | `str` (ISO 8601) | Step execution time |
-Line 228: | `screenshot_b64` | `str` or `None` | Base64-encoded PNG screenshot |
-Line 229: | `action` | `AgentAction` or `None` | The action chosen by the model |
-Line 230: | `raw_model_response` | `str` or `None` | Raw LLM output text |
-Line 231: | `error` | `str` or `None` | Error message if the step failed |
-Line 233: ### `AgentAction` (Pydantic model)
-Line 235: | Field | Type | Purpose |
-Line 236: |---|---|---|
-Line 237: | `action` | `ActionType` enum | One of 100+ action types |
-Line 238: | `target` | `str` or `None` | CSS selector, element name, or description |
-Line 239: | `coordinates` | `list[int]` or `None` | `[x, y]` or `[x1, y1, x2, y2]` (max 4 values) |
-Line 240: | `text` | `str` or `None` | Input text, URL, key name, or JS code |
-Line 241: | `reasoning` | `str` or `None` | Model's explanation of why it chose this action |
-Line 243: ### `StartTaskRequest` (API input)
-Line 245: | Field | Type | Constraints |
-Line 246: |---|---|---|
-Line 247: | `task` | `str` | Required, max 10,000 chars |
-Line 248: | `api_key` | `str` or `None` | Optional (resolved from env if empty), max 256 chars |
-Line 249: | `model` | `str` | Max 64 chars |
-Line 250: | `max_steps` | `int` | 1–200, default 50, hard-capped at 200 |
-Line 251: | `mode` | `str` | `browser` or `desktop` |
-Line 252: | `engine` | `str` | Required (no default) — one of the 3 supported engines |
-Line 253: | `provider` | `str` | `google` or `anthropic` |
-Line 254: | `system_prompt` | `str` or `None` | Optional custom system prompt, max 50,000 chars |
-Line 255: | `allowed_domains` | `list[str]` or `None` | Optional domain allowlist, max 50 entries |
-Line 257: ### In-Memory State (`backend/api/server.py`)
-Line 259: ```python
-Line 260: _active_loops: dict[str, AgentLoop] = {}   # session_id → AgentLoop instance
-Line 261: _active_tasks: dict[str, asyncio.Task] = {} # session_id → asyncio.Task
-Line 262: _ws_clients: list[WebSocket] = []           # connected WebSocket clients
-Line 263: ```
-Line 265: No persistent database is used. All session state lives in memory and is lost on backend restart.
-Line 267: ---
-Line 269: ## Core Modules
-Line 271: ### `execute_action()` — Action Executor (`backend/agent/executor.py`)
-Line 273: | | |
-Line 274: |---|---|
-Line 275: | **Purpose** | Validate, normalize, and dispatch a single action to the selected engine |
-Line 276: | **Input** | `AgentAction` or `dict`, `mode` (browser/desktop), `engine` name |
-Line 277: | **Output** | `dict` with `success: bool`, `message: str`, `error_type: str or None` |
-Line 278: | **Behavior** | 1. Validates engine via `router.validate_engine()`. 2. Normalizes via `unified_schema.normalize_action()`. 3. Checks action against `engine_capabilities.json`. 4. Validates coordinates (non-negative, ≤1440×900) and text (≤5000 chars). 5. Dispatches to the correct engine handler. 6. Applies post-action delay (`action_delay_ms`). |
-Line 280: ### `query_model()` — Model Router (`backend/agent/model_router.py`)
-Line 282: | | |
-Line 283: |---|---|
-Line 284: | **Purpose** | Route LLM queries to the correct provider |
-Line 285: | **Input** | Provider name, API key, model name, task, screenshot, action history, step number, mode, system prompt |
-Line 286: | **Output** | `(AgentAction, raw_response_text)` tuple |
-Line 287: | **Behavior** | If `provider == "anthropic"`, calls `query_claude()`. Otherwise calls `query_gemini()`. |
-Line 289: ### `capture_screenshot()` — Screenshot Capture (`backend/agent/screenshot.py`)
-Line 291: | | |
-Line 292: |---|---|
-Line 293: | **Purpose** | Capture the current screen as a base64 PNG |
-Line 294: | **Input** | `mode` (browser/desktop), optional `engine` |
-Line 295: | **Output** | Base64-encoded PNG string |
-Line 296: | **Behavior** | For `playwright_mcp` engine, captures from the MCP browser. For all others, calls `GET :9222/screenshot?mode={mode}`. Falls back to `docker exec scrot` on connection failure. |
-Line 298: ### `normalize_action()` — Action Normalization (`backend/tools/unified_schema.py`)
-Line 300: | | |
-Line 301: |---|---|
-Line 302: | **Purpose** | Convert raw actions into a canonical `UnifiedAction` schema |
-Line 303: | **Input** | `AgentAction` or `dict`, engine name |
-Line 304: | **Output** | `UnifiedAction` Pydantic model |
-Line 305: | **Behavior** | Resolves action aliases, normalizes target/selector fields per engine, enforces coordinate types as integers, caps text at 5000 chars. |
-Line 307: ### `resolve_action()` — Alias Resolution (`backend/tools/action_aliases.py`)
-Line 309: | | |
-Line 310: |---|---|
-Line 311: | **Purpose** | Map ~100 action aliases to canonical `ActionType` values |
-Line 312: | **Input** | Action string (e.g., `"press"`, `"navigate"`, `"dblclick"`) |
-Line 313: | **Output** | Canonical action string (e.g., `"key"`, `"open_url"`, `"double_click"`) |
-Line 315: ### `validate_tool_parity()` — Parity Check (`backend/utils/parity_check.py`)
-Line 317: | | |
-Line 318: |---|---|
-Line 319: | **Purpose** | Audit alignment between `tools_list.txt`, `ActionType` enum, MCP handlers, and engine capabilities schema |
-Line 320: | **Behavior** | Runs at backend startup. Logs warnings for mismatches and errors for missing MCP handlers. |
-Line 322: ---
-Line 324: ## Engine Breakdown
-Line 326: Three engines are defined in `SUPPORTED_ENGINES` (sourced from `engine_capabilities.json`):
-Line 328: ### 1. `playwright_mcp` — Browser Automation (Accessibility-Tree-Based)
-Line 330: - **Dispatch**: `executor.py` → `playwright_mcp_client.execute_mcp_action()` → JSON-RPC over HTTP to the Playwright MCP server on port 8931
-Line 331: - **Runtime**: Standalone MCP server (`@playwright/mcp`) managing its own browser instance
-Line 332: - **Actions**: click, fill, type, navigate, tabs (by accessible name/role, not coordinates)
-Line 333: - **System prompt**: `SYSTEM_PROMPT_PLAYWRIGHT_MCP` — targets elements by name/role/label
-Line 334: - **Special**: Uses `find_element` to get accessibility snapshots; coordinates are ignored
-Line 336: ### 2. `omni_accessibility` — Cross-Platform Semantic Desktop Automation
-Line 338: - **Dispatch**: `executor.py` → `accessibility_engine.execute_accessibility_action()` → AT-SPI2 (Linux) / UI Automation (Windows) / JXA (macOS) + xdotool for physical input
-Line 339: - **Runtime**: Platform auto-detected — GObject Introspection (Linux), PowerShell UIA (Windows), osascript JXA (macOS)
-Line 340: - **Actions**: find elements by role/name/state, click by element ID, type into focused elements, get accessibility tree, navigate tree nodes, window activation
-Line 341: - **Features**: TTL element cache, circuit breaker, semantic scoring, post-action verification, cross-platform provider abstraction
-Line 342: - **Requirements**: Linux: `at-spi2-core`, `python3-gi`, D-Bus | Windows: PowerShell 5.1+ | macOS: Accessibility permissions
-Line 344: ### 3. `computer_use` — Native Computer-Use Protocol (Gemini CU / Claude CU)
-Line 346: - **Dispatch**: `loop.py` → `_run_computer_use_engine()` → `ComputerUseEngine.execute_task()` (bypasses `executor.py` entirely — the model controls the action loop)
-Line 347: - **Runtime**: Uses the provider's native computer-use tool protocol. Gemini uses `types.Tool(computer_use=ComputerUse(...))` with `ThinkingConfig`. Claude uses the `computer_20250124` tool type with `display_width_px`/`display_height_px`.
-Line 348: - **Execution modes**: Browser (via Playwright CDP page) or Desktop (via xdotool + scrot)
-Line 349: - **Coordinate handling**: Gemini sends normalized 0–999 coordinates (denormalized to pixels by the executor); Claude sends real pixel coordinates
-Line 350: - **Actions**: `click_at`, `double_click_at`, `type_text_at`, `key_combination`, `scroll_at`, `move_mouse`, `drag_to`, `wait`, `screenshot`, `navigate_to`, `go_back`, `go_forward`, `select_option`, `hover_at`, `done`
-Line 351: - **Features**: Model-driven screenshot loop, safety decision handling (`require_confirmation`), inline base64 screenshot feedback, thinking/reasoning traces
-Line 352: - **Contract**: Uses its own internal turn loop — never dispatched through `execute_action()`
-Line 354: ### Engine Dispatch Diagram
-Line 356: ```mermaid
-Line 357: flowchart LR
-Line 358: EX["executor.py"]
-Line 360: EX -->|"playwright_mcp"| MCP["playwright_mcp_client\nJSON-RPC :8931"]
-Line 361: EX -->|"omni_accessibility"| A11Y["accessibility_engine\nAT-SPI/UIA/JXA"]
-Line 363: LP["loop.py"] -->|"computer_use"| CUE["ComputerUseEngine\nNative CU protocol"]
-Line 364: ```
-Line 366: ### Engine Isolation
-Line 368: The executor enforces **strict engine isolation**: the user-chosen engine is used for every action in the session. No fallback to other engines occurs at the executor level. The `computer_use` engine bypasses the executor entirely — it runs its own model-driven loop via `ComputerUseEngine`. This is verified by 15 tests in `tests/test_engine_isolation.py`.
-Line 370: ---
-Line 372: ## Security Model
-Line 374: ### Input Validation (`backend/api/server.py`, `backend/agent/executor.py`)
-Line 376: | Protection | Implementation |
-Line 377: |---|---|
-Line 378: | **Rate limiting** | Sliding-window limiter: max 10 `POST /api/agent/start` calls per 60 seconds (`_RateLimiter` class) |
-Line 379: | **Concurrent session cap** | Max 3 active sessions (`_MAX_CONCURRENT_SESSIONS`) |
-Line 380: | **Max steps hard cap** | `max_steps` capped at 200 regardless of user input (`_MAX_STEPS_HARD_CAP`) |
-Line 381: | **Engine allowlist** | Request engine validated against `SUPPORTED_ENGINES` set |
-Line 382: | **Provider allowlist** | Only `google` and `anthropic` accepted (`_VALID_PROVIDERS`) |
-Line 383: | **Model allowlist** | Per-provider model validation (`_VALID_MODELS_BY_PROVIDER`) |
-Line 384: | **Session ID validation** | UUID format validation before any session lookup (`_is_valid_uuid()`) |
-Line 385: | **Task length limit** | Max 10,000 characters (`StartTaskRequest.task` field) |
-Line 386: | **API key masking** | Keys are masked in audit logs (`sk-a...9f2e` format) |
-Line 387: | **Coordinate bounds** | Validated ≤1440×900, non-negative integers |
-Line 388: | **Text length limit** | Max 5,000 characters per action |
-Line 390: ### Container Security (`docker/agent_service.py`)
-Line 392: | Protection | Implementation |
-Line 393: |---|---|
-Line 394: | **Request body size** | Max 1 MB per request (`_MAX_BODY_SIZE`) |
-Line 395: | **Blocked shell commands** | Pattern list: `rm -rf /`, `mkfs.`, `dd if=/dev/`, `shutdown`, `reboot`, etc. (`_BLOCKED_CMD_PATTERNS`) |
-Line 396: | **Command allowlist** | Only specific commands permitted in `run_command` action: `ls`, `cat`, `grep`, `python3`, `curl`, etc. (`_ALLOWED_COMMANDS` frozenset) |
-Line 397: | **File upload path restriction** | Only `/tmp`, `/app`, `/home` directories allowed (`_UPLOAD_ALLOWED_PREFIXES`) |
-Line 399: ### Container Isolation (`docker-compose.yml`)
-Line 401: | Setting | Value |
-Line 402: |---|---|
-Line 403: | `security_opt` | `no-new-privileges:true` |
-Line 404: | `shm_size` | `2gb` |
-Line 405: | Memory limit | `4g` |
-Line 406: | CPU limit | `2` cores |
-Line 407: | Port binding | `127.0.0.1` only (not exposed externally) |
-Line 409: ### CORS (`backend/api/server.py`)
-Line 411: Restricted to local development origins: `localhost:5173`, `127.0.0.1:5173`, `localhost:3000`, `127.0.0.1:3000`. Methods limited to `GET` and `POST`.
-Line 413: ### What the Security Model Does NOT Cover
-Line 415: - No authentication or authorization on the API (any local client can start agents)
-Line 416: - No TLS on inter-service HTTP (backend → agent service is plain HTTP over localhost)
-Line 417: - The `evaluate_js` action executes arbitrary JavaScript inside the browser with no sandboxing beyond the browser's own security context
-Line 418: - The `run_command` allowlist does not prevent all possible abuse (e.g., `python3 -c "..."` can run arbitrary code)
-Line 419: - WebSocket connections have no authentication
-Line 421: ---
-Line 423: ## LLM Provider Integration
-Line 425: ### Supported Providers
-Line 427: | Provider | Client Module | Model | Env Variable |
-Line 428: |---|---|---|---|
-Line 429: | Google Gemini | `backend/agent/gemini_client.py` | `gemini-3-flash-preview` | `GOOGLE_API_KEY` |
-Line 430: | Anthropic Claude | `backend/agent/anthropic_client.py` | `claude-4.6-sonnet` | `ANTHROPIC_API_KEY` |
-Line 432: ### Model Selection
-Line 434: The user selects a provider and model in the UI. `model_router.query_model()` dispatches to the matching client. There is no automatic fallback between providers — if the selected provider fails, the step records an error.
-Line 436: ### Request Construction
-Line 438: Both clients follow the same pattern:
-Line 439: 1. Build a context window with the last 15 actions as history (trimmed for token economy)
-Line 440: 2. Attach the current screenshot as an inline image (base64 PNG)
-Line 441: 3. Include the task description and current step number
-Line 442: 4. Set the engine-specific system prompt from `prompts.py`
-Line 444: ### Response Parsing
-Line 446: Both clients use the same parsing logic:
-Line 447: 1. Strip markdown fences (` ```json ... ``` `)
-Line 448: 2. Extract the first valid JSON object (handling nested braces)
-Line 449: 3. Resolve action aliases via `resolve_action()`
-Line 450: 4. Validate that the action exists in `ActionType`
-Line 451: 5. Return `(AgentAction, raw_response_text)`
-Line 453: ### Retry Logic
-Line 455: The Gemini client retries up to `gemini_retry_attempts` (default 3) with `gemini_retry_delay` (default 2s) between attempts on transient failures. The Anthropic client follows the same pattern.
-Line 457: ### API Key Resolution (`backend/config.py`)
-Line 459: Keys are resolved in priority order:
-Line 460: 1. **UI input** — user pastes key in the Workbench
-Line 461: 2. **`.env` file** — `GOOGLE_API_KEY` or `ANTHROPIC_API_KEY` in project root `.env`
-Line 462: 3. **System environment** — same variable names as system env vars
-Line 464: The `/api/keys/status` endpoint reports which sources are available for each provider, including masked key previews.
-Line 466: ---
-Line 468: ## API Surface
-Line 470: ### REST Endpoints (`backend/api/server.py`)
-Line 472: | Method | Path | Purpose |
-Line 473: |---|---|---|
-Line 474: | `GET` | `/api/health` | Liveness probe |
-Line 475: | `GET` | `/api/container/status` | Docker container + agent service health |
-Line 476: | `POST` | `/api/container/start` | Build-if-needed and start the container |
-Line 477: | `POST` | `/api/container/stop` | Stop all agents then remove container |
-Line 478: | `POST` | `/api/container/build` | Trigger Docker image build |
-Line 479: | `GET` | `/api/agent-service/health` | Check if agent service is responding |
-Line 480: | `POST` | `/api/agent-service/mode` | Switch agent service mode (browser/desktop) |
-Line 481: | `GET` | `/api/keys/status` | API key availability per provider |
-Line 482: | `GET` | `/api/screenshot` | Current screenshot as base64 |
-Line 483: | `POST` | `/api/agent/start` | Start a new agent session |
-Line 484: | `POST` | `/api/agent/stop/{session_id}` | Stop a running session |
-Line 485: | `GET` | `/api/agent/status/{session_id}` | Session status + last action |
-Line 486: | `GET` | `/api/agent/history/{session_id}` | Full step history (without screenshots) |
-Line 487: | `POST` | `/webrtc/offer` | WebRTC SDP offer/answer negotiation |
-Line 488: | `GET` | `/vnc/{path}` | noVNC static file proxy |
-Line 490: ### WebSocket (`/ws`)
-Line 492: Events broadcast to all connected clients:
-Line 494: | Event | Payload | Trigger |
-Line 495: |---|---|---|
-Line 496: | `screenshot` | `{ screenshot: base64 }` | Each agent step screenshot capture |
-Line 497: | `screenshot_stream` | `{ screenshot: base64 }` | Periodic desktop screenshot (interval: `ws_screenshot_interval`) |
-Line 498: | `log` | `{ log: LogEntry }` | Agent log emission |
-Line 499: | `step` | `{ step: StepRecord }` (without screenshot/raw_response) | Each agent step completion |
-Line 500: | `agent_finished` | `{ session_id, status, steps }` | Agent loop termination |
-Line 501: | `pong` | `{}` | Response to client `ping` |
-Line 503: Client → Server: `{ type: "ping" }` for keepalive (sent every 15s by `useWebSocket.js`).
-Line 505: ---
-Line 507: ## Docker Runtime
-Line 509: ### Container: `cua-environment`
-Line 511: Built from `docker/Dockerfile` on Ubuntu 24.04. The entrypoint (`docker/entrypoint.sh`) starts the following services in order:
-Line 513: 1. **D-Bus** — system + session bus (required for AT-SPI)
-Line 514: 2. **Xvfb** — virtual X11 framebuffer at `:99`, resolution `1440×900×24`
-Line 515: 3. **XFCE 4** — full desktop environment with window manager
-Line 516: 4. **x11vnc** — VNC server on port 5900
-Line 517: 5. **noVNC + websockify** — browser-accessible VNC on port 6080
-Line 518: 6. **ydotoold** — ydotool daemon (if `/dev/uinput` is available)
-Line 519: 7. **Agent Service** — `agent_service.py` HTTP server on port 9222
-Line 521: ### Pre-installed Software
-Line 523: - Google Chrome (stable), Firefox
-Line 524: - Playwright Chromium + Firefox browsers
-Line 525: - Playwright MCP server (`@playwright/mcp` via npm)
-Line 526: - xdotool, wmctrl, xclip, ydotool, scrot
-Line 527: - AT-SPI2 accessibility stack (`at-spi2-core`, `gir1.2-atspi-2.0`, `python3-gi`)
-Line 528: - ffmpeg (for video capture)
-Line 529: - Node.js 20 LTS
-Line 531: ### Agent Service (`docker/agent_service.py`)
-Line 533: A synchronous `BaseHTTPRequestHandler` HTTP server (~2350 lines) running inside the container. Handles:
-Line 535: | Endpoint | Method | Purpose |
-Line 536: |---|---|---|
-Line 537: | `/health` | GET | Liveness check |
-Line 538: | `/screenshot` | GET | Capture via Playwright or scrot (query param `mode`) |
-Line 539: | `/action` | POST | Execute a single action (dispatches to browser/desktop/ydotool handler) |
-Line 540: | `/mode` | POST | Switch default mode at runtime |
-Line 542: ### Port Map
-Line 544: | Port | Service | Binding |
-Line 545: |---|---|---|
-Line 546: | 5900 | VNC (x11vnc) | `127.0.0.1:5900` |
-Line 547: | 6080 | noVNC (websockify) | `127.0.0.1:6080` |
-Line 548: | 8931 | Playwright MCP server | `127.0.0.1:8931` |
-Line 549: | 9222 | Agent Service | `127.0.0.1:9222` |
-Line 551: ---
-Line 553: ## Configuration
-Line 555: ### Environment Variables (`backend/config.py`)
-Line 557: | Variable | Default | Description |
-Line 558: |---|---|---|
-Line 559: | `GEMINI_MODEL` | `gemini-3-flash-preview` | Default Gemini model name |
-Line 560: | `CONTAINER_NAME` | `cua-environment` | Docker container name |
-Line 561: | `AGENT_SERVICE_HOST` | `localhost` | Agent service hostname |
-Line 562: | `AGENT_SERVICE_PORT` | `9222` | Agent service port |
-Line 563: | `AGENT_MODE` | `browser` | Default agent mode |
-Line 564: | `PLAYWRIGHT_MCP_HOST` | `localhost` | MCP server hostname |
-Line 565: | `PLAYWRIGHT_MCP_PORT` | `8931` | MCP server port |
-Line 566: | `PLAYWRIGHT_MCP_PATH` | `/mcp` | MCP JSON-RPC endpoint path |
-Line 567: | `PLAYWRIGHT_MCP_AUTOSTART` | `0` | Auto-launch MCP subprocess (`0`/`1`) |
-Line 568: | `SCREEN_WIDTH` | `1440` | Virtual display width (pixels) |
-Line 569: | `SCREEN_HEIGHT` | `900` | Virtual display height (pixels) |
-Line 570: | `MAX_STEPS` | `50` | Default max agent steps |
-Line 571: | `STEP_TIMEOUT` | `30.0` | Per-step timeout (seconds) |
-Line 572: | `GEMINI_RETRY_ATTEMPTS` | `3` | Model query retry count |
-Line 573: | `GEMINI_RETRY_DELAY` | `2.0` | Delay between retries (seconds) |
-Line 574: | `ACTION_DELAY_MS` | `500` | Post-action delay (milliseconds) |
-Line 575: | `WS_SCREENSHOT_INTERVAL` | `1.5` | WebSocket screenshot push interval (seconds) |
-Line 576: | `HOST` | `0.0.0.0` | Backend bind address |
-Line 577: | `PORT` | `8000` | Backend port |
-Line 578: | `DEBUG` | `false` | Enable debug logging and uvicorn reload |
-Line 579: | `GOOGLE_API_KEY` | — | Google Gemini API key |
-Line 580: | `ANTHROPIC_API_KEY` | — | Anthropic Claude API key |
-Line 582: Configuration is loaded once at import time via `Config.from_env()` into a module-level singleton. The `.env` file (if present in project root) is loaded with `python-dotenv` but does not override existing system environment variables.
-Line 584: ---
-Line 586: ## Setup & Installation
-Line 588: ### Prerequisites
-Line 590: - **Docker** — with BuildKit support
-Line 591: - **Python 3.10+** — for the backend
-Line 592: - **Node.js 18+** — for the frontend and Playwright MCP
-Line 594: ### Quickstart (Automated)
-Line 596: **Windows:**
-Line 597: ```bat
-Line 598: setup.bat
-Line 599: ```
-Line 601: **Linux / macOS:**
-Line 602: ```bash
-Line 603: bash setup.sh
-Line 604: ```
-Line 606: Both scripts: verify prerequisites → build Docker image (`cua-ubuntu:latest`) → create Python venv → install pip dependencies → install frontend npm packages.
-Line 608: ### Manual Setup
-Line 610: **Step 1 — Build the Docker image:**
-Line 611: ```bash
-Line 612: docker build -t cua-ubuntu:latest -f docker/Dockerfile .
-Line 613: ```
-Line 615: **Step 2 — Set up the Python backend:**
-Line 616: ```bash
-Line 617: python -m venv .venv
-Line 619: # Windows
-Line 620: .venv\Scripts\activate
-Line 621: # Linux / macOS
-Line 622: source .venv/bin/activate
-Line 624: pip install --upgrade pip
-Line 625: pip install -r requirements.txt
-Line 626: ```
-Line 628: **Step 3 — Set up the frontend:**
-Line 629: ```bash
-Line 630: cd frontend
-Line 631: npm install
-Line 632: cd ..
-Line 633: ```
-Line 635: **Step 4 — Configure API keys** (at least one required):
-Line 636: ```bash
-Line 637: # Option A: .env file in project root
-Line 638: echo "GOOGLE_API_KEY=your-key-here" >> .env
-Line 640: # Option B: system environment variable
-Line 641: export GOOGLE_API_KEY=your-key-here
-Line 643: # Option C: paste directly in the UI at runtime
-Line 644: ```
-Line 646: ---
-Line 648: ## Running the Application
-Line 650: ### Start All Components
-Line 652: **Terminal 1 — Docker container:**
-Line 653: ```bash
-Line 654: docker compose up -d
-Line 655: ```
-Line 657: **Terminal 2 — Backend:**
-Line 658: ```bash
-Line 659: # Activate venv first
-Line 660: # Windows: .venv\Scripts\activate
-Line 661: # Linux:   source .venv/bin/activate
-Line 663: python -m backend.main
-Line 664: ```
-Line 666: **Terminal 3 — Frontend:**
-Line 667: ```bash
-Line 668: cd frontend
-Line 669: npm run dev
-Line 670: ```
-Line 672: **Open:** http://localhost:3000
-Line 674: > If you skip `docker compose up -d`, the container starts automatically when you launch an agent task from the UI.
-Line 676: ### What the User Sees
-Line 678: 1. **Dashboard** (`/`) — container status, agent service health, live screen view, control panel, log viewer.
-Line 679: 2. **Workbench** (`/workbench`) — full configuration: run mode (browser/desktop), provider, model, API key source (manual/`.env`/system), engine selection, max steps, task input. Real-time timeline showing each step's action, coordinates, reasoning, and errors. Live log viewer with download-to-file support.
-Line 681: ### Viewing the Desktop
-Line 683: Three options for observing the container's desktop:
-Line 685: | Method | Access | Source |
-Line 686: |---|---|---|
-Line 687: | **noVNC** (interactive) | http://localhost:6080 or VNC tab in ScreenView | Proxied via `/vnc/websockify` |
-Line 688: | **WebRTC** (low-latency) | Toggle in ScreenView component | ffmpeg x11grab → aiortc |
-Line 689: | **Screenshot stream** | Default in ScreenView | Periodic base64 PNGs via WebSocket |
-Line 691: ### Stop
-Line 693: ```bash
-Line 694: docker compose down        # Stop container
-Line 695: # Ctrl+C in backend and frontend terminals
-Line 696: ```
-Line 698: ---
-Line 700: ## Testing
-Line 702: ### Framework
-Line 704: - **pytest** with custom markers for test categorization
-Line 705: - **434 tests** across unit and stress test suites
-Line 706: - **All tests are hermetic** — they use mocks/fakes/patches and do not require a running container or network access
-Line 708: ### Test Structure
-Line 710: | Path | Tests | Description |
-Line 711: |---|---|---|
-Line 712: | `tests/test_engine_isolation.py` | 15 | Strict engine isolation, no cross-engine fallback |
-Line 713: | `tests/test_engine_capabilities.py` | — | Engine capability schema validation |
-Line 714: | `tests/test_engine_certification.py` | — | Certification framework tests |
-Line 715: | `tests/test_prompt_and_recovery.py` | — | Prompt and recovery logic tests |
-Line 716: | `tests/stress/test_phase1_engine_stress.py` | — | Phase 1: All 3 engines stress (boundary inputs, concurrent dispatch) |
-Line 717: | `tests/stress/test_phase2_browser_engine_stress.py` | — | Phase 2: Browser engine stress (Playwright MCP) |
-Line 718: | `tests/stress/test_phase3_desktop_engine_stress.py` | — | Phase 3: Desktop engine stress (accessibility + computer_use) |
-Line 719: | `tests/stress/test_phase4_accessibility_stress.py` | — | Phase 4: Accessibility engine stress (AT-SPI) |
-Line 720: | `tests/stress/test_phase5_hybrid_fallback_stress.py` | — | Phase 5: Engine fallback and recovery |
-Line 721: | `tests/stress/test_phase6_agent_loop_stress.py` | — | Phase 6: Agent loop stress (stuck detection, error recovery) |
-Line 722: | `tests/stress/test_phase7_frontend_stress.py` | — | Phase 7: Frontend interaction stress (FastAPI + WebSocket + Vite) |
-Line 723: | `tests/stress/test_phase8_soak_test.py` | — | Phase 8: Soak test (engine rotation, resource monitoring) |
-Line 725: ### Running Tests
-Line 727: ```bash
-Line 728: # Activate virtual environment first
-Line 729: # Windows: .venv\Scripts\activate
-Line 731: # Run all tests
-Line 732: pytest tests/ -v
-Line 734: # Run a specific phase
-Line 735: pytest tests/stress/test_phase1_engine_stress.py -v
-Line 737: # Run with short tracebacks
-Line 738: pytest tests/ --tb=short -q
-Line 739: ```
-Line 741: ### Stress Test Harness
-Line 743: A standalone CLI stress harness exists at `backend/tests/stress_system.py` for running real concurrent agent sessions against the live backend + Docker container:
-Line 745: ```bash
-Line 746: python backend/tests/stress_system.py --engine all --concurrency 2 --iterations 10
-Line 747: ```
-Line 749: It produces a **CUA FULL SYSTEM STRESS REPORT** with per-engine metrics (total calls, failures, disconnects, avg/max latency, memory delta, CPU peak) and an overall pass/fail verdict.
-Line 751: ---
-Line 753: ## Limitations
-Line 755: The following are constraints observed directly in the codebase:
-Line 757: 1. **In-memory session state only** — no persistence. Backend restart loses all active sessions (`server.py` uses plain dicts).
-Line 758: 2. **Single-model allowlist per provider** — only one model is permitted for each provider: `gemini-3-flash-preview` for Google and `claude-4.6-sonnet` for Anthropic (hardcoded in `_VALID_MODELS_BY_PROVIDER`).
-Line 759: 3. **No authentication** — the API accepts requests from any local client without auth tokens. WebSocket connections are unauthenticated.
-Line 760: 4. **Coordinate-dependent engines** — `computer_use` (in desktop mode) relies on the model correctly predicting pixel coordinates from screenshots. Accuracy depends on model vision quality.
-Line 761: 5. **AT-SPI availability** — the `omni_accessibility` engine requires the D-Bus session bus and AT-SPI2 bindings to be running inside the container (Linux). On Windows/macOS it uses native platform APIs. Applications that don't expose accessibility trees are invisible to this engine.
-Line 762: 6. **Fixed viewport** — the display resolution is fixed at 1440×900 (set in Dockerfile and config). The coordinate validation and system prompts assume this size.
-Line 763: 7. **Sequential engine execution** — each session uses exactly one engine. There is no mechanism to switch engines mid-session or combine engine capabilities.
-Line 764: 8. **Rate limiting is in-memory** — the sliding-window rate limiter resets on backend restart.
-Line 765: 9. **WebRTC max 2 connections** — `_MAX_CONNECTIONS = 2` in `webrtc_server.py`.
-Line 766: 10. **Context window truncation** — only the last 15 actions are sent to the model. Long sessions lose early context.
-Line 767: 11. **`run_command` security** — while the allowlist and blocked-pattern list exist, `python3 -c "..."` is permitted and can execute arbitrary code inside the container.
-Line 769: ---
-Line 771: ## Future Improvements
-Line 773: Based on patterns observable in the codebase:
-Line 775: 1. **Persistent session storage** — the `AgentSession` Pydantic model is structured for serialization. Adding a database or file-backed store is a natural extension.
-Line 776: 2. **Additional model support** — the `model_router.py` dispatch pattern and `_VALID_MODELS_BY_PROVIDER` allowlist are designed for easy extension to new models.
-Line 777: 3. **Wayland support** — `engine_capabilities.json` already declares `wayland_support: true` for the `omni_accessibility` engine. The schema is future-proofed.
-Line 778: 4. **`allowed_domains` enforcement** — the `StartTaskRequest` model accepts an `allowed_domains` list, but no enforcement logic exists in the agent loop or executor yet.
-Line 779: 5. **Custom system prompts** — the `StartTaskRequest` accepts a `system_prompt` field, but it is not currently passed through to the model clients.
-Line 780: 6. **Engine certification CI gate** — `backend/health/engine_certifier.py` implements a full certification framework. Integrating it into CI would gate deployments on engine health.
-Line 782: ---
-Line 784: ## Validation Statement
-Line 786: Every claim in this document traces to a specific file, function, class, constant, or configuration value in the repository. No features are assumed, inferred from naming conventions, or extrapolated from TODO comments. Where behavior is ambiguous in code, the document describes what the code does, not what it might intend.
+Line 1: <div align="center">
+Line 3: # 🖥️ CUA Workbench
+Line 5: ### Computer-Using Agent Workbench
+Line 7: [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+Line 8: [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+Line 9: [![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
+Line 10: [![Docker](https://img.shields.io/badge/Docker-24.04-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docker.com)
+Line 11: [![Playwright](https://img.shields.io/badge/Playwright-MCP-2EAD33?style=for-the-badge&logo=playwright&logoColor=white)](https://playwright.dev)
+Line 12: [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
+Line 14: [![Tests](https://img.shields.io/badge/Tests-431_passing-brightgreen?style=flat-square&logo=pytest&logoColor=white)](#testing)
+Line 15: [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square)](#)
+Line 17: A cross-platform workbench for building and testing **computer-using agents**.
+Line 18: Run a full **Linux desktop + browser inside Docker**, stream it live in a **web UI**,
+Line 19: and drive it using **native Computer Use protocols** (Gemini / Claude) or **Playwright MCP**.
+Line 21: [Getting Started](#quickstart-tldr) • [Architecture](#architecture-overview) • [API Docs](#api-surface) • [Contributing](#contributing)
+Line 23: </div>
+Line 25: ---
+Line 27: ### ✨ Highlights
+Line 29: - 💻 **Windows/macOS/Linux hosts** — backend + UI run on host
+Line 30: - 🔒 **Safe execution in a Docker sandbox** — desktop/browser automation happens inside the container
+Line 31: - 🤖 **Provider-native computer use** — Gemini CU + Claude CU
+Line 32: - 🧩 **Tooling-first automation** — Playwright MCP + accessibility engine
+Line 34: ### 🛠️ Built With
+Line 36: | Backend | Frontend | Infrastructure | AI Providers |
+Line 37: |:---:|:---:|:---:|:---:|
+Line 38: | ![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white) | ![React](https://img.shields.io/badge/React-61DAFB?style=flat-square&logo=react&logoColor=black) | ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white) | ![Google](https://img.shields.io/badge/Gemini-4285F4?style=flat-square&logo=google&logoColor=white) |
+Line 39: | ![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white) | ![Vite](https://img.shields.io/badge/Vite-646CFF?style=flat-square&logo=vite&logoColor=white) | ![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=flat-square&logo=ubuntu&logoColor=white) | ![Anthropic](https://img.shields.io/badge/Claude-191919?style=flat-square&logo=anthropic&logoColor=white) |
+Line 40: | ![Pydantic](https://img.shields.io/badge/Pydantic-E92063?style=flat-square&logo=pydantic&logoColor=white) | ![React Router](https://img.shields.io/badge/React_Router-CA4245?style=flat-square&logo=reactrouter&logoColor=white) | ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?style=flat-square&logo=playwright&logoColor=white) | ![WebRTC](https://img.shields.io/badge/WebRTC-333333?style=flat-square&logo=webrtc&logoColor=white) |
+Line 42: ---
+Line 44: ## 📑 Table of Contents
+Line 46: | | | |
+Line 47: |---|---|---|
+Line 48: | 1. [🔭 Project Overview](#project-overview) | 9. [⚙️ Engine Breakdown](#engine-breakdown) | 17. [🧪 Testing](#testing) |
+Line 49: | 2. [🚀 Quickstart (TL;DR)](#quickstart-tldr) | 10. [🔐 Security Model](#security-model) | 18. [🔧 Troubleshooting](#troubleshooting) |
+Line 50: | 3. [🤖 Model Policy](#model-policy-ui--api) | 11. [🧠 LLM Provider Integration](#llm-provider-integration) | 19. [⚠️ Limitations](#limitations) |
+Line 51: | 4. [🏗️ Architecture Overview](#architecture-overview) | 12. [📡 API Surface](#api-surface) | 20. [🔮 Future Improvements](#future-improvements) |
+Line 52: | 5. [🔄 System Flow](#system-flow) | 13. [🐳 Docker Runtime](#docker-runtime) | 21. [🤝 Contributing](#contributing) |
+Line 53: | 6. [📊 Agent Loop Logic](#agent-loop-logic) | 14. [📝 Configuration](#configuration) | 22. [🛡️ Security Reporting](#security-reporting) |
+Line 54: | 7. [💾 Data Model & State](#data-model--state) | 15. [📦 Setup & Installation](#setup--installation) | 23. [📄 License](#license) |
+Line 55: | 8. [🧩 Core Modules](#core-modules) | 16. [▶️ Running the Application](#running-the-application) | |
+Line 57: ---
+Line 59: ## 🔭 Project Overview
+Line 61: CUA implements a **perceive → think → act** loop: it captures a screenshot of a virtual Linux desktop, sends the image to a vision-language model alongside the user's task description, receives a structured action command, and executes that command on the desktop. This cycle repeats until the task is complete, an error is unrecoverable, or the step limit is reached.
+Line 63: ### Key Capabilities
+Line 65: | | Capability | Implementation |
+Line 66: |:---:|---|---|
+Line 67: | 🌐 | Browser automation (accessibility-tree) | Playwright MCP server via JSON-RPC |
+Line 68: | ♿ | Semantic desktop automation | AT-SPI2 accessibility framework via GObject Introspection |
+Line 69: | 🤖 | Native computer-use protocol | Gemini CU + Claude CU structured tool calls (model-driven action loop) |
+Line 70: | 📹 | Real-time screen streaming | WebSocket screenshots, WebRTC via ffmpeg x11grab + aiortc, noVNC |
+Line 71: | 🧠 | Multi-provider AI (model allowlist) | UI is restricted to 4 models (served by `GET /api/models`): `claude-sonnet-4-6`, `claude-opus-4-6`, `gemini-3-flash-preview`, `gemini-3.1-pro-preview` |
+Line 73: ### Problem It Solves
+Line 75: CUA enables natural-language-driven computer control — a user describes a task in plain text (e.g., "Open Firefox and search for weather in New York"), and the agent autonomously operates the desktop to complete it, reporting progress in real time through a web UI.
+Line 77: ---
+Line 79: ## 🚀 Quickstart (TL;DR)
+Line 81: > Runs on Windows/macOS/Linux (host) and executes desktop/browser actions inside a Docker Linux sandbox.
+Line 83: <table>
+Line 84: <tr><td>
+Line 86: **① Start the Docker sandbox**
+Line 87: ```bash
+Line 88: docker compose up --build -d
+Line 89: ```
+Line 90: Sanity check: `curl http://127.0.0.1:9222/health`
+Line 92: </td><td>
+Line 94: **② Start the backend**
+Line 95: ```bash
+Line 96: python -m backend.main
+Line 97: ```
+Line 99: </td></tr>
+Line 100: <tr><td>
+Line 102: **③ Start the frontend**
+Line 103: ```bash
+Line 104: cd frontend && npm install && npm run dev
+Line 105: ```
+Line 107: </td><td>
+Line 109: **④ Open the Workbench**
+Line 110: - 🌐 UI: [http://127.0.0.1:3000](http://127.0.0.1:3000)
+Line 111: - 📺 noVNC: [http://127.0.0.1:6080](http://127.0.0.1:6080)
+Line 113: </td></tr>
+Line 114: </table>
+Line 116: **⑤ Run a first task** — Desktop: *"open file explorer"*  ·  Browser: *"go to example.com"*
+Line 118: > 💡 **Windows note:** Prefer `127.0.0.1` over `localhost` to avoid IPv6 binding issues with Docker.
+Line 120: ---
+Line 122: ## 🤖 Model Policy (UI + API)
+Line 124: The UI dropdown is intentionally restricted to **four** models:
+Line 126: - **Anthropic**: `claude-sonnet-4-6`
+Line 127: - **Anthropic**: `claude-opus-4-6`
+Line 128: - **Google**: `gemini-3-flash-preview`
+Line 129: - **Google**: `gemini-3.1-pro-preview`
+Line 131: **Single source of truth:** `backend/allowed_models.json`
+Line 132: **Frontend source:** `GET /api/models`
+Line 133: **Backend enforcement:** `POST /api/agent/start` rejects any provider/model not in the allowlist.
+Line 135: ### Add more models later (extensible by design)
+Line 136: 1. Edit `backend/allowed_models.json`
+Line 137: 2. Restart the backend
+Line 138: 3. The UI auto-refreshes supported models from `GET /api/models`
+Line 140: > Tip: keep the allowlist small by default. It makes demos reliable and avoids "model drift" across machines.
+Line 142: ---
+Line 144: ## 🏗️ Architecture Overview
+Line 146: The system is a **three-process architecture** running across the host and a Docker container:
+Line 148: | Layer | Technology | Entry Point | Port |
+Line 149: |---|---|---|---|
+Line 150: | **Backend** | Python 3 / FastAPI / Uvicorn | `backend/main.py` → `backend.api.server:app` | 8000 |
+Line 151: | **Frontend** | React / Vite / React Router (see [`frontend/package.json`](frontend/package.json)) | `frontend/src/main.jsx` | 3000 |
+Line 152: | **Container** | Ubuntu 24.04 / XFCE 4 / Xvfb / Playwright | `docker/entrypoint.sh` → `docker/agent_service.py` | 9222 |
+Line 154: ### Component Map
+Line 156: ```
+Line 157: backend/
+Line 158: main.py                – Uvicorn launcher
+Line 159: config.py              – Config dataclass, from_env(), API key resolution
+Line 160: models.py              – ActionType enum (100+ actions), Pydantic models
+Line 161: agent/
+Line 162: loop.py              – AgentLoop: perceive → think → act orchestrator
+Line 163: executor.py          – Action dispatch: validate → normalize → route to engine
+Line 164: model_router.py      – Provider dispatch: Google Gemini or Anthropic Claude
+Line 165: gemini_client.py     – Gemini API: multi-turn, 15-action history, retries
+Line 166: anthropic_client.py  – Claude API: same interface as gemini_client
+Line 167: prompts.py           – 3 engine-specific system prompts
+Line 168: screenshot.py        – Screenshot capture via agent service + docker exec fallback
+Line 169: playwright_mcp_client.py – MCP JSON-RPC client, subprocess management
+Line 170: api/
+Line 171: server.py            – FastAPI: REST + WebSocket + WebRTC + noVNC proxy
+Line 172: engines/
+Line 173: accessibility_engine.py – AT-SPI tree walker, element cache, input fallback
+Line 174: computer_use_engine.py – Native Computer Use protocol (Gemini/Claude CU)
+Line 175: streaming/
+Line 176: video_capture.py     – ffmpeg x11grab → av.VideoFrame async generator
+Line 177: webrtc_server.py     – aiortc peer connections (max 2 concurrent)
+Line 178: tools/
+Line 179: router.py            – SUPPORTED_ENGINES set, validate_engine()
+Line 180: action_aliases.py    – ~100 action aliases + per-engine capability matrix
+Line 181: unified_schema.py    – UnifiedAction model, normalize_action()
+Line 182: health/
+Line 183: engine_certifier.py  – Runtime engine certification against capabilities schema
+Line 184: utils/
+Line 185: docker_manager.py    – Container lifecycle via docker CLI subprocess
+Line 186: parity_check.py      – tools_list.txt ↔ ActionType ↔ MCP handler audit
+Line 188: docker/
+Line 189: Dockerfile             – Ubuntu 24.04, XFCE 4, Chrome, Firefox, Playwright, AT-SPI
+Line 190: entrypoint.sh          – Xvfb + XFCE + x11vnc + noVNC + ydotoold + agent service
+Line 191: agent_service.py       – Synchronous HTTP server: browser / desktop / ydotool dispatch
+Line 193: frontend/
+Line 194: src/App.jsx            – Dashboard: Header + ControlPanel + ScreenView + LogPanel
+Line 195: src/pages/Workbench.jsx – Workbench UI: browser/desktop mode, timeline, log viewer
+Line 196: src/api.js             – REST client for all /api/* endpoints
+Line 197: src/hooks/useWebSocket.js – WebSocket client: screenshot, log, step events; auto-reconnect
+Line 198: src/components/        – ControlPanel, Header, ScreenView, LogPanel
+Line 199: ```
+Line 201: ### Communication Protocols
+Line 203: | Path | Protocol | Source → Target |
+Line 204: |---|---|---|
+Line 205: | Frontend → Backend (REST) | HTTP | `api.js` → `server.py` endpoints |
+Line 206: | Frontend → Backend (live events) | WebSocket | `useWebSocket.js` → `/ws` in `server.py` |
+Line 207: | Frontend → Backend (video) | WebRTC | `ScreenView.jsx` → `/webrtc/offer` → `webrtc_server.py` |
+Line 208: | Frontend → Container (VNC) | noVNC (WebSocket) | `ScreenView.jsx` `/vnc/websockify` proxy in `server.py` |
+Line 209: | Backend → Agent Service | HTTP POST | `executor.py` → `:9222/action` |
+Line 210: | Backend → Agent Service (screenshot) | HTTP GET | `screenshot.py` → `:9222/screenshot` |
+Line 211: | Backend → Docker CLI | Subprocess | `docker_manager.py` → `docker build/run/rm/exec` |
+Line 213: ### Deployment Diagram
+Line 215: ```mermaid
+Line 216: flowchart LR
+Line 217: U[User / Browser] -->|HTTP| FE[Frontend React/Vite]
+Line 218: FE -->|REST + WS| BE[Backend FastAPI]
+Line 220: subgraph Host OS Windows/macOS/Linux
+Line 221: FE
+Line 222: BE
+Line 223: end
+Line 225: subgraph Docker Ubuntu 24.04 Sandbox
+Line 226: XF[Xvfb :99 + XFCE]
+Line 227: VNC[x11vnc :5900]
+Line 228: NOVNC[noVNC + websockify :6080]
+Line 229: AS[agent_service.py :9222]
+Line 230: MCP[Playwright MCP :8931]
+Line 231: CDP[Chromium CDP :9223]
+Line 232: end
+Line 234: BE -->|POST /action + GET /screenshot| AS
+Line 235: BE -->|JSON-RPC| MCP
+Line 236: BE -->|CDP attach| CDP
+Line 237: BE -->|/vnc proxy| NOVNC
+Line 238: XF --> VNC --> NOVNC
+Line 239: ```
+Line 241: ---
+Line 243: ## 🔄 System Flow
+Line 245: ### End-to-End Execution: User Input → Final Output
+Line 247: ```mermaid
+Line 248: flowchart TD
+Line 249: A["User enters task + selects engine/provider in UI"] --> B["Frontend POST /api/agent/start"]
+Line 250: B --> C{"Backend validates inputs\n(rate limit + concurrency, engine, provider, model allowlist, API key)\nErrors: 400 (validation) / 429 (rate or concurrency)"}
+Line 251: C -->|invalid| C1["Return error to UI"]
+Line 252: C -->|valid| D["Start Docker container if not running"]
+Line 253: D --> E["Create AgentLoop with callbacks"]
+Line 254: E --> F["Spawn asyncio task → run loop"]
+Line 256: F --> G["PERCEIVE: Capture screenshot"]
+Line 257: G --> H["THINK: Send screenshot + task + history to LLM"]
+Line 258: H --> I["Parse JSON action from model response"]
+Line 259: I --> J{"Action type?"}
+Line 261: J -->|"done"| K["Mark session COMPLETED"]
+Line 262: J -->|"error"| L["Mark session ERROR"]
+Line 263: J -->|normal action| M["ACT: Validate → Normalize → Dispatch to engine"]
+Line 265: M --> N["Engine executes action inside container"]
+Line 266: N --> O{"3 consecutive errors?"}
+Line 267: O -->|yes| L
+Line 268: O -->|no| P{"Agent stuck\n(N identical actions)?"}
+Line 269: P -->|yes| Q["Inject recovery hint + WAIT"]
+Line 270: P -->|no| R{"Max steps reached?"}
+Line 271: R -->|yes| K
+Line 272: R -->|no| G
+Line 274: K --> S["Broadcast agent_finished via WebSocket"]
+Line 275: L --> S
+Line 276: S --> T["UI shows final status"]
+Line 277: ```
+Line 279: ### Step-by-Step Breakdown
+Line 281: 1. **User submits task** via the Workbench UI (`Workbench.jsx`), selecting provider (Google/Anthropic), model, engine, and entering the task description.
+Line 282: 2. **Frontend calls** `POST /api/agent/start` with `StartTaskRequest` payload (`api.js`).
+Line 283: 3. **Backend validates** rate limit (10 starts/min), engine membership in `SUPPORTED_ENGINES`, provider/model allowlists, API key resolution (UI → .env → system env), max concurrent sessions (≤3), and task non-emptiness (`server.py`).
+Line 284: 4. **Docker container starts** automatically via `docker_manager.start_container()` if not already running.
+Line 285: 5. **`AgentLoop`** is instantiated with callbacks for log, step, and screenshot events that broadcast to all WebSocket clients (`server.py`).
+Line 286: 6. **Pre-flight checks** run per engine: agent service health for all, MCP initialization for `playwright_mcp`, AT-SPI bus check for `omni_accessibility` (`loop.py`).
+Line 287: 7. **Perceive**: `capture_screenshot()` calls the agent service (`GET :9222/screenshot?mode={mode}`) or falls back to `docker exec scrot` (`screenshot.py`).
+Line 288: 8. **Think**: `query_model()` routes to `query_gemini()` or `query_claude()` with the screenshot, task, step number, last 15 actions as history, and the engine-specific system prompt (`model_router.py`).
+Line 289: 9. **Parse**: The raw model text is stripped of markdown fences, JSON is extracted (handling nested braces), action aliases are resolved, and an `AgentAction` is validated (`gemini_client.py` / `anthropic_client.py`).
+Line 290: 10. **Act**: `execute_action()` validates the engine, normalizes the action via `UnifiedAction`, checks engine capability schema, validates coordinates (≤1440×900) and text (≤5000 chars), then dispatches to the correct engine (`executor.py`).
+Line 291: 11. **Termination**: The loop ends on `DONE` action, `ERROR` action, 3 consecutive step errors, user stop request, cancellation, or reaching `max_steps`.
+Line 292: 12. **Real-time updates**: Each step, log entry, and screenshot is broadcast to WebSocket clients. The UI renders a live timeline, log viewer, and screen view.
+Line 294: ---
+Line 296: ## 📊 Agent Loop Logic
+Line 298: ### Core Loop (`backend/agent/loop.py`)
+Line 300: `AgentLoop.run()` executes up to `max_steps` iterations. Each step runs through `_execute_step()` with a per-step timeout (`step_timeout`, default 30s).
+Line 302: ### Failure Recovery
+Line 304: - **Consecutive error tracking**: A counter resets on each successful step and increments on errors. At 3 consecutive errors (`MAX_CONSECUTIVE_ERRORS`), the session aborts with `ERROR` status.
+Line 305: - **Duplicate action detection**: `_detect_stuck()` checks whether the last N actions have the same action type, similar coordinates, and same text. If stuck, a `WAIT` action with a recovery hint is injected. Parameters are engine-aware:
+Line 306: - **Browser** (`playwright_mcp`): lookback = 3 actions, coordinate tolerance = 10 px (`MAX_DUPLICATE_ACTIONS`, `loop.py:L704`)
+Line 307: - **Desktop** (`omni_accessibility` / `computer_use`): lookback = 2 actions, coordinate tolerance = 30 px (`MAX_DUPLICATE_ACTIONS_DESKTOP`, `DESKTOP_COORD_TOLERANCE`, `loop.py:L43-44`)
+Line 308: - **Maximum stuck detections**: After 3 stuck-detection firings (`MAX_STUCK_DETECTIONS`), the loop force-terminates to prevent burning steps on ignored recovery hints.
+Line 309: - **Duplicate result detection**: If the last 2+ execution results are identical (e.g., same `evaluate_js` output), an ultimatum to return `done`/`error` is injected (`MAX_DUPLICATE_RESULTS = 2`).
+Line 310: - **Recovery hints** (`_build_recovery_hint()`): Engine-specific remediation advice is injected as the reasoning for the WAIT action. For example, a stuck `CLICK` triggers advice to use `evaluate_js`, `key Enter`, or `scroll_to`. A stuck `FILL` suggests discovering field names via JS evaluation.
+Line 312: ### State Machine
+Line 314: ```mermaid
+Line 315: stateDiagram-v2
+Line 316: [*] --> Idle
+Line 317: Idle --> Running : POST /api/agent/start
+Line 318: Running --> StepPerceive : next step
+Line 319: StepPerceive --> StepThink : screenshot captured
+Line 320: StepThink --> StepAct : action parsed
+Line 321: StepAct --> StepPerceive : action executed
+Line 322: StepAct --> Completed : DONE action
+Line 323: StepAct --> Error : ERROR action
+Line 324: StepAct --> Error : 3 consecutive errors
+Line 325: Running --> Completed : max_steps reached
+Line 326: Running --> Completed : user stop request
+Line 327: Running --> Completed : asyncio cancellation
+Line 328: Completed --> [*]
+Line 329: Error --> [*]
+Line 330: ```
+Line 332: ---
+Line 334: ## 💾 Data Model & State
+Line 336: ### `AgentSession` (Pydantic model, `backend/models.py`)
+Line 338: | Field | Type | Purpose |
+Line 339: |---|---|---|
+Line 340: | `session_id` | `str` (UUID) | Unique session identifier |
+Line 341: | `task` | `str` | User's task description |
+Line 342: | `status` | `SessionStatus` enum | `idle` / `running` / `paused` / `completed` / `error` |
+Line 343: | `model` | `str` | Model identifier (e.g., `gemini-3-flash-preview`) |
+Line 344: | `engine` | `str` | Automation engine (e.g., `playwright_mcp`) |
+Line 345: | `steps` | `list[StepRecord]` | Ordered list of executed steps |
+Line 346: | `max_steps` | `int` | Step limit for this session (1–200) |
+Line 347: | `created_at` | `str` (ISO 8601) | Session creation timestamp |
+Line 349: ### `StepRecord` (Pydantic model)
+Line 351: | Field | Type | Purpose |
+Line 352: |---|---|---|
+Line 353: | `step_number` | `int` | 1-based step index |
+Line 354: | `timestamp` | `str` (ISO 8601) | Step execution time |
+Line 355: | `screenshot_b64` | `str` or `None` | Base64-encoded PNG screenshot |
+Line 356: | `action` | `AgentAction` or `None` | The action chosen by the model |
+Line 357: | `raw_model_response` | `str` or `None` | Raw LLM output text |
+Line 358: | `error` | `str` or `None` | Error message if the step failed |
+Line 360: ### `AgentAction` (Pydantic model)
+Line 362: | Field | Type | Purpose |
+Line 363: |---|---|---|
+Line 364: | `action` | `ActionType` enum | One of 100+ action types |
+Line 365: | `target` | `str` or `None` | CSS selector, element name, or description |
+Line 366: | `coordinates` | `list[int]` or `None` | `[x, y]` or `[x1, y1, x2, y2]` (max 4 values) |
+Line 367: | `text` | `str` or `None` | Input text, URL, key name, or JS code |
+Line 368: | `reasoning` | `str` or `None` | Model's explanation of why it chose this action |
+Line 370: ### `StartTaskRequest` (API input)
+Line 372: | Field | Type | Constraints |
+Line 373: |---|---|---|
+Line 374: | `task` | `str` | Required, max 10,000 chars |
+Line 375: | `api_key` | `str` or `None` | Optional (resolved from env if empty), max 256 chars |
+Line 376: | `model` | `str` | Max 64 chars |
+Line 377: | `max_steps` | `int` | 1–200, default 50, hard-capped at 200 |
+Line 378: | `mode` | `str` | `browser` or `desktop` |
+Line 379: | `engine` | `str` | Required (no default) — one of the 3 supported engines |
+Line 380: | `provider` | `str` | `google` or `anthropic` |
+Line 381: | `system_prompt` | `str` or `None` | Optional custom system prompt, max 50,000 chars |
+Line 382: | `allowed_domains` | `list[str]` or `None` | Optional domain allowlist, max 50 entries |
+Line 384: ### In-Memory State (`backend/api/server.py`)
+Line 386: ```python
+Line 387: _active_loops: dict[str, AgentLoop] = {}   # session_id → AgentLoop instance
+Line 388: _active_tasks: dict[str, asyncio.Task] = {} # session_id → asyncio.Task
+Line 389: _ws_clients: list[WebSocket] = []           # connected WebSocket clients
+Line 390: ```
+Line 392: No persistent database is used. All session state lives in memory and is lost on backend restart.
+Line 394: ---
+Line 396: ## 🧩 Core Modules
+Line 398: ### `execute_action()` — Action Executor (`backend/agent/executor.py`)
+Line 400: | | |
+Line 401: |---|---|
+Line 402: | **Purpose** | Validate, normalize, and dispatch a single action to the selected engine |
+Line 403: | **Input** | `AgentAction` or `dict`, `mode` (browser/desktop), `engine` name |
+Line 404: | **Output** | `dict` with `success: bool`, `message: str`, `error_type: str or None` |
+Line 405: | **Behavior** | 1. Validates engine via `router.validate_engine()`. 2. Normalizes via `unified_schema.normalize_action()`. 3. Checks action against `engine_capabilities.json`. 4. Validates coordinates (non-negative, ≤1440×900) and text (≤5000 chars). 5. Dispatches to the correct engine handler. 6. Applies post-action delay (`action_delay_ms`). |
+Line 407: ### `query_model()` — Model Router (`backend/agent/model_router.py`)
+Line 409: | | |
+Line 410: |---|---|
+Line 411: | **Purpose** | Route LLM queries to the correct provider |
+Line 412: | **Input** | Provider name, API key, model name, task, screenshot, action history, step number, mode, system prompt |
+Line 413: | **Output** | `(AgentAction, raw_response_text)` tuple |
+Line 414: | **Behavior** | If `provider == "anthropic"`, calls `query_claude()`. Otherwise calls `query_gemini()`. |
+Line 416: ### `capture_screenshot()` — Screenshot Capture (`backend/agent/screenshot.py`)
+Line 418: | | |
+Line 419: |---|---|
+Line 420: | **Purpose** | Capture the current screen as a base64 PNG |
+Line 421: | **Input** | `mode` (browser/desktop), optional `engine` |
+Line 422: | **Output** | Base64-encoded PNG string |
+Line 423: | **Behavior** | For `playwright_mcp` engine, captures from the MCP browser. For all others, calls `GET :9222/screenshot?mode={mode}`. Falls back to `docker exec scrot` on connection failure. |
+Line 425: ### `normalize_action()` — Action Normalization (`backend/tools/unified_schema.py`)
+Line 427: | | |
+Line 428: |---|---|
+Line 429: | **Purpose** | Convert raw actions into a canonical `UnifiedAction` schema |
+Line 430: | **Input** | `AgentAction` or `dict`, engine name |
+Line 431: | **Output** | `UnifiedAction` Pydantic model |
+Line 432: | **Behavior** | Resolves action aliases, normalizes target/selector fields per engine, enforces coordinate types as integers, caps text at 5000 chars. |
+Line 434: ### `resolve_action()` — Alias Resolution (`backend/tools/action_aliases.py`)
+Line 436: | | |
+Line 437: |---|---|
+Line 438: | **Purpose** | Map ~100 action aliases to canonical `ActionType` values |
+Line 439: | **Input** | Action string (e.g., `"press"`, `"navigate"`, `"dblclick"`) |
+Line 440: | **Output** | Canonical action string (e.g., `"key"`, `"open_url"`, `"double_click"`) |
+Line 442: ### `validate_tool_parity()` — Parity Check (`backend/utils/parity_check.py`)
+Line 444: | | |
+Line 445: |---|---|
+Line 446: | **Purpose** | Audit alignment between `tools_list.txt`, `ActionType` enum, MCP handlers, and engine capabilities schema |
+Line 447: | **Behavior** | Runs at backend startup. Logs warnings for mismatches and errors for missing MCP handlers. |
+Line 449: ---
+Line 451: ## ⚙️ Engine Breakdown
+Line 453: Three engines are defined in `SUPPORTED_ENGINES` (sourced from `engine_capabilities.json`):
+Line 455: ### 1. `playwright_mcp` — Browser Automation (Accessibility-Tree-Based)
+Line 457: - **Dispatch**: `executor.py` → `playwright_mcp_client.execute_mcp_action()` → JSON-RPC over HTTP to the Playwright MCP server on port 8931
+Line 458: - **Runtime**: Standalone MCP server (`@playwright/mcp`) managing its own browser instance
+Line 459: - **Actions**: click, fill, type, navigate, tabs (by accessible name/role, not coordinates)
+Line 460: - **System prompt**: `SYSTEM_PROMPT_PLAYWRIGHT_MCP` — targets elements by name/role/label
+Line 461: - **Special**: Uses `find_element` to get accessibility snapshots; coordinates are ignored
+Line 463: ### 2. `omni_accessibility` — Cross-Platform Semantic Desktop Automation
+Line 465: - **Dispatch**: `executor.py` → `accessibility_engine.execute_accessibility_action()` → AT-SPI2 (Linux) / UI Automation (Windows) / JXA (macOS) + xdotool for physical input
+Line 466: - **Runtime**: Platform auto-detected — GObject Introspection (Linux), PowerShell UIA (Windows), osascript JXA (macOS)
+Line 467: - **Actions**: find elements by role/name/state, click by element ID, type into focused elements, get accessibility tree, navigate tree nodes, window activation
+Line 468: - **Features**: TTL element cache, circuit breaker, semantic scoring, post-action verification, cross-platform provider abstraction
+Line 469: - **Requirements**: Linux: `at-spi2-core`, `python3-gi`, D-Bus | Windows: PowerShell 5.1+ | macOS: Accessibility permissions
+Line 471: ### 3. `computer_use` — Native Computer-Use Protocol (Gemini CU / Claude CU)
+Line 473: - **Dispatch**: `loop.py` → `_run_computer_use_engine()` → `ComputerUseEngine.execute_task()` (bypasses `executor.py` entirely — the model controls the action loop)
+Line 474: - **Runtime**: Uses provider-native computer-use tools.
+Line 475: - **Gemini**: `computer_use` tool with screenshot/action loop (normalized coordinates).
+Line 476: - **Claude**: tool version is **auto-detected** (e.g., `computer_20250124` vs `computer_20251124` depending on model), using `client.beta.messages.create(..., betas=[...])`. `ClaudeCUClient` also accepts explicit `tool_version`/`beta_flag` params from `allowed_models.json` metadata.
+Line 477: - **Execution modes**: Browser (via Playwright CDP page) or Desktop (via xdotool + scrot)
+Line 478: - **Coordinate handling**: Gemini sends normalized 0–999 coordinates (denormalized to pixels by the executor); Claude sends real pixel coordinates
+Line 479: - **Actions**: `click_at`, `double_click_at`, `type_text_at`, `key_combination`, `scroll_at`, `move_mouse`, `drag_to`, `wait`, `screenshot`, `navigate_to`, `go_back`, `go_forward`, `select_option`, `hover_at`, `done`
+Line 480: - **Features**: Model-driven screenshot loop, safety decision handling (`require_confirmation`), inline base64 screenshot feedback, thinking/reasoning traces
+Line 481: - **Contract**: Uses its own internal turn loop — never dispatched through `execute_action()`
+Line 483: ### Engine Dispatch Diagram
+Line 485: ```mermaid
+Line 486: flowchart LR
+Line 487: EX["executor.py"]
+Line 489: EX -->|"playwright_mcp"| MCP["playwright_mcp_client\nJSON-RPC :8931"]
+Line 490: EX -->|"omni_accessibility"| A11Y["accessibility_engine\nAT-SPI/UIA/JXA"]
+Line 492: LP["loop.py"] -->|"computer_use"| CUE["ComputerUseEngine\nNative CU protocol"]
+Line 493: ```
+Line 495: ### Engine Isolation
+Line 497: The executor enforces **strict engine isolation**: the user-chosen engine is used for every action in the session. No fallback to other engines occurs at the executor level. The `computer_use` engine bypasses the executor entirely — it runs its own model-driven loop via `ComputerUseEngine`. This is verified by 15 tests in `tests/test_engine_isolation.py`.
+Line 499: ---
+Line 501: ## 🔐 Security Model
+Line 503: ### Input Validation (`backend/api/server.py`, `backend/agent/executor.py`)
+Line 505: | Protection | Implementation |
+Line 506: |---|---|
+Line 507: | **Rate limiting** | Sliding-window limiter: max 10 `POST /api/agent/start` calls per 60 seconds (`_RateLimiter` class) |
+Line 508: | **Concurrent session cap** | Max 3 active sessions (`_MAX_CONCURRENT_SESSIONS`) |
+Line 509: | **Max steps hard cap** | `max_steps` capped at 200 regardless of user input (`_MAX_STEPS_HARD_CAP`) |
+Line 510: | **Engine allowlist** | Request engine validated against `SUPPORTED_ENGINES` set |
+Line 511: | **Provider allowlist** | Only `google` and `anthropic` accepted (`_VALID_PROVIDERS`) |
+Line 512: | **Model allowlist** | Per-provider model validation (`_VALID_MODELS_BY_PROVIDER`) |
+Line 513: | **Session ID validation** | UUID format validation before any session lookup (`_is_valid_uuid()`) |
+Line 514: | **Task length limit** | Max 10,000 characters (`StartTaskRequest.task` field) |
+Line 515: | **API key masking** | Keys are masked in audit logs (`sk-a...9f2e` format) |
+Line 516: | **Coordinate bounds** | Validated ≤1440×900, non-negative integers |
+Line 517: | **Text length limit** | Max 5,000 characters per action |
+Line 519: ### Container Security (`docker/agent_service.py`)
+Line 521: | Protection | Implementation |
+Line 522: |---|---|
+Line 523: | **Request body size** | Max 1 MB per request (`_MAX_BODY_SIZE`) |
+Line 524: | **Blocked shell commands** | Pattern list: `rm -rf /`, `mkfs.`, `dd if=/dev/`, `shutdown`, `reboot`, etc. (`_BLOCKED_CMD_PATTERNS`) |
+Line 525: | **Command allowlist** | Only specific commands permitted in `run_command` action: `ls`, `cat`, `grep`, `python3`, `curl`, etc. (`_ALLOWED_COMMANDS` frozenset) |
+Line 526: | **File upload path restriction** | Only `/tmp`, `/app`, `/home` directories allowed (`_UPLOAD_ALLOWED_PREFIXES`) |
+Line 528: ### Container Isolation (`docker-compose.yml`)
+Line 530: | Setting | Value |
+Line 531: |---|---|
+Line 532: | `security_opt` | `no-new-privileges:true` |
+Line 533: | `shm_size` | `2gb` |
+Line 534: | Memory limit | `4g` |
+Line 535: | CPU limit | `2` cores |
+Line 536: | Port binding | `127.0.0.1` only (not exposed externally) |
+Line 538: ### CORS (`backend/api/server.py`)
+Line 540: Restricted to local development origins: `localhost:5173`, `127.0.0.1:5173`, `localhost:3000`, `127.0.0.1:3000`. Methods limited to `GET` and `POST`.
+Line 542: ### What the Security Model Does NOT Cover
+Line 544: - No authentication or authorization on the API (any local client can start agents)
+Line 545: - No TLS on inter-service HTTP (backend → agent service is plain HTTP over localhost)
+Line 546: - The `evaluate_js` action executes arbitrary JavaScript inside the browser with no sandboxing beyond the browser's own security context
+Line 547: - The `run_command` allowlist does not prevent all possible abuse (e.g., `python3 -c "..."` can run arbitrary code)
+Line 548: - WebSocket connections have no authentication
+Line 550: ---
+Line 552: ## 🧠 LLM Provider Integration
+Line 554: ### Supported Providers & Models (UI Allowlist)
+Line 556: | Provider | Models in UI (allowlist) | Env Variable |
+Line 557: |---|---|---|
+Line 558: | Google Gemini | `gemini-3-flash-preview`, `gemini-3.1-pro-preview` | `GOOGLE_API_KEY` |
+Line 559: | Anthropic Claude | `claude-sonnet-4-6`, `claude-opus-4-6` | `ANTHROPIC_API_KEY` |
+Line 561: The UI options come from `GET /api/models` (loaded from `backend/allowed_models.json`).
+Line 563: ### Model Selection
+Line 565: The user selects a provider and model in the UI. `model_router.query_model()` dispatches to the matching client. There is no automatic fallback between providers — if the selected provider fails, the step records an error.
+Line 567: ### Request Construction
+Line 569: Both clients follow the same pattern:
+Line 570: 1. Build a context window with the last 15 actions as history (trimmed for token economy)
+Line 571: 2. Attach the current screenshot as an inline image (base64 PNG)
+Line 572: 3. Include the task description and current step number
+Line 573: 4. Set the engine-specific system prompt from `prompts.py`
+Line 575: ### Response Parsing
+Line 577: Both clients use the same parsing logic:
+Line 578: 1. Strip markdown fences (` ```json ... ``` `)
+Line 579: 2. Extract the first valid JSON object (handling nested braces)
+Line 580: 3. Resolve action aliases via `resolve_action()`
+Line 581: 4. Validate that the action exists in `ActionType`
+Line 582: 5. Return `(AgentAction, raw_response_text)`
+Line 584: ### Retry Logic
+Line 586: The Gemini client retries up to `gemini_retry_attempts` (default 3) with `gemini_retry_delay` (default 2s) between attempts on transient failures. The Anthropic client follows the same pattern.
+Line 588: ### API Key Resolution (`backend/config.py`)
+Line 590: Keys are resolved in priority order:
+Line 591: 1. **UI input** — user pastes key in the Workbench
+Line 592: 2. **`.env` file** — `GOOGLE_API_KEY` or `ANTHROPIC_API_KEY` in project root `.env`
+Line 593: 3. **System environment** — same variable names as system env vars
+Line 595: The `/api/keys/status` endpoint reports which sources are available for each provider, including masked key previews.
+Line 597: ---
+Line 599: ## 📡 API Surface
+Line 601: ### REST Endpoints (`backend/api/server.py`)
+Line 603: | Method | Path | Purpose |
+Line 604: |---|---|---|
+Line 605: | `GET` | `/api/health` | Liveness probe |
+Line 606: | `GET` | `/api/container/status` | Docker container + agent service health |
+Line 607: | `POST` | `/api/container/start` | Build-if-needed and start the container |
+Line 608: | `POST` | `/api/container/stop` | Stop all agents then remove container |
+Line 609: | `POST` | `/api/container/build` | Trigger Docker image build |
+Line 610: | `GET` | `/api/agent-service/health` | Check if agent service is responding |
+Line 611: | `POST` | `/api/agent-service/mode` | Switch agent service mode (browser/desktop) |
+Line 612: | `GET` | `/api/keys/status` | API key availability per provider |
+Line 613: | `GET` | `/api/models` | Canonical model allowlist for UI dropdowns |
+Line 614: | `GET` | `/api/engines` | Available engines for UI dropdowns |
+Line 615: | `GET` | `/api/screenshot` | Current screenshot as base64 |
+Line 616: | `POST` | `/api/agent/start` | Start a new agent session |
+Line 617: | `POST` | `/api/agent/stop/{session_id}` | Stop a running session |
+Line 618: | `GET` | `/api/agent/status/{session_id}` | Session status + last action |
+Line 619: | `GET` | `/api/agent/history/{session_id}` | Full step history (without screenshots) |
+Line 620: | `POST` | `/api/agent/safety-confirm` | Respond to CU engine safety confirmation prompt |
+Line 621: | `POST` | `/webrtc/offer` | WebRTC SDP offer/answer negotiation |
+Line 622: | `GET` | `/vnc/{path}` | noVNC static file proxy |
+Line 623: | `WS` | `/vnc/websockify` | noVNC WebSocket proxy to container websockify |
+Line 625: ### WebSocket (`/ws`)
+Line 627: Events broadcast to all connected clients:
+Line 629: | Event | Payload | Trigger |
+Line 630: |---|---|---|
+Line 631: | `screenshot` | `{ screenshot: base64 }` | Each agent step screenshot capture |
+Line 632: | `screenshot_stream` | `{ screenshot: base64 }` | Periodic desktop screenshot (interval: `ws_screenshot_interval`) |
+Line 633: | `log` | `{ log: LogEntry }` | Agent log emission |
+Line 634: | `step` | `{ step: StepRecord }` (without screenshot/raw_response) | Each agent step completion |
+Line 635: | `agent_finished` | `{ session_id, status, steps }` | Agent loop termination |
+Line 636: | `pong` | `{}` | Response to client `ping` |
+Line 638: Client → Server: `{ type: "ping" }` for keepalive (sent every 15s by `useWebSocket.js`).
+Line 640: ---
+Line 642: ## 🐳 Docker Runtime
+Line 644: ### Container: `cua-environment`
+Line 646: Built from `docker/Dockerfile` on Ubuntu 24.04. The entrypoint (`docker/entrypoint.sh`) starts the following services in order:
+Line 648: 1. **D-Bus** — system + session bus (required for AT-SPI)
+Line 649: 2. **Xvfb** — virtual X11 framebuffer at `:99`, resolution `1440×900×24`
+Line 650: 3. **AT-SPI** — accessibility bridge + registry daemon (before desktop so apps register correctly)
+Line 651: 4. **XFCE 4** — full desktop environment with window manager
+Line 652: 5. **x11vnc** — VNC server on port 5900 (optional `VNC_PASSWORD` for authentication)
+Line 653: 6. **noVNC + websockify** — browser-accessible VNC on port 6080
+Line 654: 7. **Browser bootstrap** — pre-warms Chrome profile, sets default browser via `xdg-settings`
+Line 655: 8. **ydotoold** — ydotool daemon (if `/dev/uinput` is available)
+Line 656: 9. **Playwright MCP server** — `@playwright/mcp` HTTP transport on port 8931 (headless, `--no-sandbox`)
+Line 657: 10. **Agent Service** — `agent_service.py` HTTP server on port 9222
+Line 659: ### Pre-installed Software
+Line 661: - Google Chrome (stable), Firefox
+Line 662: - Playwright Chromium + Firefox browsers
+Line 663: - Playwright MCP server (`@playwright/mcp` via npm)
+Line 664: - xdotool, wmctrl, xclip, ydotool, scrot
+Line 665: - AT-SPI2 accessibility stack (`at-spi2-core`, `gir1.2-atspi-2.0`, `python3-gi`)
+Line 666: - ffmpeg (for video capture)
+Line 667: - Node.js 20 LTS
+Line 669: ### Agent Service (`docker/agent_service.py`)
+Line 671: A synchronous `BaseHTTPRequestHandler` HTTP server (~2800 lines) running inside the container. Handles:
+Line 673: | Endpoint | Method | Purpose |
+Line 674: |---|---|---|
+Line 675: | `/health` | GET | Liveness check |
+Line 676: | `/screenshot` | GET | Capture via Playwright or scrot (query param `mode`) |
+Line 677: | `/action` | POST | Execute a single action (dispatches to browser/desktop/ydotool handler) |
+Line 678: | `/mode` | POST | Switch default mode at runtime |
+Line 680: ### Port Map
+Line 682: | Port | Service | Binding |
+Line 683: |---|---|---|
+Line 684: | 5900 | VNC (x11vnc) | `127.0.0.1:5900` |
+Line 685: | 6080 | noVNC (websockify) | `127.0.0.1:6080` |
+Line 686: | 8931 | Playwright MCP server | `127.0.0.1:8931` |
+Line 687: | 9222 | Agent Service API | `127.0.0.1:9222` |
+Line 688: | 9223 | Chromium CDP (browser attach) | `127.0.0.1:9223` |
+Line 690: ---
+Line 692: ## 📝 Configuration
+Line 694: ### Environment Variables (`backend/config.py`)
+Line 696: The table below lists all user-facing settings from `backend/config.py`. The first two rows are **API keys** resolved via `resolve_api_key()` (not `Config` dataclass fields, but still read from env / `.env`). The remaining rows are `Config` fields — only the **env-configurable** ones are read at startup via `Config.from_env()`. Compile-time defaults must be changed by editing `config.py` directly.
+Line 698: | Variable | Default | Env? | Description |
+Line 699: |---|---|---|---|
+Line 700: | `GOOGLE_API_KEY` | — | ✅ | Google Gemini API key (resolved by `resolve_api_key()`, not a `Config` field) |
+Line 701: | `ANTHROPIC_API_KEY` | — | ✅ | Anthropic Claude API key (resolved by `resolve_api_key()`, not a `Config` field) |
+Line 702: | `GEMINI_MODEL` | `gemini-3-flash-preview` | ✅ | Default Gemini model name |
+Line 703: | `CONTAINER_NAME` | `cua-environment` | ✅ | Docker container name |
+Line 704: | `CONTAINER_IMAGE` | `cua-ubuntu:latest` | — | Docker image tag — not in `from_env()` |
+Line 705: | `AGENT_SERVICE_HOST` | `127.0.0.1` | ✅ | Agent service hostname (use IPv4 — see note below) |
+Line 706: | `AGENT_SERVICE_PORT` | `9222` | ✅ | Agent service port |
+Line 707: | `AGENT_MODE` | `browser` | ✅ | Default agent mode |
+Line 708: | `PLAYWRIGHT_MCP_HOST` | `127.0.0.1` | ✅ | MCP server hostname (use IPv4 — see note below) |
+Line 709: | `PLAYWRIGHT_MCP_PORT` | `8931` | ✅ | MCP server port |
+Line 710: | `PLAYWRIGHT_MCP_PATH` | `/mcp` | ✅ | MCP JSON-RPC endpoint path |
+Line 711: | `PLAYWRIGHT_MCP_AUTOSTART` | `0` | ✅ | Auto-launch MCP subprocess (`0`/`1`) |
+Line 712: | `PLAYWRIGHT_MCP_COMMAND` | `npx` | ✅ | Executable that starts the MCP server |
+Line 713: | `PLAYWRIGHT_MCP_ARGS` | `-y @playwright/mcp@latest` | ✅ | Arguments passed to the MCP command |
+Line 714: | `SCREEN_WIDTH` | `1440` | ✅ | Virtual display width (pixels) |
+Line 715: | `SCREEN_HEIGHT` | `900` | ✅ | Virtual display height (pixels) |
+Line 716: | `SCREENSHOT_FORMAT` | `png` | — | Screenshot image format — not in `from_env()` |
+Line 717: | `SCREENSHOT_INTERVAL_SEC` | `1.0` | — | Video capture interval (seconds) — not in `from_env()` |
+Line 718: | `MAX_STEPS` | `50` | ✅ | Default max agent steps |
+Line 719: | `STEP_TIMEOUT` | `30.0` | ✅ | Per-step timeout (seconds) |
+Line 720: | `GEMINI_RETRY_ATTEMPTS` | `3` | ✅ | Model query retry count |
+Line 721: | `DEBUG` | `false` | ✅ | Enable debug logging and uvicorn reload |
+Line 722: | `GEMINI_RETRY_DELAY` | `2.0` | — | Delay between retries (seconds) — not in `from_env()` |
+Line 723: | `ACTION_DELAY_MS` | `500` | — | Post-action delay (milliseconds) — not in `from_env()` |
+Line 724: | `WS_SCREENSHOT_INTERVAL` | `1.5` | — | WebSocket screenshot push interval (seconds) — not in `from_env()` |
+Line 725: | `HOST` | `0.0.0.0` | — | Backend bind address — not in `from_env()` |
+Line 726: | `PORT` | `8000` | — | Backend port — not in `from_env()` |
+Line 728: **Container-side environment variables** (set in `docker-compose.yml` / `entrypoint.sh`, not in `config.py`):
+Line 730: | Variable | Default | Description |
+Line 731: |---|---|---|
+Line 732: | `VNC_PASSWORD` | *(unset)* | Optional VNC password for x11vnc authentication (`entrypoint.sh:L103`) |
+Line 733: | `DISPLAY` | `:99` | X11 display (set by entrypoint) |
+Line 734: | `SCREEN_DEPTH` | `24` | X11 color depth |
+Line 736: > **Windows note:** Prefer `127.0.0.1` over `localhost` because Docker ports are often bound on IPv4 only.
+Line 738: Configuration is loaded once at import time via `Config.from_env()` into a module-level singleton. The `.env` file (if present in project root) is loaded with `python-dotenv` but does not override existing system environment variables.
+Line 740: ---
+Line 742: ## 📦 Setup & Installation
+Line 744: ### Prerequisites
+Line 746: - **Docker** — with BuildKit support
+Line 747: - **Python 3.10+** — for the backend
+Line 748: - **Node.js 18+** — for the frontend and Playwright MCP
+Line 750: ### Quickstart (Automated)
+Line 752: **Windows:**
+Line 753: ```bat
+Line 754: setup.bat
+Line 755: ```
+Line 757: **Linux / macOS:**
+Line 758: ```bash
+Line 759: bash setup.sh
+Line 760: ```
+Line 762: Both scripts: verify prerequisites → build Docker image (`cua-ubuntu:latest`) → create Python venv → install pip dependencies → install frontend npm packages.
+Line 764: ### Manual Setup
+Line 766: **Step 1 — Build the Docker image:**
+Line 767: ```bash
+Line 768: docker build -t cua-ubuntu:latest -f docker/Dockerfile .
+Line 769: ```
+Line 771: **Step 2 — Set up the Python backend:**
+Line 772: ```bash
+Line 773: python -m venv .venv
+Line 775: # Windows
+Line 776: .venv\Scripts\activate
+Line 777: # Linux / macOS
+Line 778: source .venv/bin/activate
+Line 780: pip install --upgrade pip
+Line 781: pip install -r requirements.txt
+Line 782: ```
+Line 784: **Step 3 — Set up the frontend:**
+Line 785: ```bash
+Line 786: cd frontend
+Line 787: npm install
+Line 788: cd ..
+Line 789: ```
+Line 791: **Step 4 — Configure API keys** (at least one required):
+Line 792: ```bash
+Line 793: # Option A: .env file in project root
+Line 794: echo "GOOGLE_API_KEY=your-key-here" >> .env
+Line 796: # Option B: system environment variable
+Line 797: export GOOGLE_API_KEY=your-key-here
+Line 799: # Option C: paste directly in the UI at runtime
+Line 800: ```
+Line 802: ---
+Line 804: ## ▶️ Running the Application
+Line 806: ### Start All Components
+Line 808: **Terminal 1 — Docker container:**
+Line 809: ```bash
+Line 810: docker compose up -d
+Line 811: ```
+Line 813: **Terminal 2 — Backend:**
+Line 814: ```bash
+Line 815: # Activate venv first
+Line 816: # Windows: .venv\Scripts\activate
+Line 817: # Linux:   source .venv/bin/activate
+Line 819: python -m backend.main
+Line 820: ```
+Line 822: **Terminal 3 — Frontend:**
+Line 823: ```bash
+Line 824: cd frontend
+Line 825: npm run dev
+Line 826: ```
+Line 828: **Open:** http://127.0.0.1:3000
+Line 830: > If you skip `docker compose up -d`, the container starts automatically when you launch an agent task from the UI.
+Line 832: ### What the User Sees
+Line 834: 1. **Dashboard** (`/`) — container status, agent service health, live screen view, control panel, log viewer.
+Line 835: 2. **Workbench** (`/workbench`) — full configuration: run mode (browser/desktop), provider, model, API key source (manual/`.env`/system), engine selection, max steps, task input. Real-time timeline showing each step's action, coordinates, reasoning, and errors. Live log viewer with download-to-file support.
+Line 837: ### Viewing the Desktop
+Line 839: Three options for observing the container's desktop:
+Line 841: | Method | Access | Source |
+Line 842: |---|---|---|
+Line 843: | **noVNC** (interactive) | http://127.0.0.1:6080 (recommended) or VNC tab in ScreenView | Proxied via `/vnc/websockify` |
+Line 844: | **WebRTC** (low-latency) | Toggle in ScreenView component | ffmpeg x11grab → aiortc |
+Line 845: | **Screenshot stream** | Default in ScreenView | Periodic base64 PNGs via WebSocket |
+Line 847: ### Stop
+Line 849: ```bash
+Line 850: docker compose down        # Stop container
+Line 851: # Ctrl+C in backend and frontend terminals
+Line 852: ```
+Line 854: ---
+Line 856: ## 🧪 Testing
+Line 858: ### Framework
+Line 860: - **pytest** with custom markers for test categorization
+Line 861: - **431 tests** across unit and stress test suites
+Line 862: - **All tests are hermetic** — they use mocks/fakes/patches and do not require a running container or network access
+Line 864: ### Test Structure
+Line 866: | Path | Tests | Description |
+Line 867: |---|---|---|
+Line 868: | `tests/test_engine_isolation.py` | 15 | Strict engine isolation, no cross-engine fallback |
+Line 869: | `tests/test_engine_capabilities.py` | — | Engine capability schema validation |
+Line 870: | `tests/test_engine_certification.py` | — | Certification framework tests |
+Line 871: | `tests/test_prompt_and_recovery.py` | — | Prompt and recovery logic tests |
+Line 872: | `tests/stress/test_phase1_engine_stress.py` | — | Phase 1: All 3 engines stress (boundary inputs, concurrent dispatch) |
+Line 873: | `tests/stress/test_phase2_browser_engine_stress.py` | — | Phase 2: Browser engine stress (Playwright MCP) |
+Line 874: | `tests/stress/test_phase3_desktop_engine_stress.py` | — | Phase 3: Desktop engine stress (accessibility + computer_use) |
+Line 875: | `tests/stress/test_phase4_accessibility_stress.py` | — | Phase 4: Accessibility engine stress (AT-SPI) |
+Line 876: | `tests/stress/test_phase5_hybrid_fallback_stress.py` | — | Phase 5: Engine fallback and recovery |
+Line 877: | `tests/stress/test_phase6_agent_loop_stress.py` | — | Phase 6: Agent loop stress (stuck detection, error recovery) |
+Line 878: | `tests/stress/test_phase7_frontend_stress.py` | — | Phase 7: Frontend interaction stress (FastAPI + WebSocket + Vite) |
+Line 879: | `tests/stress/test_phase8_soak_test.py` | — | Phase 8: Soak test (engine rotation, resource monitoring) |
+Line 881: ### Running Tests
+Line 883: ```bash
+Line 884: # Activate virtual environment first
+Line 885: # Windows: .venv\Scripts\activate
+Line 887: # Run all tests
+Line 888: pytest tests/ -v
+Line 890: # Run a specific phase
+Line 891: pytest tests/stress/test_phase1_engine_stress.py -v
+Line 893: # Run with short tracebacks
+Line 894: pytest tests/ --tb=short -q
+Line 895: ```
+Line 897: ### Stress Test Harness
+Line 899: A standalone CLI stress harness exists at `backend/tests/stress_system.py` for running real concurrent agent sessions against the live backend + Docker container:
+Line 901: ```bash
+Line 902: python backend/tests/stress_system.py --engine all --concurrency 2 --iterations 10
+Line 903: ```
+Line 905: It produces a **CUA FULL SYSTEM STRESS REPORT** with per-engine metrics (total calls, failures, disconnects, avg/max latency, memory delta, CPU peak) and an overall pass/fail verdict.
+Line 907: ---
+Line 909: ## 🔧 Troubleshooting
+Line 911: ### "Agent Service Down" / timeouts (Windows)
+Line 912: - Ensure Docker ports are reachable on IPv4:
+Line 913: - Use `127.0.0.1` (not `localhost`) for `AGENT_SERVICE_HOST` and `PLAYWRIGHT_MCP_HOST`.
+Line 914: - Quick checks:
+Line 915: - `curl http://127.0.0.1:9222/health`
+Line 916: - Open `http://127.0.0.1:6080`
+Line 918: ### Start rejects with 400/429
+Line 919: `POST /api/agent/start` returns:
+Line 920: - **400** for validation problems (invalid model/provider/engine/task/api key)
+Line 921: - **429** for rate limiting or concurrency cap
+Line 922: The frontend surfaces these as `{ error: "..." }` messages.
+Line 924: ### noVNC loads but desktop is black
+Line 925: - Wait ~5–15 seconds after container start (XFCE session boot)
+Line 926: - Check container logs: `docker compose logs -f`
+Line 928: ---
+Line 930: ## ⚠️ Limitations
+Line 932: The following are constraints observed directly in the codebase:
+Line 934: 1. **In-memory session state only** — no persistence. Backend restart loses all active sessions (`server.py` uses plain dicts).
+Line 935: 2. **Model allowlist (intentional)** — the UI exposes only the models listed in `backend/allowed_models.json`. This keeps demos stable; edit the allowlist to add more.
+Line 936: 3. **No authentication** — the API accepts requests from any local client without auth tokens. WebSocket connections are unauthenticated.
+Line 937: 4. **Coordinate-dependent engines** — `computer_use` (in desktop mode) relies on the model correctly predicting pixel coordinates from screenshots. Accuracy depends on model vision quality.
+Line 938: 5. **AT-SPI availability** — the `omni_accessibility` engine requires the D-Bus session bus and AT-SPI2 bindings to be running inside the container (Linux). On Windows/macOS it uses native platform APIs. Applications that don't expose accessibility trees are invisible to this engine.
+Line 939: 6. **Fixed viewport** — the display resolution is fixed at 1440×900 (set in Dockerfile and config). The coordinate validation and system prompts assume this size.
+Line 940: 7. **Sequential engine execution** — each session uses exactly one engine. There is no mechanism to switch engines mid-session or combine engine capabilities.
+Line 941: 8. **Rate limiting is in-memory** — the sliding-window rate limiter resets on backend restart.
+Line 942: 9. **WebRTC max 2 connections** — `_MAX_CONNECTIONS = 2` in `webrtc_server.py`.
+Line 943: 10. **Context window truncation** — only the last 15 actions are sent to the model. Long sessions lose early context.
+Line 944: 11. **`run_command` security** — while the allowlist and blocked-pattern list exist, `python3 -c "..."` is permitted and can execute arbitrary code inside the container.
+Line 946: ---
+Line 948: ## 🔮 Future Improvements
+Line 950: Based on patterns observable in the codebase:
+Line 952: 1. **Persistent session storage** — the `AgentSession` Pydantic model is structured for serialization. Adding a database or file-backed store is a natural extension.
+Line 953: 2. **Additional model support** — the `model_router.py` dispatch pattern and `_VALID_MODELS_BY_PROVIDER` allowlist are designed for easy extension to new models.
+Line 954: 3. **Wayland support** — `engine_capabilities.json` already declares `wayland_support: true` for the `omni_accessibility` engine. The schema is future-proofed.
+Line 955: 4. **`allowed_domains` enforcement** — the `StartTaskRequest` model accepts an `allowed_domains` list, but no enforcement logic exists in the agent loop or executor yet.
+Line 956: 5. **Custom system prompts** — the `StartTaskRequest` accepts a `system_prompt` field, but it is not currently passed through to the model clients.
+Line 957: 6. **Engine certification CI gate** — `backend/health/engine_certifier.py` implements a full certification framework. Integrating it into CI would gate deployments on engine health.
+Line 959: ---
+Line 961: ## 🤝 Contributing
+Line 963: | Step | What to do |
+Line 964: |:---:|---|
+Line 965: | 🍿 | **Fork** the repo and create a feature branch |
+Line 966: | 🧪 | Write a **failing test first** (TDD) — all tests must be hermetic (mocked IO, no network) |
+Line 967: | ✅ | Run the full suite: `pytest tests/ -v` |
+Line 968: | 📊 | Keep code coverage **≥ 80%** on changed files |
+Line 969: | ✍️ | Follow existing style: small functions, clear names, minimal comments that explain *why* |
+Line 970: | 🚀 | Open a PR with a descriptive title and reference any related issues |
+Line 972: See the [🧪 Testing](#testing) section for how to run unit and stress tests.
+Line 974: ---
+Line 976: ## 🛡️ Security Reporting
+Line 978: If you discover a **security vulnerability**, please **do not** open a public issue.
+Line 979: Instead, email the maintainer privately or use GitHub's [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability).
+Line 980: We aim to acknowledge reports within 48 hours and issue a fix within 7 days for critical issues.
+Line 982: ---
+Line 984: ## 📄 License
+Line 986: This project is licensed under the **MIT License** — see [LICENSE](LICENSE) for details.
+Line 988: ---
+Line 990: <div align="center">
+Line 992: ### 💬 Validation Statement
+Line 994: *This README aims to stay code-accurate. Every claim traces to a specific file, function, class, constant, or configuration value in the repository. Where behavior is ambiguous in code, the document describes what the code does, not what it might intend.*
+Line 996: *If you find drift between the docs and the code, please [open an issue](https://github.com/pypi-ahmad/cua-workbench/issues).*
+Line 998: ---
+Line 1000: **[Back to Top](#-cua-workbench)**  •  **[Quickstart](#-quickstart-tldr)**  •  **[Contributing](#-contributing)**
+Line 1002: Made with ❤️ for the Computer-Using Agent community
+Line 1004: </div>
 
 
 === FILE: append.py ===

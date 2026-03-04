@@ -105,6 +105,7 @@ async def execute_action(
     mode: str = "browser",
     engine: str = "playwright_mcp",
     step: int = 0,
+    runtime_target: str = "local",
 ) -> dict:
     """Execute a single agent action via the internal agent service.
 
@@ -113,6 +114,7 @@ async def execute_action(
         mode: 'browser' or 'desktop'.
         engine: 'playwright_mcp', 'omni_accessibility', or 'computer_use'.
         step: Current step number (used in structured error reporting).
+        runtime_target: 'local' (host machine) or 'docker' (container).
 
     Returns:
         dict with keys: success (bool), message (str)
@@ -224,13 +226,24 @@ async def execute_action(
 
     # ── Dispatch: Playwright MCP ──────────────────────────────────────────
     if engine == "playwright_mcp":
-        from backend.agent.playwright_mcp_client import execute_mcp_action
-        result = await execute_mcp_action(
-            action=u_action.action,
-            text=u_action.text or "",
-            target=u_action.target or u_action.selector or "",
-            step=step,
-        )
+        if runtime_target == "docker":
+            # Docker mode: route MCP calls to the HTTP server inside the container
+            from backend.agent.playwright_mcp_client import execute_mcp_action_docker
+            result = await execute_mcp_action_docker(
+                action=u_action.action,
+                text=u_action.text or "",
+                target=u_action.target or u_action.selector or "",
+                step=step,
+            )
+        else:
+            # Local mode: use STDIO transport on the host
+            from backend.agent.playwright_mcp_client import execute_mcp_action
+            result = await execute_mcp_action(
+                action=u_action.action,
+                text=u_action.text or "",
+                target=u_action.target or u_action.selector or "",
+                step=step,
+            )
 
         if not result.get("success") and "error_type" not in result:
             result["error_type"] = "execution"

@@ -1,8 +1,11 @@
-"""Playwright MCP client — STDIO transport.
+"""Playwright MCP client — STDIO transport (local) and HTTP transport (Docker).
 
-Communicates with the Playwright MCP server over stdio (stdin/stdout).
-Uses the ``mcp`` Python SDK's ``stdio_client`` to spawn and manage the
-Playwright MCP server as a child process.  No HTTP, no sessions, no SSE.
+Communicates with the Playwright MCP server over:
+  • STDIO (local): spawns npx @playwright/mcp@latest as a child process
+  • HTTP  (Docker): connects to the MCP server inside the Docker container
+
+Uses the ``mcp`` Python SDK's ``stdio_client`` / ``streamablehttp_client``
+to manage the connection.
 
 The MCP server command defaults to ``npx -y @playwright/mcp@latest`` and
 can be overridden via ``PLAYWRIGHT_MCP_COMMAND`` / ``PLAYWRIGHT_MCP_ARGS``
@@ -740,6 +743,166 @@ for member in ActionType:
 
 
 # ── Execution Dispatcher ──────────────────────────────────────────────────────
+
+# ── Docker HTTP MCP Transport ─────────────────────────────────────────────────
+# Connects to the Playwright MCP server running inside the Docker container
+# via Streamable HTTP transport (port 8931 by default).
+
+_docker_exit_stack: AsyncExitStack | None = None
+_docker_mcp_session: ClientSession | None = None
+_docker_mcp_init_lock: asyncio.Lock | None = None
+
+
+def _get_docker_init_lock() -> asyncio.Lock:
+    """Return or create the Docker MCP initialisation lock."""
+    global _docker_mcp_init_lock
+    if _docker_mcp_init_lock is None:
+        _docker_mcp_init_lock = asyncio.Lock()
+    return _docker_mcp_init_lock
+
+
+async def _ensure_docker_mcp_initialized() -> ClientSession:
+    """Ensure the Docker HTTP MCP session is connected and initialized.
+
+    Connects to the Playwright MCP server inside the Docker container
+    via Streamable HTTP transport (HTTP/SSE).
+    """
+    global _docker_exit_stack, _docker_mcp_session
+
+    if _docker_mcp_session is not None:
+        return _docker_mcp_session
+
+    async with _get_docker_init_lock():
+        if _docker_mcp_session is not None:
+            return _docker_mcp_session
+
+        mcp_url = f"http://{config.playwright_mcp_host}:{config.playwright_mcp_port}{config.playwright_mcp_path}"
+        logger.info("Connecting to Docker Playwright MCP at %s", mcp_url)
+
+        _docker_exit_stack = AsyncExitStack()
+        await _docker_exit_stack.__aenter__()
+
+        try:
+            from mcp.client.streamable_http import streamablehttp_client
+
+            read_stream, write_stream, _ = await _docker_exit_stack.enter_async_context(
+                streamablehttp_client(mcp_url)
+            )
+            session = await _docker_exit_stack.enter_async_context(
+                ClientSession(read_stream, write_stream)
+            )
+            await session.initialize()
+
+            tools_result = await session.list_tools()
+            tool_names = [t.name for t in tools_result.tools]
+            logger.info(
+                "Docker MCP HTTP session established — %d tools available: %s",
+                len(tool_names),
+                ", ".join(tool_names[:10])
+                + ("..." if len(tool_names) > 10 else ""),
+            )
+
+            _docker_mcp_session = session
+            return _docker_mcp_session
+        except Exception:
+            try:
+                await _docker_exit_stack.aclose()
+            except Exception:
+                pass
+            _docker_exit_stack = None
+            _docker_mcp_session = None
+            raise
+
+
+async def _reset_docker_session() -> None:
+    """Tear down the current Docker HTTP MCP session for reconnection."""
+    global _docker_exit_stack, _docker_mcp_session
+
+    if _docker_exit_stack:
+        try:
+            await _docker_exit_stack.aclose()
+        except Exception as e:
+            logger.warning("Docker MCP session cleanup error: %s", e)
+
+    _docker_exit_stack = None
+    _docker_mcp_session = None
+
+
+async def _docker_mcp_call(tool_name: str, arguments: dict) -> dict:
+    """Call an MCP tool via the Docker HTTP session.
+
+    Returns ``{"success": bool, "message": str}``.
+    Auto-reconnects once if the session has dropped.
+    """
+    for attempt in range(2):
+        try:
+            session = await _ensure_docker_mcp_initialized()
+            _log_mcp_call(tool_name, "calling[docker]")
+            result = await session.call_tool(tool_name, arguments)
+
+            if result.isError:
+                text = _text_from_content(result.content)
+                _log_mcp_call(tool_name, "tool_error[docker]", error=text)
+                return {"success": False, "message": text or "MCP tool returned error"}
+
+            text = _text_from_content(result.content)
+            _log_mcp_call(tool_name, "ok[docker]")
+            return {"success": True, "message": text}
+
+        except Exception as e:
+            _log_mcp_call(tool_name, "exception[docker]", error=str(e))
+            if attempt == 0:
+                logger.info("Docker MCP call failed — resetting HTTP session and retrying")
+                await _reset_docker_session()
+                continue
+            return {"success": False, "message": f"Docker MCP call failed after retry: {e}"}
+
+    return {"success": False, "message": "Docker MCP call failed: exhausted retries"}
+
+
+async def execute_mcp_action_docker(
+    action: str,
+    text: str = "",
+    target: str = "",
+    step: int = 0,
+) -> dict:
+    """Execute an MCP action via the Docker HTTP transport.
+
+    Uses the same handler table as the local STDIO transport, but routes
+    all ``_mcp_call`` invocations through ``_docker_mcp_call`` instead.
+
+    For simplicity, this function replaces the module-level ``_mcp_call``
+    reference temporarily during execution so all existing handlers work
+    with the Docker transport without modification.
+    """
+    global _current_step, _current_action
+    _current_step = step
+    _current_action = action
+
+    # The handler table uses the same high-level functions (mcp_click,
+    # mcp_navigate, etc.) which all call _mcp_call.  To route through
+    # Docker, we temporarily swap the call target.
+    import backend.agent.playwright_mcp_client as _self
+    original_call = _self._mcp_call
+    original_ensure = _self._ensure_mcp_initialized
+    original_reset = _self._reset_session
+    try:
+        _self._mcp_call = _docker_mcp_call
+        _self._ensure_mcp_initialized = _ensure_docker_mcp_initialized
+        _self._reset_session = _reset_docker_session
+
+        handler = MCP_TOOL_HANDLERS.get(action)
+        if handler:
+            return await handler(text, target)
+
+        return {"success": False, "message": f"Unsupported action '{action}' in playwright_mcp (docker) engine"}
+    finally:
+        _self._mcp_call = original_call
+        _self._ensure_mcp_initialized = original_ensure
+        _self._reset_session = original_reset
+
+
+# ── Execution Dispatcher (Local STDIO) ────────────────────────────────────────
 
 async def execute_mcp_action(
     action: str,

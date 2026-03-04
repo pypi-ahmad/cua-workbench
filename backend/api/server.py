@@ -353,8 +353,12 @@ async def api_start_agent(req: StartTaskRequest):
 
     # Audit log (mask API key)
     masked_key = resolved_key[:4] + "..." + resolved_key[-4:] if len(resolved_key) > 8 else "****"
-    logger.info("AUDIT agent/start — task=%r engine=%s provider=%s model=%s key=%s source=%s",
-                req.task[:80], req.engine, req.provider, req.model, masked_key, key_source)
+    logger.info("AUDIT agent/start — task=%r engine=%s provider=%s model=%s key=%s source=%s target=%s",
+                req.task[:80], req.engine, req.provider, req.model, masked_key, key_source,
+                req.runtime_target)
+
+    # Validate runtime_target
+    runtime_target = req.runtime_target if req.runtime_target in ("local", "docker") else "local"
 
     container_ok = await start_container()
     if not container_ok:
@@ -368,6 +372,7 @@ async def api_start_agent(req: StartTaskRequest):
         mode=req.mode,
         engine=req.engine,
         provider=req.provider,
+        runtime_target=runtime_target,
         on_log=lambda entry: asyncio.ensure_future(
             _broadcast("log", {"log": entry.model_dump()})
         ),

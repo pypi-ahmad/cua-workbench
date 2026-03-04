@@ -65,6 +65,7 @@ class AgentLoop:
         mode: str = "browser",
         engine: str = "playwright_mcp",
         provider: str = "google",
+        runtime_target: str = "local",
         on_step: Optional[Callable] = None,
         on_log: Optional[Callable] = None,
         on_screenshot: Optional[Callable] = None,
@@ -81,6 +82,7 @@ class AgentLoop:
         self._engine = engine
         self._mode = mode
         self._provider = provider
+        self._runtime_target = runtime_target  # "local" or "docker"
         self._action_history: list[AgentAction] = []
         self._stop_requested = False
         self._consecutive_errors = 0
@@ -156,7 +158,7 @@ class AgentLoop:
         """Execute the full agent loop. Returns the final session state."""
         self.session.status = SessionStatus.RUNNING
         self._emit_log("info", f"Agent starting — task: {self.session.task}")
-        self._emit_log("info", f"Model: {self.session.model} | Max steps: {self.session.max_steps} | Mode: {self._mode} | Engine: {self._engine} | Provider: {self._provider}")
+        self._emit_log("info", f"Model: {self.session.model} | Max steps: {self.session.max_steps} | Mode: {self._mode} | Engine: {self._engine} | Provider: {self._provider} | Target: {self._runtime_target}")
 
         # Pre-flight: check agent service health
         healthy = await check_service_health()
@@ -165,36 +167,52 @@ class AgentLoop:
 
         # Pre-flight: ensure Playwright MCP server is running (STDIO transport)
         if self._engine == "playwright_mcp":
-            self._emit_log("info", "Initializing Playwright MCP server (STDIO)...")
-            try:
-                from backend.agent.playwright_mcp_client import (
-                    _ensure_mcp_initialized,
-                    check_mcp_health,
-                )
-                await _ensure_mcp_initialized()
-
-                # Verify STDIO session is alive
-                from backend.agent import playwright_mcp_client as _mcp_mod
-
-                if _mcp_mod._mcp_session is not None:
-                    self._emit_log(
-                        "info",
-                        "Playwright MCP STDIO session established",
+            if self._runtime_target == "docker":
+                # Docker mode: connect to the MCP HTTP server running inside the container
+                mcp_url = f"http://{config.playwright_mcp_host}:{config.playwright_mcp_port}"
+                self._emit_log("info", f"Using Docker Playwright MCP server at {mcp_url}...")
+                try:
+                    import httpx
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        resp = await client.get(mcp_url)
+                        if resp.status_code < 500:
+                            self._emit_log("info", "Docker Playwright MCP server responding")
+                        else:
+                            self._emit_log("warning", f"Docker MCP server returned HTTP {resp.status_code}")
+                except Exception as e:
+                    self._emit_log("warning", f"Docker MCP server unreachable: {e}")
+            else:
+                # Local mode: spawn MCP via STDIO on the host machine
+                self._emit_log("info", "Initializing Playwright MCP server (STDIO)...")
+                try:
+                    from backend.agent.playwright_mcp_client import (
+                        _ensure_mcp_initialized,
+                        check_mcp_health,
                     )
-                else:
-                    self._emit_log(
-                        "warning",
-                        "Playwright MCP initialized but STDIO session is None. "
-                        "Actions will likely fail.",
-                    )
+                    await _ensure_mcp_initialized()
 
-                mcp_ok = await check_mcp_health()
-                if mcp_ok:
-                    self._emit_log("info", "Playwright MCP health check passed")
-                else:
-                    self._emit_log("warning", "Playwright MCP health check failed — actions may fail")
-            except Exception as e:
-                self._emit_log("warning", f"MCP initialization error: {e}")
+                    # Verify STDIO session is alive
+                    from backend.agent import playwright_mcp_client as _mcp_mod
+
+                    if _mcp_mod._mcp_session is not None:
+                        self._emit_log(
+                            "info",
+                            "Playwright MCP STDIO session established",
+                        )
+                    else:
+                        self._emit_log(
+                            "warning",
+                            "Playwright MCP initialized but STDIO session is None. "
+                            "Actions will likely fail.",
+                        )
+
+                    mcp_ok = await check_mcp_health()
+                    if mcp_ok:
+                        self._emit_log("info", "Playwright MCP health check passed")
+                    else:
+                        self._emit_log("warning", "Playwright MCP health check failed — actions may fail")
+                except Exception as e:
+                    self._emit_log("warning", f"MCP initialization error: {e}")
 
         # Pre-flight: verify AT-SPI bus is responsive for accessibility engine
         # (health check runs inside the container via agent service HTTP API)
@@ -641,7 +659,7 @@ class AgentLoop:
         if action.action not in (ActionType.DONE, ActionType.ERROR):
             self._emit_log("info", f"Step {step_num}: Executing {action.action.value}...")
             try:
-                result = await execute_action(action, mode=self._mode, engine=self._engine, step=step_num)
+                result = await execute_action(action, mode=self._mode, engine=self._engine, step=step_num, runtime_target=self._runtime_target)
                 if result.get("success"):
                     self._emit_log("info", f"Step {step_num}: {result['message']}")
                 else:
@@ -649,7 +667,7 @@ class AgentLoop:
                     if self._is_retryable_failure(action, result):
                         self._emit_log("warning", f"Step {step_num}: Action failed: {initial_error}")
                         self._emit_log("info", f"Step {step_num}: Retrying once...")
-                        retry_result = await execute_action(action, mode=self._mode, engine=self._engine, step=step_num)
+                        retry_result = await execute_action(action, mode=self._mode, engine=self._engine, step=step_num, runtime_target=self._runtime_target)
                         if retry_result.get("success"):
                             self._emit_log("info", f"Step {step_num}: Retry succeeded: {retry_result['message']}")
                         else:
