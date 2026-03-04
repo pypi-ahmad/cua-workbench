@@ -19,10 +19,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import shlex
 from contextlib import AsyncExitStack
-from typing import Any, Awaitable, Callable, Dict
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -41,6 +42,50 @@ _mcp_init_lock: asyncio.Lock | None = None
 # Per-call context for structured logging (set by execute_mcp_action)
 _current_step: int = 0
 _current_action: str = "unknown"
+
+# Target-aware STDIO transport: "local" runs npx on host, "docker" runs
+# npx inside the container via `docker exec -i <container>` so the browser
+# appears in VNC and never opens on the host machine.
+_mcp_target: str = "local"
+_mcp_server_key: Optional[str] = None
+
+
+def set_mcp_target(target: str) -> None:
+    """Set the execution target for subsequent MCP sessions.
+
+    Must be called **once per agent run** before any MCP action.
+    When *target* is ``"docker"``, the STDIO session is tunnelled
+    through ``docker exec -i <container>`` so Playwright runs inside
+    the container (headed, visible in VNC).
+    """
+    global _mcp_target
+    _mcp_target = "docker" if target == "docker" else "local"
+    logger.info("MCP target set to '%s'", _mcp_target)
+
+
+def _build_server_params() -> StdioServerParameters:
+    """Build STDIO server params appropriate for the current target."""
+    local_args = shlex.split(config.playwright_mcp_args)
+
+    if _mcp_target != "docker":
+        return StdioServerParameters(
+            command=config.playwright_mcp_command,
+            args=local_args,
+        )
+
+    # Docker: run MCP *inside* the container via docker exec STDIO.
+    # No --port (STDIO mode), no --headless (headed → visible in VNC),
+    # --no-sandbox because Chrome in Docker usually runs as root.
+    container = config.container_name
+    docker_bin = os.environ.get("DOCKER_BIN", "docker")
+    return StdioServerParameters(
+        command=docker_bin,
+        args=[
+            "exec", "-i", container,
+            config.playwright_mcp_command,
+        ] + local_args + ["--no-sandbox"],
+        env=os.environ.copy(),
+    )
 
 
 # ── Logging helpers ───────────────────────────────────────────────────────────
@@ -90,8 +135,20 @@ async def _ensure_mcp_initialized() -> ClientSession:
 
     Spawns the Playwright MCP server as a child process on first call.
     Subsequent calls return the existing session.  Thread-safe via lock.
+
+    When ``_mcp_target`` is ``"docker"``, the child process is
+    ``docker exec -i <container> npx …`` so the MCP server (and its
+    browser) run inside the container and are visible in VNC.
     """
-    global _exit_stack, _mcp_session
+    global _exit_stack, _mcp_session, _mcp_server_key
+
+    server_params = _build_server_params()
+    new_key = f"{server_params.command}::{server_params.args}"
+
+    # If the target switched (local <-> docker), tear down the old session.
+    if _mcp_session is not None and _mcp_server_key != new_key:
+        logger.info("MCP target changed (%s → %s) — resetting session", _mcp_server_key, new_key)
+        await _reset_session()
 
     if _mcp_session is not None:
         return _mcp_session
@@ -102,14 +159,10 @@ async def _ensure_mcp_initialized() -> ClientSession:
             return _mcp_session
 
         logger.info(
-            "Starting Playwright MCP server via STDIO: %s %s",
-            config.playwright_mcp_command,
-            config.playwright_mcp_args,
-        )
-
-        server_params = StdioServerParameters(
-            command=config.playwright_mcp_command,
-            args=shlex.split(config.playwright_mcp_args),
+            "Starting Playwright MCP server via STDIO (%s): %s %s",
+            _mcp_target,
+            server_params.command,
+            " ".join(str(a) for a in server_params.args),
         )
 
         _exit_stack = AsyncExitStack()
@@ -135,6 +188,7 @@ async def _ensure_mcp_initialized() -> ClientSession:
             )
 
             _mcp_session = session
+            _mcp_server_key = new_key
             return _mcp_session
         except Exception:
             # Clean up on failure
@@ -370,6 +424,44 @@ async def _resolve_input_ref(element: str) -> str | None:
     return await _resolve_ref(element)
 
 
+async def _self_heal_input(
+    result: dict,
+    element: str,
+    text: str,
+    original_ref: str,
+) -> dict:
+    """Reactive self-heal: if a fill/type failed because the ref wasn't an
+    input element, take a fresh snapshot, find the real input, click it to
+    focus, and retry the type.
+
+    Returns the original *result* unchanged when self-heal is not needed.
+    """
+    msg = result.get("message", "")
+    if result.get("success") or "not an <input>" not in msg.lower():
+        return result
+
+    logger.warning(
+        "Fill/type target ref=%s is not an input — attempting self-heal",
+        original_ref,
+    )
+    snapshot = await _mcp_call("browser_snapshot", {})
+    if not snapshot.get("success"):
+        return result
+
+    fallback_ref = _extract_input_ref_from_snapshot(
+        snapshot.get("message", ""), element,
+    )
+    if not fallback_ref or fallback_ref == original_ref:
+        return result
+
+    # Click to focus, then type
+    await _mcp_call("browser_click", {"element": element, "ref": fallback_ref})
+    return await _mcp_call(
+        "browser_type",
+        {"element": element, "ref": fallback_ref, "text": text},
+    )
+
+
 # ── Screenshot via MCP ─────────────────────────────────────────────────────────
 
 async def capture_mcp_screenshot() -> str:
@@ -451,11 +543,16 @@ async def mcp_type(element: str, text: str) -> dict:
     Uses ``_resolve_input_ref`` to ensure the resolved ref actually
     points to a fillable element (textbox, combobox, searchbox, etc.)
     instead of a non-input element the model may have mis-targeted.
+
+    If the call still fails with "not an <input>", a reactive self-heal
+    takes a fresh snapshot and retries with the first real input ref.
     """
     ref = await _resolve_input_ref(element)
     if not ref:
         return {"success": False, "message": f"Unable to resolve element ref for type target: {element}"}
-    return await _mcp_call("browser_type", {"element": element, "ref": ref, "text": text})
+    result = await _mcp_call("browser_type", {"element": element, "ref": ref, "text": text})
+    result = await _self_heal_input(result, element, text, ref)
+    return result
 
 
 async def mcp_fill(element: str, value: str) -> dict:
@@ -464,11 +561,16 @@ async def mcp_fill(element: str, value: str) -> dict:
     Uses ``_resolve_input_ref`` to ensure the resolved ref actually
     points to a fillable element (textbox, combobox, searchbox, etc.)
     instead of a non-input element the model may have mis-targeted.
+
+    If the call still fails with "not an <input>", a reactive self-heal
+    takes a fresh snapshot and retries with the first real input ref.
     """
     ref = await _resolve_input_ref(element)
     if not ref:
         return {"success": False, "message": f"Unable to resolve element ref for fill target: {element}"}
-    return await _mcp_call("browser_type", {"element": element, "ref": ref, "text": value})
+    result = await _mcp_call("browser_type", {"element": element, "ref": ref, "text": value})
+    result = await _self_heal_input(result, element, value, ref)
+    return result
 
 
 async def mcp_select_option(element: str, value: str) -> dict:
@@ -972,47 +1074,22 @@ async def execute_mcp_action_docker(
     target: str = "",
     step: int = 0,
 ) -> dict:
-    """Execute an MCP action via the Docker HTTP transport.
+    """Execute an MCP action targeting the Docker container.
 
-    Uses the same handler table as the local STDIO transport, but routes
-    all ``_mcp_call`` invocations through ``_docker_mcp_call`` instead.
-
-    For simplicity, this function replaces the module-level ``_mcp_call``
-    reference temporarily during execution so all existing handlers work
-    with the Docker transport without modification.
+    Since ``set_mcp_target("docker")`` is called at agent-run start,
+    the unified STDIO session already tunnels through
+    ``docker exec -i <container>``.  This function simply delegates to
+    ``execute_mcp_action`` with an extra safety net for
+    ``CancelledError`` / unexpected exceptions.
     """
-    global _current_step, _current_action
-    _current_step = step
-    _current_action = action
-
-    # The handler table uses the same high-level functions (mcp_click,
-    # mcp_navigate, etc.) which all call _mcp_call.  To route through
-    # Docker, we temporarily swap the call target.
-    import backend.agent.playwright_mcp_client as _self
-    original_call = _self._mcp_call
-    original_ensure = _self._ensure_mcp_initialized
-    original_reset = _self._reset_session
     try:
-        _self._mcp_call = _docker_mcp_call
-        _self._ensure_mcp_initialized = _ensure_docker_mcp_initialized
-        _self._reset_session = _reset_docker_session
-
-        handler = MCP_TOOL_HANDLERS.get(action)
-        if handler:
-            try:
-                return await handler(text, target)
-            except asyncio.CancelledError:
-                logger.error("Docker MCP action '%s' was cancelled (asyncio.CancelledError)", action)
-                return {"success": False, "message": f"Docker MCP action '{action}' was cancelled — check container connectivity"}
-            except Exception as exc:
-                logger.error("Docker MCP action '%s' raised: %s", action, exc, exc_info=True)
-                return {"success": False, "message": f"Docker MCP action '{action}' error: {exc}"}
-
-        return {"success": False, "message": f"Unsupported action '{action}' in playwright_mcp (docker) engine"}
-    finally:
-        _self._mcp_call = original_call
-        _self._ensure_mcp_initialized = original_ensure
-        _self._reset_session = original_reset
+        return await execute_mcp_action(action, text, target, step)
+    except asyncio.CancelledError:
+        logger.error("Docker MCP action '%s' was cancelled (CancelledError)", action)
+        return {"success": False, "message": f"Docker MCP action '{action}' was cancelled — check container connectivity"}
+    except Exception as exc:
+        logger.error("Docker MCP action '%s' raised: %s", action, exc, exc_info=True)
+        return {"success": False, "message": f"Docker MCP action '{action}' error: {exc}"}
 
 
 # ── Execution Dispatcher (Local STDIO) ────────────────────────────────────────
