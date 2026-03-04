@@ -12,5 +12,5 @@ python-multipart>=0.0.12
 python-dotenv>=1.0.0
 mcp>=1.0.0
 cryptography==42.0.8
-aiortc
-av
+# aiortc and av removed — WebRTC/video streaming is optional.
+# Install separately if needed:  pip install aiortc av
