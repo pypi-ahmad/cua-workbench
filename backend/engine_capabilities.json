@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "version": "2.0",
-  "description": "CUA Engine Capability Schema — machine-readable registry of every automation engine's supported actions, categories, limitations, and environment requirements. Generated from tools_list.txt sections 1-22.",
+  "description": "CUA Engine Capability Schema — machine-readable registry of every automation engine's supported actions, categories, limitations, and environment requirements.",
   "engines": {
     "playwright_mcp": {
       "display_name": "Playwright MCP (Semantic Browser)",
@@ -9,135 +9,69 @@
       "fallback_priority": 2,
       "categories": {
         "navigation": [
-          "open_url",
-          "reload",
-          "go_back",
-          "go_forward",
-          "new_tab",
-          "close_tab",
-          "switch_tab"
+          "browser_navigate",
+          "browser_navigate_back",
+          "browser_tabs"
         ],
-        "mouse": [
-          "click",
-          "double_click",
-          "hover",
-          "click_coordinates",
-          "drag_coordinates"
+        "interaction": [
+          "browser_click",
+          "browser_hover",
+          "browser_drag",
+          "browser_type",
+          "browser_select_option",
+          "browser_press_key",
+          "browser_fill_form",
+          "browser_file_upload"
         ],
-        "keyboard": [
-          "type",
-          "fill",
-          "key",
-          "hotkey",
-          "clear_input",
-          "paste",
-          "copy",
-          "select_option"
+        "observation": [
+          "browser_snapshot",
+          "browser_take_screenshot",
+          "browser_console_messages",
+          "browser_network_requests"
         ],
-        "dom": [
-          "get_text",
-          "get_accessibility_tree",
-          "get_snapshot",
-          "find_by_role",
-          "find_by_text",
-          "find_by_label",
-          "find_element",
-          "get_all_text",
-          "get_links"
+        "execution": [
+          "browser_evaluate",
+          "browser_run_code",
+          "browser_wait_for"
         ],
-        "wait": [
-          "wait",
-          "wait_for"
-        ],
-        "scroll": [
-          "scroll",
-          "scroll_to",
-          "scroll_into_view"
-        ],
-        "screenshot": [
-          "screenshot"
-        ],
-        "javascript": [
-          "evaluate_js",
-          "evaluate_on_selector"
-        ],
-        "extraction": [
-          "extract_data",
-          "scrape_page",
-          "get_console_logs",
-          "monitor_console"
-        ],
-        "file": [
-          "generate_pdf",
-          "export_page_pdf"
-        ],
-        "auth": [
-          "get_current_url",
-          "get_page_title"
+        "session": [
+          "browser_close",
+          "browser_resize",
+          "browser_handle_dialog",
+          "browser_install"
         ],
         "meta": [
-          "focus_and_type",
-          "safe_type",
-          "retry_click",
-          "verify_input",
-          "paste_fallback",
           "done",
-          "error"
+          "error",
+          "wait"
         ]
       },
       "allowed_actions": [
-        "open_url",
-        "reload",
-        "go_back",
-        "go_forward",
-        "new_tab",
-        "close_tab",
-        "switch_tab",
-        "click",
-        "double_click",
-        "hover",
-        "click_coordinates",
-        "drag_coordinates",
-        "type",
-        "fill",
-        "key",
-        "hotkey",
-        "clear_input",
-        "paste",
-        "copy",
-        "select_option",
-        "get_text",
-        "get_accessibility_tree",
-        "get_snapshot",
-        "find_by_role",
-        "find_by_text",
-        "find_by_label",
-        "find_element",
-        "get_all_text",
-        "get_links",
-        "wait",
-        "wait_for",
-        "scroll",
-        "scroll_to",
-        "scroll_into_view",
-        "screenshot",
-        "evaluate_js",
-        "evaluate_on_selector",
-        "extract_data",
-        "scrape_page",
-        "get_console_logs",
-        "monitor_console",
-        "generate_pdf",
-        "export_page_pdf",
-        "get_current_url",
-        "get_page_title",
-        "focus_and_type",
-        "safe_type",
-        "retry_click",
-        "verify_input",
-        "paste_fallback",
+        "browser_click",
+        "browser_close",
+        "browser_console_messages",
+        "browser_drag",
+        "browser_evaluate",
+        "browser_file_upload",
+        "browser_fill_form",
+        "browser_handle_dialog",
+        "browser_hover",
+        "browser_install",
+        "browser_navigate",
+        "browser_navigate_back",
+        "browser_network_requests",
+        "browser_press_key",
+        "browser_resize",
+        "browser_run_code",
+        "browser_select_option",
+        "browser_snapshot",
+        "browser_tabs",
+        "browser_take_screenshot",
+        "browser_type",
+        "browser_wait_for",
         "done",
-        "error"
+        "error",
+        "wait"
       ],
       "limitations": [
         "No desktop / system-level control",
@@ -411,7 +345,7 @@
     }
   },
   "capability_comparison": {
-    "_comment": "Quick-reference matrix from tools_list.txt section 20",
+    "_comment": "Quick-reference capability comparison matrix across engines",
     "features": {
       "dom_awareness": {
         "playwright_mcp": true,
@@ -466,7 +400,7 @@
     }
   },
   "architecture_recommendations": {
-    "_comment": "From tools_list.txt sections 21-22",
+    "_comment": "Recommended engine for each task category",
     "browser_tasks": "playwright_mcp",
     "desktop_tasks": "computer_use",
     "fallback": "omni_accessibility",

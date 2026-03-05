@@ -175,13 +175,12 @@ class AgentLoop:
             set_mcp_target(self._execution_target)
 
             if self._execution_target == "docker":
-                # Docker mode: STDIO tunnelled through docker exec -i <container>
-                self._emit_log("info", "Initializing Playwright MCP (STDIO via docker exec)...")
+                # Docker mode: connect to MCP HTTP server inside the container
+                self._emit_log("info", "Initializing Playwright MCP (HTTP transport to Docker container)...")
                 try:
-                    await _ensure_mcp_initialized()
                     mcp_ok = await check_mcp_health()
                     if mcp_ok:
-                        self._emit_log("info", "Docker Playwright MCP STDIO session ready")
+                        self._emit_log("info", "Docker Playwright MCP HTTP session ready")
                     else:
                         self._emit_log("warning", "Docker MCP health check failed — actions may fail")
                 except Exception as e:
@@ -673,20 +672,46 @@ class AgentLoop:
             self._action_history.append(done_action)
             return step
 
-        # ── 1. PERCEIVE: Capture screenshot ───────────────────────────────
-        self._emit_log("info", f"Step {step_num}: Capturing screenshot...")
-        try:
-            screenshot_b64 = await capture_screenshot(mode=self._mode, engine=self._engine)
-            step.screenshot_b64 = screenshot_b64
-            self._fire_callback(self._on_screenshot, screenshot_b64)
-        except Exception as e:
-            step.error = f"Screenshot failed: {e}"
-            self._emit_log("error", step.error)
-            return step
+        # ── 1. PERCEIVE ──────────────────────────────────────────────────
+        # Playwright MCP relies on the accessibility-tree snapshot (text),
+        # not on pixel screenshots.  All other engines still capture a PNG.
+        snapshot_text: str | None = None
+        screenshot_b64: str | None = None
+
+        if self._engine == "playwright_mcp":
+            self._emit_log("info", f"Step {step_num}: Capturing AX snapshot...")
+            try:
+                from backend.agent.playwright_mcp_client import mcp_get_accessibility_tree
+                snap_result = await mcp_get_accessibility_tree()
+                snapshot_text = snap_result.get("message", "")
+                if not snapshot_text:
+                    raise RuntimeError("Empty accessibility snapshot")
+                self._emit_log("info", f"Step {step_num}: AX snapshot captured ({len(snapshot_text)} chars)")
+            except Exception as e:
+                step.error = f"AX snapshot failed: {e}"
+                self._emit_log("error", step.error)
+                return step
+        else:
+            self._emit_log("info", f"Step {step_num}: Capturing screenshot...")
+            try:
+                screenshot_b64 = await capture_screenshot(mode=self._mode, engine=self._engine)
+                step.screenshot_b64 = screenshot_b64
+                self._fire_callback(self._on_screenshot, screenshot_b64)
+            except Exception as e:
+                step.error = f"Screenshot failed: {e}"
+                self._emit_log("error", step.error)
+                return step
 
         # ── 2. THINK: Query model ─────────────────────────────────────────
         self._emit_log("info", f"Step {step_num}: Thinking...")
         try:
+            # For playwright_mcp, pass discovered tools so the prompt is built
+            # dynamically from what the server actually offers (correct MCP arch).
+            _discovered = None
+            if self._engine == "playwright_mcp":
+                from backend.agent.playwright_mcp_client import get_discovered_tools
+                _discovered = get_discovered_tools()
+
             action, raw_response = await query_model(
                 provider=self._provider,
                 api_key=self._api_key,
@@ -696,7 +721,11 @@ class AgentLoop:
                 action_history=self._action_history,
                 step_number=step_num,
                 mode=self._mode,
-                system_prompt=get_system_prompt(self._engine, self._mode),
+                system_prompt=get_system_prompt(
+                    self._engine, self._mode,
+                    discovered_tools=_discovered,
+                ),
+                snapshot_text=snapshot_text,
             )
             step.action = action
             step.raw_model_response = raw_response

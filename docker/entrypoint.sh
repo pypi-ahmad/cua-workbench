@@ -12,6 +12,21 @@ export PYTHONPATH=/app
 echo "=== CUA Container Starting (XFCE4 Mode) ==="
 
 # ─────────────────────────────────────────────
+# 0. Ensure Chrome symlink for Playwright MCP
+# ─────────────────────────────────────────────
+if [ ! -x /opt/google/chrome/chrome ]; then
+    echo "[Chrome] Symlink missing or broken — repairing..."
+    mkdir -p /opt/google/chrome
+    CHROMIUM=$(find /ms-playwright -name chrome -type f -executable 2>/dev/null | head -1)
+    if [ -n "$CHROMIUM" ]; then
+        ln -sf "$CHROMIUM" /opt/google/chrome/chrome
+        echo "[Chrome] Linked /opt/google/chrome/chrome -> $CHROMIUM"
+    else
+        echo "[Chrome] WARNING: no Chromium binary found in /ms-playwright"
+    fi
+fi
+
+# ─────────────────────────────────────────────
 # 1. DBus (system + session)
 # ─────────────────────────────────────────────
 mkdir -p /var/run/dbus
@@ -141,35 +156,32 @@ fi
 # ─────────────────────────────────────────────
 # 6. Playwright MCP server (a11y-tree browser control)
 # ─────────────────────────────────────────────
+# All MCP config is driven by native env vars set in docker-compose.yml:
+#   PLAYWRIGHT_MCP_PORT=8931          — activates HTTP/SSE transport
+#   PLAYWRIGHT_MCP_HOST=0.0.0.0      — listen on all interfaces
+#   PLAYWRIGHT_MCP_ALLOWED_HOSTS=*   — disable Host-header check (Docker NAT fix)
+#   PLAYWRIGHT_MCP_BROWSER=chromium  — use Playwright-bundled Chromium
+#   PLAYWRIGHT_MCP_NO_SANDBOX=true   — required when running as root in Docker
+#   PLAYWRIGHT_MCP_HEADLESS=true     — avoid competing for X11 with agent_service
 MCP_PORT=${PLAYWRIGHT_MCP_PORT:-8931}
-MCP_LOG="/var/log/mcp-server.log"
-echo "[MCP] Starting Playwright MCP server on port ${MCP_PORT} (HTTP transport)..."
-
-# --port:         activates HTTP/SSE transport (default without --port is stdio)
-# --host 0.0.0.0: listen on all interfaces so the host can reach the port
-# --no-sandbox:   Chrome refuses to run as root without it (Docker runs as root)
-# --headless:     avoids competing for X11 display with agent_service's browser
-MCP_ARGS="--port ${MCP_PORT} --host 0.0.0.0 --no-sandbox --headless"
+MCP_LOG="/var/log/playwright-mcp.log"
+echo "[MCP] Starting Playwright MCP server on port ${MCP_PORT} (HTTP transport, env-var config)..."
 
 if command -v playwright-mcp >/dev/null 2>&1; then
-    playwright-mcp ${MCP_ARGS} 2>"${MCP_LOG}" &
+    playwright-mcp 2>"${MCP_LOG}" &
     MCP_PID=$!
 else
-    # Fallback to npx with explicit package
-    npx @playwright/mcp@latest ${MCP_ARGS} 2>"${MCP_LOG}" &
+    # Fallback to npx with explicit package (-y to never prompt)
+    npx -y @playwright/mcp@latest 2>"${MCP_LOG}" &
     MCP_PID=$!
 fi
 
-# Wait for MCP server — check with a proper JSON-RPC initialize probe
+# Wait for MCP server — robust JSON-RPC POST health probe (~20s budget)
+# NOTE: plain GET or "curl -I" returns 403 — that is expected because the
+# MCP server only accepts POST with a JSON-RPC body.
 MCP_READY=false
-for i in $(seq 1 30); do
-    # First try a simple TCP connect check
-    if curl -sf -o /dev/null -w '' http://localhost:${MCP_PORT} 2>/dev/null; then
-        MCP_READY=true
-        echo "[MCP] Playwright MCP server responding on port ${MCP_PORT}"
-        break
-    fi
-    # Also try JSON-RPC initialize (MCP servers may not respond to plain GET)
+for i in $(seq 1 40); do
+    # Primary probe: POST a JSON-RPC initialize request
     HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
         -X POST http://localhost:${MCP_PORT}/mcp \
         -H "Content-Type: application/json" \
@@ -178,14 +190,15 @@ for i in $(seq 1 30); do
         2>/dev/null) || true
     if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
         MCP_READY=true
-        echo "[MCP] Playwright MCP server ready (JSON-RPC) on port ${MCP_PORT}"
+        echo "[MCP] ✓ Playwright MCP server ready on http://0.0.0.0:${MCP_PORT}/mcp (JSON-RPC OK)"
         break
     fi
     sleep 0.5
 done
 
 if [ "$MCP_READY" = "false" ]; then
-    echo "[MCP] WARNING: MCP server not yet responding after 15s"
+    echo "[MCP] WARNING: MCP server not responding after 20s (tried POST JSON-RPC to http://localhost:${MCP_PORT}/mcp)"
+    echo "[MCP] NOTE: 'curl -I' returns 403 — that is expected. Only POST with JSON-RPC body works."
     if [ -f "${MCP_LOG}" ]; then
         echo "[MCP] Server stderr:"
         tail -20 "${MCP_LOG}"
@@ -198,7 +211,7 @@ if [ "$MCP_READY" = "false" ]; then
     if ! kill -0 $MCP_PID 2>/dev/null; then
         echo "[MCP] ERROR: MCP server process (PID $MCP_PID) died"
         echo "[MCP] Attempting restart..."
-        npx @playwright/mcp@latest ${MCP_ARGS} 2>"${MCP_LOG}" &
+        npx @playwright/mcp@latest 2>"${MCP_LOG}" &
         MCP_PID=$!
         sleep 3
         if kill -0 $MCP_PID 2>/dev/null; then
@@ -223,7 +236,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# 8. Agent service
+# 9. Agent service
 # ─────────────────────────────────────────────
 # ── Hard-check desktop tool binaries ─────────────────────────────────
 command -v xdotool  || echo "ERROR: xdotool missing from PATH"
@@ -238,6 +251,6 @@ echo "=== XFCE4 Desktop Ready ==="
 echo "Access via: http://localhost:6080"
 echo "MCP server: http://localhost:${MCP_PORT}"
 
-trap "kill $XVFB_PID $AGENT_PID $MCP_PID $YDOTOOL_PID $ATSPI_PID 2>/dev/null; exit 0" SIGTERM SIGINT
+trap "kill $XVFB_PID $AGENT_PID $MCP_PID $ATSPI_PID 2>/dev/null; exit 0" SIGTERM SIGINT
 
 wait $AGENT_PID

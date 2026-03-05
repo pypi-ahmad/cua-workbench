@@ -14,11 +14,12 @@ async def query_model(
     api_key: str,
     model_name: str,
     task: str,
-    screenshot_b64: str,
+    screenshot_b64: str | None,
     action_history: list[AgentAction],
     step_number: int = 1,
     mode: str = "browser",
     system_prompt: str = "",
+    snapshot_text: str | None = None,
 ) -> tuple[AgentAction, str]:
     """Route to the appropriate model provider.
 
@@ -27,11 +28,12 @@ async def query_model(
         api_key: API key for the provider
         model_name: Model identifier
         task: User task description
-        screenshot_b64: Current screenshot
+        screenshot_b64: Current screenshot (None when using AX snapshot)
         action_history: Previous actions
         step_number: Current step
         mode: Automation engine mode
         system_prompt: System prompt override
+        snapshot_text: Accessibility tree text (replaces screenshot for MCP)
 
     Returns:
         (AgentAction, raw_response_text)
@@ -47,6 +49,7 @@ async def query_model(
             step_number=step_number,
             mode=mode,
             system_prompt=system_prompt,
+            snapshot_text=snapshot_text,
         )
     else:
         # Default: Google Gemini
@@ -60,4 +63,5 @@ async def query_model(
             step_number=step_number,
             mode=mode,
             system_prompt=system_prompt,
+            snapshot_text=snapshot_text,
         )

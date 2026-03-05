@@ -24,9 +24,10 @@ logger = logging.getLogger(__name__)
 
 def _build_contents(
     task: str,
-    screenshot_b64: str,
+    screenshot_b64: str | None,
     action_history: list[AgentAction],
     step_number: int,
+    snapshot_text: str | None = None,
 ) -> list[types.Content]:
     """Build the multi-turn contents for Gemini."""
     parts: list[types.Part] = []
@@ -56,16 +57,26 @@ def _build_contents(
         history_text = "Previous actions (most recent last):\n" + "\n".join(history_lines)
         parts.append(types.Part.from_text(text=history_text))
 
-    # Task + step info
-    parts.append(types.Part.from_text(
-        text=f"Task: {task}\n\nCurrent step: {step_number}\n\nHere is the current screenshot. Decide the next action to complete the task."
-    ))
+    # Task + step info — adapt depending on perception mode
+    if snapshot_text:
+        parts.append(types.Part.from_text(
+            text=(
+                f"Task: {task}\n\nCurrent step: {step_number}\n\n"
+                "Below is the current accessibility-tree snapshot of the browser page. "
+                "Use element names, roles and refs to decide the next action.\n\n"
+                f"{snapshot_text}"
+            )
+        ))
+    else:
+        parts.append(types.Part.from_text(
+            text=f"Task: {task}\n\nCurrent step: {step_number}\n\nHere is the current screenshot. Decide the next action to complete the task."
+        ))
 
-    # Screenshot as inline image
-    image_bytes = base64.b64decode(screenshot_b64)
-    parts.append(
-        types.Part.from_bytes(data=image_bytes, mime_type="image/png")
-    )
+        # Screenshot as inline image
+        image_bytes = base64.b64decode(screenshot_b64)
+        parts.append(
+            types.Part.from_bytes(data=image_bytes, mime_type="image/png")
+        )
 
     return [types.Content(role="user", parts=parts)]
 
@@ -213,12 +224,19 @@ def _validate_action(data: dict) -> AgentAction:
     if reasoning and isinstance(reasoning, str) and len(reasoning) > 2000:
         reasoning = reasoning[:2000]
 
+    # MCP-native tool_args passthrough (Playwright MCP direct path)
+    tool_args = data.get("tool_args")
+    if tool_args is not None and not isinstance(tool_args, dict):
+        logger.warning("tool_args is not a dict (%s), ignoring", type(tool_args).__name__)
+        tool_args = None
+
     return AgentAction(
         action=ActionType(action_str),
         target=target,
         coordinates=coords,
         text=text,
         reasoning=reasoning,
+        tool_args=tool_args,
     )
 
 
@@ -226,13 +244,14 @@ async def query_gemini(
     api_key: str,
     model_name: str,
     task: str,
-    screenshot_b64: str,
+    screenshot_b64: str | None,
     action_history: list[AgentAction],
     step_number: int = 1,
     mode: str = "browser",
     system_prompt: str = "",
+    snapshot_text: str | None = None,
 ) -> tuple[AgentAction, str]:
-    """Send screenshot + context to Gemini and return parsed action.
+    """Send screenshot (or AX snapshot) + context to Gemini and return parsed action.
 
     Retries on transient API errors up to config.gemini_retry_attempts times.
 
@@ -240,7 +259,7 @@ async def query_gemini(
         (AgentAction, raw_response_text)
     """
     client = genai.Client(api_key=api_key)
-    contents = _build_contents(task, screenshot_b64, action_history, step_number)
+    contents = _build_contents(task, screenshot_b64, action_history, step_number, snapshot_text=snapshot_text)
     # Use provided system_prompt (from prompts.py); error if missing
     if not system_prompt:
         raise ValueError(f"system_prompt is required for query_gemini (mode={mode!r})")

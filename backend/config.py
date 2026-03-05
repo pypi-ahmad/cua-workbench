@@ -43,6 +43,7 @@ class Config:
     playwright_mcp_autostart: bool = False
     playwright_mcp_command: str = "npx"
     playwright_mcp_args: str = "-y @playwright/mcp@latest"
+    playwright_mcp_docker_transport: str = "http"  # "http" (Streamable HTTP) or "stdio"
 
     # Screenshot
     screen_width: int = 1440
@@ -95,6 +96,7 @@ class Config:
             playwright_mcp_autostart=os.getenv("PLAYWRIGHT_MCP_AUTOSTART", "0").lower() in ("1", "true", "yes"),
             playwright_mcp_command=os.getenv("PLAYWRIGHT_MCP_COMMAND", cls.playwright_mcp_command),
             playwright_mcp_args=os.getenv("PLAYWRIGHT_MCP_ARGS", cls.playwright_mcp_args),
+            playwright_mcp_docker_transport=os.getenv("PLAYWRIGHT_MCP_DOCKER_TRANSPORT", cls.playwright_mcp_docker_transport),
             screen_width=int(os.getenv("SCREEN_WIDTH", str(cls.screen_width))),
             screen_height=int(os.getenv("SCREEN_HEIGHT", str(cls.screen_height))),
             max_steps=int(os.getenv("MAX_STEPS", str(cls.max_steps))),

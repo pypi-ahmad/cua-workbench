@@ -320,14 +320,15 @@ class TestEarlyTerminationGuard(unittest.IsolatedAsyncioTestCase):
         """When not complete, normal perceive/think/act cycle runs."""
         loop = _make_loop()
         self.assertFalse(loop._task_state.complete)
-        with patch("backend.agent.loop.capture_screenshot", new_callable=AsyncMock, return_value="AAAA") as mock_ss, \
+        # playwright_mcp uses AX snapshot instead of screenshot
+        with patch("backend.agent.playwright_mcp_client.mcp_get_accessibility_tree", new_callable=AsyncMock, return_value={"success": True, "message": "snapshot"}) as mock_snap, \
              patch("backend.agent.loop.query_model", new_callable=AsyncMock) as mock_model:
             mock_model.return_value = (
                 AgentAction(action=ActionType.DONE, reasoning="done"),
                 "raw",
             )
             step = await loop._execute_step(1)
-            mock_ss.assert_awaited_once()
+            mock_snap.assert_awaited_once()
             mock_model.assert_awaited_once()
 
     async def test_step_counter_advances(self):

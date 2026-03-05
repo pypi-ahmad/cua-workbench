@@ -27,7 +27,7 @@ class TestPlaywrightMcpPromptContent(unittest.TestCase):
 
     def test_playwright_mcp_prompt_has_no_repeat_rule(self):
         prompt = get_system_prompt("playwright_mcp")
-        self.assertIn("NEVER repeat the same evaluate_js", prompt)
+        self.assertIn("NEVER repeat the same browser_evaluate", prompt)
 
 
 class TestStuckDetection(unittest.TestCase):

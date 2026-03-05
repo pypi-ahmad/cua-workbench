@@ -37,6 +37,7 @@ import os
 import platform
 import re
 import shlex
+import shutil
 import subprocess
 import threading
 import time
@@ -3070,6 +3071,17 @@ async def _h_run_command(text: str, target: str) -> dict:
         "xfce4-taskmanager", "thunar", "mousepad",
         "firefox", "google-chrome",
     })
+    # GUI apps should be launched fire-and-forget (Popen) — subprocess.run
+    # would block until they exit, causing a 30 s timeout.
+    _GUI_COMMANDS = frozenset({
+        "xfce4-terminal", "xterm", "gnome-terminal",
+        "gnome-control-center", "gnome-settings", "gnome-calculator",
+        "gnome-text-editor", "gedit", "gnome-system-monitor",
+        "xfce4-settings-manager", "xfce4-settings-editor",
+        "xfce4-taskmanager", "thunar", "mousepad",
+        "firefox", "google-chrome",
+        "xdg-open",
+    })
     try:
         args = shlex.split(text)
     except ValueError as e:
@@ -3078,11 +3090,21 @@ async def _h_run_command(text: str, target: str) -> dict:
         return {"success": False, "message": "Empty command"}
     if args[0] not in _ALLOWED_COMMANDS:
         return {"success": False, "message": f"Command not allowed: {args[0]}"}
+    env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/root", "DISPLAY": ":99"}
     try:
+        if args[0] in _GUI_COMMANDS:
+            # Fire-and-forget for GUI applications
+            await asyncio.to_thread(
+                lambda: subprocess.Popen(
+                    args, shell=False, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, env=env,
+                )
+            )
+            return {"success": True, "message": f"Launched {args[0]}"}
         result = await asyncio.to_thread(
             lambda: subprocess.run(
                 args, shell=False, capture_output=True, text=True, timeout=30,
-                env={"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/root", "DISPLAY": ":99"},
+                env=env,
             )
         )
         output = (result.stdout + result.stderr).strip()[:2000]
@@ -3096,14 +3118,17 @@ async def _h_run_command(text: str, target: str) -> dict:
 async def _h_open_terminal(text: str, target: str) -> dict:
     """Open a terminal emulator."""
     system = platform.system()
+    env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/root", "DISPLAY": ":99"}
     try:
         if system == "Linux":
-            await asyncio.to_thread(
-                lambda: subprocess.Popen(
-                    ["xterm"],
-                    env={"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/root", "DISPLAY": ":99"},
-                )
-            )
+            # Try terminals in order of preference for the container environment
+            for terminal_cmd in ["xfce4-terminal", "gnome-terminal", "xterm", "x-terminal-emulator"]:
+                if shutil.which(terminal_cmd):
+                    await asyncio.to_thread(
+                        lambda cmd=terminal_cmd: subprocess.Popen([cmd], env=env)
+                    )
+                    return {"success": True, "message": f"Opened terminal ({terminal_cmd})"}
+            return {"success": False, "message": "open_terminal failed: no terminal emulator found"}
         elif system == "Windows":
             await asyncio.to_thread(
                 lambda: subprocess.Popen(["cmd.exe"])

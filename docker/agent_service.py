@@ -1007,7 +1007,7 @@ def _xdo_window_maximize(identifier: str) -> dict:
     """Maximise the window matching *identifier* via wmctrl."""
     wids = _xdo(["search", "--name", identifier]).split("\n")
     if wids and wids[0]:
-        subprocess.run(["wmctrl", "-ir", wids[0], "-b", "add,maximized_vert,maximized_horz"], check=False)
+        subprocess.run(["wmctrl", "-ir", wids[0], "-b", "add,maximized_vert,maximized_horz"], check=False, timeout=5)
         return {"success": True, "message": f"Maximized window: {identifier}"}
     return {"success": False, "message": f"Window not found: {identifier}"}
 
@@ -1725,6 +1725,21 @@ class AgentHandler(BaseHTTPRequestHandler):
         body = self._read_body()
 
         if self.path == "/action":
+            # Handle 'wait' outside the lock so it doesn't block
+            # screenshots and other concurrent requests for up to 10 s.
+            raw_action = body.get("action", "")
+            resolved = resolve_action(raw_action)
+            if resolved == "wait":
+                dur = 2.0
+                t = body.get("text", "")
+                if t:
+                    try:
+                        dur = float(t)
+                    except ValueError:
+                        pass
+                self._respond(200, _do_wait(dur))
+                return
+
             with _lock:
                 try:
                     result = self._dispatch_action(body)

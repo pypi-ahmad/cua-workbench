@@ -73,7 +73,7 @@ class TestExecutorEngineIsolation:
     def test_mcp_stays_mcp(self, mock_mcp):
         """A playwright_mcp session must NOT fall back to playwright on failure."""
         mock_mcp.return_value = {"success": False, "message": "MCP error"}
-        action = AgentAction(action=ActionType.CLICK, target="#submit-btn", coordinates=[100, 100])
+        action = {"action": "browser_click", "target": "#submit-btn"}
         result = asyncio.run(execute_action(action, engine="playwright_mcp", mode="browser"))
         # Must NOT succeed via fallback — the failure propagates
         assert not result["success"]
@@ -179,7 +179,7 @@ class TestResponseShape:
     @patch("backend.agent.playwright_mcp_client.execute_mcp_action", new_callable=AsyncMock)
     def test_mcp_result_has_engine_tag(self, mock_mcp):
         mock_mcp.return_value = {"success": True, "message": "OK"}
-        action = AgentAction(action=ActionType.CLICK, target="#submit-btn", coordinates=[100, 100])
+        action = {"action": "browser_click", "target": "#submit-btn"}
         result = asyncio.run(execute_action(action, engine="playwright_mcp"))
         assert result.get("engine") == "playwright_mcp"
 

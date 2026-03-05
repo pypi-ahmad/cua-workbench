@@ -1,60 +1,76 @@
 @echo off
-REM setup.bat — One-command setup for CUA (Windows)
-REM Usage: setup.bat
+setlocal EnableExtensions
+
+REM Usage:
+REM   setup.bat
+REM   setup.bat --clean
 
 echo [INFO] Checking prerequisites...
 
 where docker >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Docker is required. Install: https://docs.docker.com/get-docker/
-    exit /b 1
+if errorlevel 1 (
+  echo [ERROR] Docker CLI not found. Install Docker Desktop.
+  exit /b 1
 )
 
 where python >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Python 3 is required.
-    exit /b 1
+if errorlevel 1 (
+  echo [ERROR] Python not found.
+  exit /b 1
 )
 
 where node >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Node.js is required.
-    exit /b 1
+if errorlevel 1 (
+  echo [ERROR] Node.js not found.
+  exit /b 1
+)
+
+docker info >nul 2>&1
+if errorlevel 1 (
+  echo [ERROR] Docker daemon is not running. Start Docker Desktop and retry.
+  exit /b 1
 )
 
 echo [INFO] All prerequisites met.
 
-REM Build Docker image
-echo [INFO] Building CUA Docker image...
-docker build -t cua-ubuntu:latest -f docker/Dockerfile .
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Docker build failed.
-    exit /b 1
+REM Destructive cleanup only when explicitly requested
+if /I "%~1"=="--clean" (
+  echo [WARN] Running destructive Docker cleanup ^(--clean^)...
+  docker compose down --rmi all -v
+  docker system prune -a --volumes -f
+)
+
+echo [INFO] Building Docker image (compose)...
+docker compose build
+if errorlevel 1 (
+  echo [ERROR] Docker compose build failed.
+  exit /b 1
 )
 echo [INFO] Docker image built successfully.
 
-REM Install Python deps
 echo [INFO] Installing Python dependencies...
 if not exist ".venv" (
-    python -m venv .venv
+  python -m venv .venv
 )
 call .venv\Scripts\activate.bat
-pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 echo [INFO] Python dependencies installed.
 
-REM Install frontend deps
 echo [INFO] Installing frontend dependencies...
-cd frontend
+pushd frontend >nul
 call npm install
-cd ..
+popd >nul
 echo [INFO] Frontend dependencies installed.
 
 echo.
 echo === Setup complete! ===
 echo.
 echo To run the system:
-echo   1. Start backend:  .venv\Scripts\activate ^& python -m backend.main
-echo   2. Start frontend: cd frontend ^& npm run dev
-echo   3. Open http://localhost:3000
+echo   1. Start container: docker compose up -d --build
+echo   2. Start backend:   .venv\Scripts\activate ^& python -m backend.main
+echo   3. Start frontend:  cd frontend ^& npm run dev
+echo   4. Open http://localhost:3000
 echo.
+
+endlocal
