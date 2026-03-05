@@ -241,8 +241,35 @@ async def execute_action(
     # ── Dispatch: Playwright MCP ──────────────────────────────────────────
     # Playwright MCP: https://github.com/microsoft/playwright-mcp
     if engine == "playwright_mcp":
-        if execution_target == "docker":
-            # Docker mode: route MCP calls to the HTTP server inside the container
+        # Direct passthrough: when the LLM provided native MCP tool_args,
+        # bypass _build_mcp_args / ref resolution / JS fallback entirely.
+        _has_tool_args = (
+            isinstance(action, AgentAction) and action.tool_args is not None
+        ) or (
+            isinstance(action, dict) and action.get("tool_args") is not None
+        )
+        _tool_args = (
+            action.tool_args if isinstance(action, AgentAction) else action_dict.get("tool_args")
+        ) if _has_tool_args else None
+
+        if _has_tool_args and _tool_args is not None:
+            # ── Direct MCP path (tool_args provided) ─────────────────
+            if execution_target == "docker":
+                from backend.agent.playwright_mcp_client import execute_mcp_action_direct_docker
+                result = await execute_mcp_action_direct_docker(
+                    tool_name=u_action.action,
+                    tool_args=_tool_args,
+                    step=step,
+                )
+            else:
+                from backend.agent.playwright_mcp_client import execute_mcp_action_direct
+                result = await execute_mcp_action_direct(
+                    tool_name=u_action.action,
+                    tool_args=_tool_args,
+                    step=step,
+                )
+        elif execution_target == "docker":
+            # Docker mode: legacy flat path
             from backend.agent.playwright_mcp_client import execute_mcp_action_docker
             result = await execute_mcp_action_docker(
                 action=u_action.action,
@@ -251,7 +278,7 @@ async def execute_action(
                 step=step,
             )
         else:
-            # Local mode: use STDIO transport on the host
+            # Local mode: legacy flat path
             from backend.agent.playwright_mcp_client import execute_mcp_action
             result = await execute_mcp_action(
                 action=u_action.action,

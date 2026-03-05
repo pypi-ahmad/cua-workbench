@@ -78,7 +78,7 @@ class TestMCPDockerRouting(unittest.IsolatedAsyncioTestCase):
              patch("backend.agent.playwright_mcp_client.execute_mcp_action", new_callable=AsyncMock) as mock_local:
             from backend.agent.executor import execute_action
             result = await execute_action(
-                action={"action": "click", "target": "button"},
+                action={"action": "browser_click", "target": "button"},
                 engine="playwright_mcp",
                 step=1,
                 execution_target="docker",
@@ -95,7 +95,7 @@ class TestMCPDockerRouting(unittest.IsolatedAsyncioTestCase):
              patch("backend.agent.playwright_mcp_client.execute_mcp_action_docker", new_callable=AsyncMock) as mock_docker:
             from backend.agent.executor import execute_action
             result = await execute_action(
-                action={"action": "click", "target": "button"},
+                action={"action": "browser_click", "target": "button"},
                 engine="playwright_mcp",
                 step=1,
                 execution_target="local",

@@ -204,6 +204,37 @@ class ActionType(str, enum.Enum):
     SUBSCRIBE_EVENT = "subscribe_event"
     UNSUBSCRIBE_EVENT = "unsubscribe_event"
 
+    # ── Playwright MCP Native Tools ────────────────────────────────────────
+    FILL_FORM = "fill_form"
+    RUN_CODE = "run_code"
+    HANDLE_DIALOG = "handle_dialog"
+    GET_NETWORK_REQUESTS = "get_network_requests"
+    CLOSE_BROWSER = "close_browser"
+
+    # ── Playwright MCP Official Tool Names (from @playwright/mcp) ──────────
+    BROWSER_NAVIGATE = "browser_navigate"
+    BROWSER_NAVIGATE_BACK = "browser_navigate_back"
+    BROWSER_CLICK = "browser_click"
+    BROWSER_HOVER = "browser_hover"
+    BROWSER_DRAG = "browser_drag"
+    BROWSER_TYPE = "browser_type"
+    BROWSER_PRESS_KEY = "browser_press_key"
+    BROWSER_SELECT_OPTION = "browser_select_option"
+    BROWSER_FILL_FORM = "browser_fill_form"
+    BROWSER_FILE_UPLOAD = "browser_file_upload"
+    BROWSER_SNAPSHOT = "browser_snapshot"
+    BROWSER_EVALUATE = "browser_evaluate"
+    BROWSER_CONSOLE_MESSAGES = "browser_console_messages"
+    BROWSER_NETWORK_REQUESTS = "browser_network_requests"
+    BROWSER_TAKE_SCREENSHOT = "browser_take_screenshot"
+    BROWSER_RUN_CODE = "browser_run_code"
+    BROWSER_WAIT_FOR = "browser_wait_for"
+    BROWSER_HANDLE_DIALOG = "browser_handle_dialog"
+    BROWSER_RESIZE = "browser_resize"
+    BROWSER_CLOSE = "browser_close"
+    BROWSER_TABS = "browser_tabs"
+    BROWSER_INSTALL = "browser_install"
+
     # ── Terminal / Control ────────────────────────────────────────────────
     DONE = "done"
     ERROR = "error"
@@ -225,12 +256,23 @@ class AutomationEngine(str, enum.Enum):
 
 
 class AgentAction(BaseModel):
-    """Structured action returned by Gemini."""
+    """Structured action returned by the LLM.
+
+    For Playwright MCP: when *tool_args* is provided, the executor
+    passes it directly to ``session.call_tool(action, tool_args)`` —
+    no translation, no ref resolution, no JS fallback.  When *tool_args*
+    is ``None`` (default), the legacy flat ``(action, target, text)``
+    pipeline is used instead.
+    """
     action: ActionType
     target: Optional[str] = None
     coordinates: Optional[list[int]] = Field(default=None, max_length=4)
     text: Optional[str] = None
     reasoning: Optional[str] = None
+    tool_args: Optional[dict] = Field(
+        default=None,
+        description="MCP-native tool arguments — passed verbatim to session.call_tool()",
+    )
 
 
 class TaskState(BaseModel):

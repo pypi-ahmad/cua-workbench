@@ -42,6 +42,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     gnupg \
     ca-certificates \
+    socat \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js LTS 20 (required for Playwright MCP via npx)
@@ -57,15 +58,17 @@ RUN npm install -g @playwright/mcp@latest
 # Create virtual environment WITH system site-packages access.
 # python3-gi (GObject Introspection) and gir1.2-atspi-2.0 are apt-only
 # packages — the venv must see them for the AT-SPI accessibility engine.
-RUN python3 -m venv --system-site-packages /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
 
-COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir playwright -r /tmp/requirements.txt
+
+# RUN python3 -m venv --system-site-packages /opt/venv
+# ENV PATH="/opt/venv/bin:$PATH"
+
+# COPY requirements.txt /tmp/requirements.txt
+# RUN pip install --no-cache-dir playwright -r /tmp/requirements.txt
 
 # Install Playwright browsers + OS deps
-RUN playwright install chromium
-RUN playwright install-deps
+RUN playwright
+
 
 # --- Google Chrome (item 1) ---
 RUN wget -qO- https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google.gpg \
@@ -74,14 +77,20 @@ RUN wget -qO- https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor 
  && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
  && rm -rf /var/lib/apt/lists/*
 
-# Ensure Chrome binary exists at the path Playwright 'chrome' channel expects
+# Ensure Chrome binary exists at the path Playwright 'chrome' channel expects.
+# Prefer the real google-chrome if installed, otherwise fall back to the
+# Playwright-bundled Chromium so that @playwright/mcp can always find a
+# working browser at /opt/google/chrome/chrome.
 RUN mkdir -p /opt/google/chrome \
- && ln -sf /usr/bin/google-chrome /opt/google/chrome/chrome || true \
- && ln -sf /opt/google/chrome/google-chrome /opt/google/chrome/chrome || true
-
-# --- Playwright install via npx (item 2) ---
-RUN npx playwright install chrome
-RUN npx playwright install
+ && if [ -x /usr/bin/google-chrome-stable ]; then \
+      ln -sf /usr/bin/google-chrome-stable /opt/google/chrome/chrome; \
+    elif [ -x /usr/bin/google-chrome ]; then \
+      ln -sf /usr/bin/google-chrome /opt/google/chrome/chrome; \
+    else \
+      CHROMIUM=$(find /ms-playwright -name chrome -type f -executable 2>/dev/null | head -1); \
+      [ -n "$CHROMIUM" ] && ln -sf "$CHROMIUM" /opt/google/chrome/chrome \
+        || echo 'WARNING: no Chrome/Chromium binary found for symlink'; \
+    fi
 
 # --- Brave Browser (item 3) ---
 RUN curl -fsSL https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg \
@@ -103,15 +112,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     strace \
     && rm -rf /var/lib/apt/lists/*
 
-# --- Firefox via direct download (item 5) ---
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    bzip2 \
-    && rm -rf /var/lib/apt/lists/*
+# --- Firefox via official Mozilla APT repo (item 5, no Snap) ---
+RUN install -d -m 0755 /etc/apt/keyrings \
+ && curl -fsSL https://packages.mozilla.org/apt/repo-signing-key.gpg \
+    | gpg --dearmor -o /etc/apt/keyrings/mozilla.gpg
 
-RUN wget -O /tmp/firefox.tar.bz2 "https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en-US" \
-    && tar -xjf /tmp/firefox.tar.bz2 -C /opt \
-    && ln -sf /opt/firefox/firefox /usr/local/bin/firefox \
-    && rm /tmp/firefox.tar.bz2
+RUN echo "deb [signed-by=/etc/apt/keyrings/mozilla.gpg] https://packages.mozilla.org/apt mozilla main" \
+    > /etc/apt/sources.list.d/mozilla.list \
+ && printf "Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n" \
+    > /etc/apt/preferences.d/mozilla
+
+RUN apt-get update && apt-get install -y --no-install-recommends firefox \
+    && rm -rf /var/lib/apt/lists/*
 
 # --- Microsoft Edge (item 6) ---
 RUN wget -qO- https://packages.microsoft.com/keys/microsoft.asc \

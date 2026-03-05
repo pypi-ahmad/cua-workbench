@@ -43,20 +43,9 @@ async def capture_screenshot(mode: str = "browser", engine: str | None = None) -
     Returns:
         Base64-encoded PNG string.
     """
-    # ── MCP engine: screenshot from the MCP browser ───────────────────────
-    if engine == "playwright_mcp":
-        try:
-            from backend.agent.playwright_mcp_client import capture_mcp_screenshot
-            b64 = await capture_mcp_screenshot()
-            logger.debug("Screenshot captured via MCP (%d chars)", len(b64))
-            return b64
-        except Exception as e:
-            logger.warning("MCP screenshot failed (%s), falling back to agent_service", e)
-            # Fall through to agent-service screenshot.  The desktop
-            # screenshot will NOT show the MCP browser (it's headless),
-            # but at least the agent gets *a* frame.  The MCP session
-            # auto-recovery should fix the underlying issue on the next
-            # action call.
+    # NOTE: playwright_mcp engine uses accessibility-tree snapshots instead
+    # of screenshots.  The snapshot is captured directly in the agent loop
+    # (loop.py) and sent as text to the model — no image needed.
 
     # ── Default: screenshot via agent_service ─────────────────────────────
     url = f"{config.agent_service_url}/screenshot?mode={mode}"

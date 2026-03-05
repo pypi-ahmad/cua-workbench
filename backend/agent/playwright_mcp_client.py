@@ -6,12 +6,40 @@ Communicates with the Playwright MCP server over:
   • STDIO (local): spawns npx @playwright/mcp@latest as a child process
   • HTTP  (Docker): connects to the MCP server inside the Docker container
 
-Uses the ``mcp`` Python SDK's ``stdio_client`` / ``streamablehttp_client``
+Uses the ``mcp`` Python SDK's ``stdio_client`` / ``streamable_http_client``
 to manage the connection.
 
 The MCP server command defaults to ``npx -y @playwright/mcp@latest`` and
 can be overridden via ``PLAYWRIGHT_MCP_COMMAND`` / ``PLAYWRIGHT_MCP_ARGS``
 environment variables.
+
+Troubleshooting (Docker HTTP)
+-----------------------------
+
+**Symptom:** Agent starts but performs 0 actions ("Action History (0)");
+VNC desktop and screenshot health endpoints appear alive, yet the agent
+never interacts with the browser.
+
+**Root cause:** ``session.initialize()`` sends a JSON-RPC POST to the MCP
+server and receives HTTP **403 Forbidden**.  MCP never becomes ready, so
+the agent loop has no tool session and silently does nothing.
+
+  • **Host-header mismatch** — connecting to ``http://127.0.0.1:8931/mcp``
+    sends ``Host: 127.0.0.1:8931``.  Playwright MCP's built-in
+    allowed-host check may only accept ``localhost``.  Fix: set
+    ``PLAYWRIGHT_MCP_HOST=localhost`` so the Host header matches.
+  • **Source-IP localhost-only** — Docker port-forwarding / NAT can
+    make the MCP server see the peer address as non-loopback, so it
+    denies the request.  Fix: run backend in the same container or
+    network namespace, or pass server flags to allow remote clients.
+  • **socat relay** does NOT rewrite HTTP Host headers — it only
+    forwards raw TCP, so Host-header rejections are still possible.
+  • **Headless MCP** is invisible in VNC (the Chromium window has no
+    GUI); this is separate from connectivity issues.
+
+Note: ``curl -I <mcp_url>`` returning 403 can be *normal* (the server
+only accepts POST with a JSON-RPC body).  However, 403 on the actual
+``initialize`` POST is a hard blocker.
 """
 
 from __future__ import annotations
@@ -19,17 +47,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import re
 import shlex
 from contextlib import AsyncExitStack
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Optional
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from backend.config import config
-from backend.models import ActionType
 
 logger = logging.getLogger(__name__)
 
@@ -43,48 +69,93 @@ _mcp_init_lock: asyncio.Lock | None = None
 _current_step: int = 0
 _current_action: str = "unknown"
 
-# Target-aware STDIO transport: "local" runs npx on host, "docker" runs
-# npx inside the container via `docker exec -i <container>` so the browser
-# appears in VNC and never opens on the host machine.
+# Target-aware transport: "local" runs npx on host via STDIO, "docker"
+# connects to the container's MCP HTTP server at http://host:port/mcp.
 _mcp_target: str = "local"
 _mcp_server_key: Optional[str] = None
+
+# Timeout for Docker MCP session initialization (connect + initialize + list_tools)
+_DOCKER_MCP_INIT_TIMEOUT: float = 15.0
+
+# ── Discovered tools (from MCP server via tools/list) ─────────────────────────
+# Populated during session initialization.  Each entry:
+#   {"name": str, "description": str, "inputSchema": dict}
+# This is the canonical source of truth — the server defines what tools exist,
+# the client discovers and adapts.
+_discovered_tools: list[dict] = []
+
+
+def get_discovered_tools() -> list[dict]:
+    """Return tools discovered from the Playwright MCP server.
+
+    The list is populated during session initialization (STDIO or Docker
+    HTTP) by calling ``session.list_tools()``.  Each entry contains the
+    tool ``name``, ``description``, and ``inputSchema`` exactly as the
+    server reported them.
+
+    Used by ``prompts.py`` to build the system prompt dynamically — so
+    the prompt always reflects what the server actually provides.
+    """
+    return list(_discovered_tools)
+
+
+def _hint_for_http_403(mcp_url: str) -> str:
+    """Return a targeted troubleshooting hint for HTTP 403 during MCP init.
+
+    Called when the Docker MCP server rejects the JSON-RPC POST with 403
+    Forbidden, which silently blocks all agent actions ("Action History (0)").
+    """
+    return (
+        f"HTTP 403 Forbidden from Docker MCP server at {mcp_url}.\n"
+        "This blocks session.initialize() — the agent will perform 0 actions.\n"
+        "Likely causes and fixes (try in order):\n"
+        "  1) Host-header mismatch: if PLAYWRIGHT_MCP_HOST is '127.0.0.1', "
+        "change it to 'localhost' so the Host header reads 'localhost:<port>' "
+        "which Playwright MCP's allowed-host check accepts.\n"
+        "  2) If the backend is not in the same host/network namespace as the "
+        "container, use a real HTTP reverse-proxy (e.g. nginx/caddy) to rewrite "
+        "the Host header, or relax the server's allowed-host / origin policy.\n"
+        "  3) If the server enforces source-IP localhost-only checks, Docker "
+        "port-forwarding makes the peer appear non-loopback. Run the backend "
+        "in the same container/network namespace, or use supported MCP server "
+        "flags to allow remote clients.\n"
+        f"  MCP URL: {mcp_url}"
+    )
 
 
 def set_mcp_target(target: str) -> None:
     """Set the execution target for subsequent MCP sessions.
 
     Must be called **once per agent run** before any MCP action.
-    When *target* is ``"docker"``, the STDIO session is tunnelled
-    through ``docker exec -i <container>`` so Playwright runs inside
-    the container (headed, visible in VNC).
+    When *target* is ``"docker"``, the MCP client connects to the
+    Playwright MCP HTTP server running inside the container
+    (``http://{host}:{port}/mcp``) via Streamable HTTP transport.
+    When *target* is ``"local"``, the MCP client spawns ``npx``
+    as a child process via STDIO transport.
     """
     global _mcp_target
     _mcp_target = "docker" if target == "docker" else "local"
-    logger.info("MCP target set to '%s'", _mcp_target)
+    logger.info("MCP target set to '%s' (transport: %s)",
+                _mcp_target, "HTTP" if _mcp_target == "docker" else "STDIO")
 
 
 def _build_server_params() -> StdioServerParameters:
-    """Build STDIO server params appropriate for the current target."""
-    local_args = shlex.split(config.playwright_mcp_args)
+    """Build STDIO server params for *local* target only.
 
-    if _mcp_target != "docker":
-        return StdioServerParameters(
-            command=config.playwright_mcp_command,
-            args=local_args,
+    Raises ``RuntimeError`` when called with target=docker — Docker runs
+    must use the HTTP transport via ``_docker_mcp_call()`` instead of
+    tunnelling STDIO through ``docker exec``.
+    """
+    if _mcp_target == "docker":
+        raise RuntimeError(
+            "STDIO transport is disabled for target=docker. "
+            "Use the HTTP transport (_docker_mcp_call) instead."
         )
 
-    # Docker: run MCP *inside* the container via docker exec STDIO.
-    # No --port (STDIO mode), no --headless (headed → visible in VNC),
-    # --no-sandbox because Chrome in Docker usually runs as root.
-    container = config.container_name
-    docker_bin = os.environ.get("DOCKER_BIN", "docker")
+    local_args = shlex.split(config.playwright_mcp_args)
     return StdioServerParameters(
-        command=docker_bin,
-        args=[
-            "exec", "-i", container,
-            config.playwright_mcp_command,
-        ] + local_args + ["--no-sandbox"],
-        env=os.environ.copy(),
+        command=config.playwright_mcp_command,
+        args=local_args,
     )
 
 
@@ -97,7 +168,10 @@ def _log_mcp_call(
     error: str | None = None,
 ) -> None:
     """Emit a structured log entry for every MCP tool call."""
-    connected = _mcp_session is not None
+    connected = (
+        _docker_mcp_session is not None if _mcp_target == "docker"
+        else _mcp_session is not None
+    )
     log_data = {
         "step": _current_step,
         "action": _current_action,
@@ -136,9 +210,8 @@ async def _ensure_mcp_initialized() -> ClientSession:
     Spawns the Playwright MCP server as a child process on first call.
     Subsequent calls return the existing session.  Thread-safe via lock.
 
-    When ``_mcp_target`` is ``"docker"``, the child process is
-    ``docker exec -i <container> npx …`` so the MCP server (and its
-    browser) run inside the container and are visible in VNC.
+    Only used for ``target=local``.  Docker uses HTTP transport via
+    ``_ensure_docker_mcp_initialized()``.
     """
     global _exit_stack, _mcp_session, _mcp_server_key
 
@@ -177,11 +250,20 @@ async def _ensure_mcp_initialized() -> ClientSession:
             )
             await session.initialize()
 
-            # Verify server has tools
+            # Discover tools from the server (MCP tools/list)
+            global _discovered_tools
             tools_result = await session.list_tools()
-            tool_names = [t.name for t in tools_result.tools]
+            _discovered_tools = [
+                {
+                    "name": t.name,
+                    "description": getattr(t, "description", "") or "",
+                    "inputSchema": getattr(t, "inputSchema", {}) or {},
+                }
+                for t in tools_result.tools
+            ]
+            tool_names = [t["name"] for t in _discovered_tools]
             logger.info(
-                "MCP STDIO session established — %d tools available: %s",
+                "MCP STDIO session established — %d tools discovered: %s",
                 len(tool_names),
                 ", ".join(tool_names[:10])
                 + ("..." if len(tool_names) > 10 else ""),
@@ -248,8 +330,8 @@ def _mcp_text_from_result(result: dict) -> str:
 
 # ── Core MCP call ─────────────────────────────────────────────────────────────
 
-async def _mcp_call(tool_name: str, arguments: dict) -> dict:
-    """Call an MCP tool via the STDIO session.
+async def _mcp_call_stdio(tool_name: str, arguments: dict) -> dict:
+    """Call an MCP tool via the local STDIO session.
 
     Returns ``{"success": bool, "message": str}``.
     Auto-reconnects once if the session has dropped.
@@ -257,28 +339,40 @@ async def _mcp_call(tool_name: str, arguments: dict) -> dict:
     for attempt in range(2):
         try:
             session = await _ensure_mcp_initialized()
-            _log_mcp_call(tool_name, "calling")
+            _log_mcp_call(tool_name, "calling[stdio]")
             result = await session.call_tool(tool_name, arguments)
 
             if result.isError:
                 text = _text_from_content(result.content)
-                _log_mcp_call(tool_name, "tool_error", error=text)
+                _log_mcp_call(tool_name, "tool_error[stdio]", error=text)
                 return {"success": False, "message": text or "MCP tool returned error"}
 
             text = _text_from_content(result.content)
-            _log_mcp_call(tool_name, "ok")
+            _log_mcp_call(tool_name, "ok[stdio]")
             return {"success": True, "message": text}
 
         except Exception as e:
-            _log_mcp_call(tool_name, "exception", error=str(e))
+            _log_mcp_call(tool_name, "exception[stdio]", error=str(e))
             if attempt == 0:
-                logger.info("MCP call failed — resetting STDIO session and retrying")
+                logger.info("MCP STDIO call failed — resetting session and retrying")
                 await _reset_session()
                 continue
             return {"success": False, "message": f"MCP call failed after retry: {e}"}
 
-    # Should not reach here, but safety net
     return {"success": False, "message": "MCP call failed: exhausted retries"}
+
+
+async def _mcp_call(tool_name: str, arguments: dict) -> dict:
+    """Call an MCP tool, routing to the correct transport.
+
+    • ``target=docker`` → HTTP transport via ``_docker_mcp_call()``
+    • ``target=local``  → STDIO transport via ``_mcp_call_stdio()``
+
+    Returns ``{"success": bool, "message": str}``.
+    """
+    if _mcp_target == "docker":
+        return await _docker_mcp_call(tool_name, arguments)
+    return await _mcp_call_stdio(tool_name, arguments)
 
 
 # ── Accessibility tree ref resolution ─────────────────────────────────────────
@@ -462,223 +556,13 @@ async def _self_heal_input(
     )
 
 
-# ── Screenshot via MCP ─────────────────────────────────────────────────────────
 
-async def capture_mcp_screenshot() -> str:
-    """Capture a PNG screenshot from the MCP-controlled browser.
-
-    Calls the MCP ``browser_take_screenshot`` tool and extracts the base64
-    image from the response content array.
-
-    Returns:
-        Base64-encoded PNG string.
-    """
-    session = await _ensure_mcp_initialized()
-    result = await session.call_tool("browser_take_screenshot", {})
-
-    for item in result.content:
-        # ImageContent has .data (base64) and .mimeType
-        if hasattr(item, "data") and hasattr(item, "mimeType"):
-            if item.data:
-                return item.data
-
-    raise RuntimeError(
-        "MCP browser_take_screenshot did not return image data; "
-        f"content types: {[type(c).__name__ for c in result.content]}"
-    )
-
-
-# ── Core MCP Actions ──────────────────────────────────────────────────────────
-
-async def mcp_navigate(url: str) -> dict:
-    """Navigate the MCP-controlled browser to *url*."""
-    return await _mcp_call("browser_navigate", {"url": url})
-
-
-async def mcp_click(element: str) -> dict:
-    """Click an element by accessibility ref or text content fallback."""
-    ref_like = re.fullmatch(r"[A-Za-z]\d+", (element or "").strip())
-    if ref_like:
-        return await _mcp_call("browser_click", {"element": element, "ref": element.strip()})
-
-    safe_target = json.dumps((element or "").strip())
-    click_function = (
-        "() => {"
-        f"const needle = {safe_target}.toLowerCase();"
-        "const nodes = Array.from(document.querySelectorAll(\"a,button,[role='button'],input,textarea,select,label,*\"));"
-        "const pick = nodes.find(el => ((el.innerText||el.textContent||el.value||'').trim().toLowerCase().includes(needle)));"
-        "if (!pick) return 'not_found';"
-        "pick.click();"
-        "return 'clicked';"
-        "}"
-    )
-    fallback = await _mcp_call(
-        "browser_evaluate",
-        {"function": click_function},
-    )
-    if fallback.get("success") and "not_found" not in fallback.get("message", ""):
-        return fallback
-    return {"success": False, "message": f"Unable to click target via MCP: {element}"}
-
-
-async def mcp_double_click(element: str) -> dict:
-    """Double-click an element resolved via accessibility snapshot."""
-    ref = await _resolve_ref(element)
-    if not ref:
-        return {"success": False, "message": f"Unable to resolve element ref for double_click target: {element}"}
-    return await _mcp_call("browser_click", {"element": element, "ref": ref, "doubleClick": True})
-
-
-async def mcp_hover(element: str) -> dict:
-    """Hover over an element resolved via accessibility snapshot."""
-    ref = await _resolve_ref(element)
-    if not ref:
-        return {"success": False, "message": f"Unable to resolve element ref for hover target: {element}"}
-    return await _mcp_call("browser_hover", {"element": element, "ref": ref})
-
-
-async def mcp_type(element: str, text: str) -> dict:
-    """Type *text* into the element resolved via accessibility snapshot.
-
-    Uses ``_resolve_input_ref`` to ensure the resolved ref actually
-    points to a fillable element (textbox, combobox, searchbox, etc.)
-    instead of a non-input element the model may have mis-targeted.
-
-    If the call still fails with "not an <input>", a reactive self-heal
-    takes a fresh snapshot and retries with the first real input ref.
-    """
-    ref = await _resolve_input_ref(element)
-    if not ref:
-        return {"success": False, "message": f"Unable to resolve element ref for type target: {element}"}
-    result = await _mcp_call("browser_type", {"element": element, "ref": ref, "text": text})
-    result = await _self_heal_input(result, element, text, ref)
-    return result
-
-
-async def mcp_fill(element: str, value: str) -> dict:
-    """Fill *value* into the element (clears first).
-
-    Uses ``_resolve_input_ref`` to ensure the resolved ref actually
-    points to a fillable element (textbox, combobox, searchbox, etc.)
-    instead of a non-input element the model may have mis-targeted.
-
-    If the call still fails with "not an <input>", a reactive self-heal
-    takes a fresh snapshot and retries with the first real input ref.
-    """
-    ref = await _resolve_input_ref(element)
-    if not ref:
-        return {"success": False, "message": f"Unable to resolve element ref for fill target: {element}"}
-    result = await _mcp_call("browser_type", {"element": element, "ref": ref, "text": value})
-    result = await _self_heal_input(result, element, value, ref)
-    return result
-
-
-async def mcp_select_option(element: str, value: str) -> dict:
-    """Select *value* from a <select> element.
-
-    Uses ``_resolve_input_ref`` to find the actual ``<select>`` / combobox.
-    """
-    ref = await _resolve_input_ref(element)
-    if not ref:
-        return {"success": False, "message": f"Unable to resolve element ref for select_option target: {element}"}
-    return await _mcp_call("browser_select_option", {"element": element, "ref": ref, "values": [value]})
-
-
-async def mcp_press_key(key: str) -> dict:
-    """Press a keyboard key via the MCP server."""
-    return await _mcp_call("browser_press_key", {"key": key})
-
-
-async def mcp_scroll(direction: str) -> dict:
-    """Scroll the page up or down by 300px."""
-    delta_y = -300 if direction == "up" else 300
-    return await _mcp_call("browser_evaluate", {
-        "function": f"() => window.scrollBy(0, {delta_y})"
-    })
-
-
-async def mcp_scroll_to(element: str) -> dict:
-    """Scroll the matching element into view."""
-    ref = await _resolve_ref(element)
-    if ref:
-        return await _mcp_call("browser_evaluate", {
-            "function": "(el) => el?.scrollIntoView({behavior:'smooth', block:'center'})",
-            "element": element,
-            "ref": ref,
-        })
-    return await _mcp_call("browser_evaluate", {
-        "function": "() => window.scrollBy(0, 500)",
-    })
-
-
-async def mcp_evaluate(expression: str) -> dict:
-    """Evaluate a JavaScript expression in the page context."""
-    return await _mcp_call("browser_evaluate", {"function": f"() => ({expression})"})
-
-
-async def mcp_wait_for(selector: str) -> dict:
-    """Wait for text or element matching *selector* to appear."""
-    return await _mcp_call("browser_wait_for", {"text": selector})
-
-
-async def mcp_reload() -> dict:
-    """Reload the current page."""
-    return await _mcp_call("browser_reload", {})
-
-
-async def mcp_go_back() -> dict:
-    """Navigate back one page."""
-    return await _mcp_call("browser_go_back", {})
-
-
-async def mcp_go_forward() -> dict:
-    """Navigate forward one page."""
-    return await _mcp_call("browser_go_forward", {})
-
-
-async def mcp_new_tab(url: str = "") -> dict:
-    """Open a new browser tab, optionally navigating to *url*."""
-    params = {"url": url} if url else {}
-    return await _mcp_call("browser_new_tab", params)
-
-
-async def mcp_close_tab() -> dict:
-    """Close the currently active browser tab."""
-    return await _mcp_call("browser_close_tab", {})
-
-
-async def mcp_switch_tab(identifier: str) -> dict:
-    """Switch to a tab by index or identifier."""
-    try:
-        idx = int(identifier)
-        return await _mcp_call("browser_tab_list", {"switchTo": idx})
-    except ValueError:
-        return await _mcp_call("browser_tab_list", {"switchTo": identifier})
-
+# ── MCP Action Helpers ─────────────────────────────────────────────────────────
 
 async def mcp_get_accessibility_tree() -> dict:
     """Retrieve the full accessibility tree snapshot."""
     return await _mcp_call("browser_snapshot", {})
 
-
-async def mcp_get_current_url() -> dict:
-    """Return the current page URL."""
-    return await mcp_evaluate("window.location.href")
-
-
-async def mcp_get_page_title() -> dict:
-    """Return the current page title."""
-    return await mcp_evaluate("document.title")
-
-
-async def mcp_wait(duration: float) -> dict:
-    """Sleep for *duration* seconds (capped at 10s)."""
-    capped = min(max(duration, 0.1), 10.0)
-    await asyncio.sleep(capped)
-    return {"success": True, "message": f"Waited {capped:.1f}s"}
-
-
-# ── Action Handlers ───────────────────────────────────────────────────────────
 
 async def _validate_browser_context(nav_result: dict) -> dict:
     """Verify browser context exists after navigation.
@@ -693,264 +577,203 @@ async def _validate_browser_context(nav_result: dict) -> dict:
     except Exception:
         pass
 
-    # Browser context not detected — reset and reinitialize
-    logger.warning("Browser context not detected after navigation — resetting STDIO session")
-    await _reset_session()
-    try:
-        await _ensure_mcp_initialized()
-    except Exception as reinit_err:
-        return {
-            "success": False,
-            "message": f"Browser validation failed and reinit errored: {reinit_err}",
-        }
+    # Browser context not detected — reset and reinitialize the correct transport
+    logger.warning(
+        "Browser context not detected after navigation — resetting MCP session (target=%s)",
+        _mcp_target,
+    )
+    if _mcp_target == "docker":
+        await _reset_docker_session()
+        try:
+            await _ensure_docker_mcp_initialized()
+        except Exception as reinit_err:
+            return {
+                "success": False,
+                "message": f"Browser validation failed and Docker reinit errored: {reinit_err}",
+            }
+    else:
+        await _reset_session()
+        try:
+            await _ensure_mcp_initialized()
+        except Exception as reinit_err:
+            return {
+                "success": False,
+                "message": f"Browser validation failed and reinit errored: {reinit_err}",
+            }
     return nav_result
 
 
-async def _h_open_url(text: str, target: str) -> dict:
-    """Handler: navigate to the URL in *text* and validate browser context."""
-    if not text:
-        return {"success": False, "message": "Missing URL in text field"}
-    url = text if text.startswith(("http://", "https://")) else f"https://{text}"
-    result = await mcp_navigate(url)
-    if not result.get("success"):
-        return result
-    return await _validate_browser_context(result)
+# Tools that accept an ``element`` + ``ref`` pair (resolved from *target*).
+_REF_TOOLS: frozenset[str] = frozenset({
+    "browser_click", "browser_hover", "browser_drag",
+})
+
+# Tools that need an input-specific ref (textbox / combobox / searchbox).
+_INPUT_REF_TOOLS: frozenset[str] = frozenset({
+    "browser_type", "browser_select_option",
+})
 
 
-async def _h_click(text: str, target: str) -> dict:
-    """Handler: click the element identified by *target*."""
-    if not target:
-        return {"success": False, "message": "Target required for click"}
-    return await mcp_click(target)
+async def _build_mcp_args(
+    tool_name: str,
+    target: str,
+    text: str,
+) -> dict:
+    """Map the agent's *(target, text)* pair to MCP-tool-specific arguments.
+
+    Returns a dict ready to pass to ``_mcp_call(tool_name, args)``.
+    A special ``_fallback_js_click`` key signals the caller to use the
+    JavaScript click fallback instead of the MCP tool.
+    """
+    args: dict = {}
+
+    # ── Navigation ────────────────────────────────────────────────────
+    if tool_name == "browser_navigate":
+        url = text or target or ""
+        if url and not url.startswith(("http://", "https://")):
+            url = f"https://{url}"
+        args["url"] = url
+        return args
+
+    # ── Click (with JS fallback) ─────────────────────────────────────
+    if tool_name == "browser_click":
+        element = target or text or ""
+        ref = await _resolve_ref(element)
+        if ref:
+            args["element"] = element
+            args["ref"] = ref
+        else:
+            args["_fallback_js_click"] = True
+            args["_element"] = element
+        return args
+
+    # ── Element + ref tools (hover, drag) ────────────────────────────
+    if tool_name in _REF_TOOLS:
+        element = target or ""
+        ref = await _resolve_ref(element)
+        if not ref:
+            return {"_error": f"Unable to resolve element ref for {tool_name}: {element}"}
+        args["element"] = element
+        args["ref"] = ref
+        # Drag needs start/end
+        if tool_name == "browser_drag":
+            end_element = text or ""
+            end_ref = await _resolve_ref(end_element)
+            if not end_ref:
+                return {"_error": f"Unable to resolve end-element ref for drag: {end_element}"}
+            args = {
+                "startElement": element,
+                "startRef": ref,
+                "endElement": end_element,
+                "endRef": end_ref,
+            }
+        return args
+
+    # ── Input-ref tools (type, select_option) ────────────────────────
+    if tool_name in _INPUT_REF_TOOLS:
+        element = target or ""
+        ref = await _resolve_input_ref(element)
+        if not ref:
+            return {"_error": f"Unable to resolve input ref for {tool_name}: {element}"}
+        args["element"] = element
+        args["ref"] = ref
+        if tool_name == "browser_type":
+            args["text"] = text or ""
+        elif tool_name == "browser_select_option":
+            args["values"] = [text] if text else []
+        return args
+
+    # ── Keyboard ─────────────────────────────────────────────────────
+    if tool_name == "browser_press_key":
+        args["key"] = text or target or ""
+        return args
+
+    # ── Wait ─────────────────────────────────────────────────────────
+    if tool_name == "browser_wait_for":
+        args["text"] = target or text or ""
+        return args
+
+    # ── Evaluate JS ──────────────────────────────────────────────────
+    if tool_name == "browser_evaluate":
+        fn = text or target or ""
+        if not fn.strip().startswith("("):
+            fn = f"() => ({fn})"
+        args["function"] = fn
+        return args
+
+    # ── Fill form ────────────────────────────────────────────────────
+    if tool_name == "browser_fill_form":
+        try:
+            args["fields"] = json.loads(text) if text else []
+        except json.JSONDecodeError:
+            return {"_error": f"Invalid JSON for fill_form: {text}"}
+        return args
+
+    # ── File upload ──────────────────────────────────────────────────
+    if tool_name == "browser_file_upload":
+        if text:
+            args["paths"] = [p.strip() for p in text.split(",") if p.strip()]
+        return args
+
+    # ── Dialog ───────────────────────────────────────────────────────
+    if tool_name == "browser_handle_dialog":
+        args["accept"] = (text or "accept").strip().lower() != "dismiss"
+        if target:
+            args["promptText"] = target
+        return args
+
+    # ── Resize ───────────────────────────────────────────────────────
+    if tool_name == "browser_resize":
+        try:
+            parts = (text or "1280x720").lower().split("x")
+            args["width"] = int(parts[0])
+            args["height"] = int(parts[1])
+        except (ValueError, IndexError):
+            return {"_error": f"Invalid resize dimensions: {text}"}
+        return args
+
+    # ── Console / network ────────────────────────────────────────────
+    if tool_name == "browser_console_messages":
+        if text:
+            args["level"] = text
+        return args
+
+    if tool_name == "browser_network_requests":
+        args["includeStatic"] = (text or "").strip().lower() == "static"
+        return args
+
+    # ── Run code ─────────────────────────────────────────────────────
+    if tool_name == "browser_run_code":
+        args["code"] = text or ""
+        return args
+
+    # ── Generic pass-through (snapshot, tabs, navigate_back, close …)
+    # For tools with no special parameter mapping the MCP server
+    # validates its own schema — just forward text/target if present.
+    return args
 
 
-async def _h_double_click(text: str, target: str) -> dict:
-    """Handler: double-click the element identified by *target*."""
-    if not target:
-        return {"success": False, "message": "Target required for double_click"}
-    return await mcp_double_click(target)
+async def _js_click_fallback(element: str) -> dict:
+    """Attempt a click via JavaScript evaluation when ref resolution fails."""
+    safe_target = json.dumps((element or "").strip())
+    click_function = (
+        "() => {"
+        f"const needle = {safe_target}.toLowerCase();"
+        "const nodes = Array.from(document.querySelectorAll("
+        "\"a,button,[role='button'],input,textarea,select,label,*\"));"
+        "const pick = nodes.find(el => "
+        "((el.innerText||el.textContent||el.value||'').trim()"
+        ".toLowerCase().includes(needle)));"
+        "if (!pick) return 'not_found';"
+        "pick.click();"
+        "return 'clicked';"
+        "}"
+    )
+    fallback = await _mcp_call("browser_evaluate", {"function": click_function})
+    if fallback.get("success") and "not_found" not in fallback.get("message", ""):
+        return fallback
+    return {"success": False, "message": f"Unable to click target via MCP: {element}"}
 
-
-async def _h_hover(text: str, target: str) -> dict:
-    """Handler: hover over the element identified by *target*."""
-    if not target:
-        return {"success": False, "message": "Target required for hover"}
-    return await mcp_hover(target)
-
-
-async def _h_type(text: str, target: str) -> dict:
-    """Handler: type *text* into the targeted element."""
-    if not text:
-        return {"success": False, "message": "Text required for type"}
-    if not target:
-        return {"success": False, "message": "Target required for type in MCP mode"}
-    return await mcp_type(target, text)
-
-
-async def _h_fill(text: str, target: str) -> dict:
-    """Handler: fill *text* into the targeted element."""
-    if not target:
-        return {"success": False, "message": "Target required for fill"}
-    return await mcp_fill(target, text)
-
-
-async def _h_key(text: str, target: str) -> dict:
-    """Handler: press the keyboard key specified in *text*."""
-    return await mcp_press_key(text)
-
-
-async def _h_clear_input(text: str, target: str) -> dict:
-    """Handler: clear the input field identified by *target*."""
-    if not target:
-        return {"success": False, "message": "Target required for clear_input"}
-    return await mcp_fill(target, "")
-
-
-async def _h_select_option(text: str, target: str) -> dict:
-    """Handler: select *text* from the dropdown identified by *target*."""
-    if not target:
-        return {"success": False, "message": "Target required for select_option"}
-    return await mcp_select_option(target, text)
-
-
-async def _h_paste(text: str, target: str) -> dict:
-    """Handler: paste clipboard contents via Ctrl+V."""
-    return await mcp_press_key("Control+v")
-
-
-async def _h_copy(text: str, target: str) -> dict:
-    """Handler: copy selection to clipboard via Ctrl+C."""
-    return await mcp_press_key("Control+c")
-
-
-async def _h_scroll(text: str, target: str) -> dict:
-    """Handler: scroll page in the direction specified by *text*."""
-    direction = text.lower() if text else "down"
-    return await mcp_scroll(direction)
-
-
-async def _h_scroll_to(text: str, target: str) -> dict:
-    """Handler: scroll the element identified by *target* into view."""
-    if not target:
-        return {"success": False, "message": "Target required for scroll_to"}
-    return await mcp_scroll_to(target)
-
-
-async def _h_get_text(text: str, target: str) -> dict:
-    """Handler: extract text content from the *target* selector."""
-    if not target:
-        return {"success": False, "message": "Target required for get_text"}
-    return await mcp_evaluate(f"document.querySelector('{target}')?.textContent?.trim() ?? ''")
-
-
-async def _h_get_html(text: str, target: str) -> dict:
-    """Handler: retrieve outer HTML of the *target* selector."""
-    if not target:
-        return {"success": False, "message": "Target required for get_html"}
-    return await mcp_evaluate(f"document.querySelector('{target}')?.outerHTML ?? ''")
-
-
-async def _h_get_attribute(text: str, target: str) -> dict:
-    """Handler: get DOM attribute *text* from the *target* selector."""
-    attr = text or "id"
-    if not target:
-        return {"success": False, "message": "Target required for get_attribute"}
-    return await mcp_evaluate(f"document.querySelector('{target}')?.getAttribute('{attr}') ?? ''")
-
-
-async def _h_evaluate_js(text: str, target: str) -> dict:
-    """Handler: evaluate the JavaScript in *text* on the page."""
-    if not text:
-        return {"success": False, "message": "JS code required"}
-    return await mcp_evaluate(text)
-
-
-async def _h_evaluate_on_selector(text: str, target: str) -> dict:
-    """Handler: run JS in *text* scoped to the DOM node at *target*."""
-    if not target or not text:
-        return {"success": False, "message": "Target and JS required"}
-    script = f"(function(el) {{ {text} }})(document.querySelector('{target}'))"
-    return await mcp_evaluate(script)
-
-
-async def _h_wait(text: str, target: str) -> dict:
-    """Handler: pause execution for the duration specified in *text*."""
-    duration = 2.0
-    try:
-        duration = float(text)
-    except ValueError:
-        pass
-    return await mcp_wait(duration)
-
-
-async def _h_wait_for(text: str, target: str) -> dict:
-    """Handler: wait for the element matching *target* to appear."""
-    if not target:
-        return {"success": False, "message": "Target required for wait_for"}
-    return await mcp_wait_for(target)
-
-
-async def _h_new_tab(text: str, target: str) -> dict:
-    """Handler: open a new tab, optionally navigating to *text*."""
-    return await mcp_new_tab(text)
-
-
-async def _h_switch_tab(text: str, target: str) -> dict:
-    """Handler: switch to the tab identified by *target* or *text*."""
-    return await mcp_switch_tab(target or text)
-
-
-async def _h_done(text: str, target: str) -> dict:
-    """Handler: signal task completion."""
-    return {"success": True, "message": "Task completed"}
-
-
-async def _h_error(text: str, target: str) -> dict:
-    """Handler: report an agent error with *text* as the reason."""
-    return {"success": False, "message": f"Agent error: {text}"}
-
-
-async def _h_get_all_text(text: str, target: str) -> dict:
-    """Handler: extract all visible text from the page body."""
-    return await mcp_evaluate("document.body.innerText")
-
-
-async def _h_get_links(text: str, target: str) -> dict:
-    """Handler: extract all anchor links from the page."""
-    return await mcp_evaluate("""Array.from(document.querySelectorAll('a')).map(a => ({text: a.innerText, href: a.href}))""")
-
-
-async def _h_find_element(text: str, target: str) -> dict:
-    """Handler: find an element by taking a snapshot and searching the a11y tree."""
-    query = target or text
-    if not query:
-        return {"success": False, "message": "Target or text required for find_element"}
-    snapshot = await _mcp_call("browser_snapshot", {})
-    if not snapshot.get("success"):
-        return snapshot
-    ref = _extract_ref_from_snapshot(snapshot.get("message", ""), query)
-    if ref:
-        return {"success": True, "message": f"Found element ref={ref} matching '{query}'"}
-    return {"success": False, "message": f"No element found matching '{query}'"}
-
-
-def _create_stub(tool_name: str) -> Callable[[str, str], Awaitable[dict]]:
-    """Create a placeholder handler for an unimplemented MCP tool."""
-    async def _stub_handler(text: str, target: str) -> dict:
-        """Stub: return a not-implemented error."""
-        return {"success": False, "message": f"MCP tool '{tool_name}' not yet implemented in client/server"}
-    return _stub_handler
-
-
-# ── Dispatch Table ────────────────────────────────────────────────────────────
-
-MCP_TOOL_HANDLERS: Dict[str, Callable[[str, str], Awaitable[dict]]] = {
-    ActionType.OPEN_URL.value: _h_open_url,
-    ActionType.RELOAD.value: lambda t, g: mcp_reload(),
-    ActionType.GO_BACK.value: lambda t, g: mcp_go_back(),
-    ActionType.GO_FORWARD.value: lambda t, g: mcp_go_forward(),
-    ActionType.NEW_TAB.value: _h_new_tab,
-    ActionType.CLOSE_TAB.value: lambda t, g: mcp_close_tab(),
-    ActionType.SWITCH_TAB.value: _h_switch_tab,
-    ActionType.CLICK.value: _h_click,
-    ActionType.DOUBLE_CLICK.value: _h_double_click,
-    ActionType.HOVER.value: _h_hover,
-    ActionType.TYPE.value: _h_type,
-    ActionType.FILL.value: _h_fill,
-    ActionType.KEY.value: _h_key,
-    ActionType.HOTKEY.value: _h_key,  # reuse key handler
-    ActionType.CLEAR_INPUT.value: _h_clear_input,
-    ActionType.SELECT_OPTION.value: _h_select_option,
-    ActionType.PASTE.value: _h_paste,
-    ActionType.COPY.value: _h_copy,
-    ActionType.SCROLL.value: _h_scroll,
-    ActionType.SCROLL_TO.value: _h_scroll_to,
-    ActionType.SCROLL_INTO_VIEW.value: _h_scroll_to,  # alias
-    ActionType.GET_TEXT.value: _h_get_text,
-    ActionType.GET_HTML.value: _h_get_html,
-    ActionType.GET_ATTRIBUTE.value: _h_get_attribute,
-    ActionType.EVALUATE_JS.value: _h_evaluate_js,
-    ActionType.EVALUATE_ON_SELECTOR.value: _h_evaluate_on_selector,
-    ActionType.WAIT.value: _h_wait,
-    ActionType.WAIT_FOR.value: _h_wait_for,
-    ActionType.DONE.value: _h_done,
-    ActionType.ERROR.value: _h_error,
-    ActionType.GET_ACCESSIBILITY_TREE.value: lambda t, g: mcp_get_accessibility_tree(),
-    ActionType.GET_SNAPSHOT.value: lambda t, g: mcp_get_accessibility_tree(),
-    ActionType.GET_CURRENT_URL.value: lambda t, g: mcp_get_current_url(),
-    ActionType.GET_PAGE_TITLE.value: lambda t, g: mcp_get_page_title(),
-    ActionType.GET_ALL_TEXT.value: _h_get_all_text,
-    ActionType.GET_LINKS.value: _h_get_links,
-    ActionType.FIND_ELEMENT.value: _h_find_element,
-}
-
-# Ensure complete coverage of ActionType (no missing mappings)
-for member in ActionType:
-    if member.value not in MCP_TOOL_HANDLERS:
-        MCP_TOOL_HANDLERS[member.value] = _create_stub(member.value)
-
-
-# ── Execution Dispatcher ──────────────────────────────────────────────────────
 
 # ── Docker HTTP MCP Transport ─────────────────────────────────────────────────
 # Connects to the Playwright MCP server running inside the Docker container
@@ -973,7 +796,9 @@ async def _ensure_docker_mcp_initialized() -> ClientSession:
     """Ensure the Docker HTTP MCP session is connected and initialized.
 
     Connects to the Playwright MCP server inside the Docker container
-    via Streamable HTTP transport (HTTP/SSE).
+    via Streamable HTTP transport (HTTP/SSE).  The entire init sequence
+    (connect → initialize → list_tools) is wrapped in a 15 s timeout
+    so we fail fast when the container MCP server is unreachable.
     """
     global _docker_exit_stack, _docker_mcp_session
 
@@ -984,27 +809,62 @@ async def _ensure_docker_mcp_initialized() -> ClientSession:
         if _docker_mcp_session is not None:
             return _docker_mcp_session
 
-        mcp_url = f"http://{config.playwright_mcp_host}:{config.playwright_mcp_port}{config.playwright_mcp_path}"
-        logger.info("Connecting to Docker Playwright MCP at %s", mcp_url)
+        mcp_url = config.playwright_mcp_endpoint
+
+        if config.playwright_mcp_host == "127.0.0.1":
+            logger.warning(
+                "PLAYWRIGHT_MCP_HOST is '127.0.0.1' — the HTTP Host header will be "
+                "'127.0.0.1:%s' which may be rejected by Playwright MCP's allowed-host "
+                "check (403 Forbidden).  Consider using 'localhost' instead.",
+                config.playwright_mcp_port,
+            )
+
+        logger.info("Connecting to Docker Playwright MCP at %s (timeout=%.0fs)", mcp_url, _DOCKER_MCP_INIT_TIMEOUT)
 
         _docker_exit_stack = AsyncExitStack()
         await _docker_exit_stack.__aenter__()
 
         try:
-            from mcp.client.streamable_http import streamablehttp_client
+            from mcp.client.streamable_http import streamable_http_client
 
             read_stream, write_stream, _ = await _docker_exit_stack.enter_async_context(
-                streamablehttp_client(mcp_url)
+                streamable_http_client(mcp_url)
             )
             session = await _docker_exit_stack.enter_async_context(
                 ClientSession(read_stream, write_stream)
             )
-            await session.initialize()
 
-            tools_result = await session.list_tools()
-            tool_names = [t.name for t in tools_result.tools]
+            # Wrap init + list_tools in a single timeout so we fail fast
+            try:
+                await asyncio.wait_for(session.initialize(), timeout=_DOCKER_MCP_INIT_TIMEOUT)
+            except asyncio.TimeoutError:
+                raise TimeoutError(
+                    f"Docker MCP HTTP init timed out after {_DOCKER_MCP_INIT_TIMEOUT:.0f}s. "
+                    f"Is the container MCP server running on {mcp_url} ? "
+                    "Hint: 'curl -I' will return 403 — that is expected; the server only accepts POST JSON-RPC."
+                )
+
+            try:
+                tools_result = await asyncio.wait_for(session.list_tools(), timeout=_DOCKER_MCP_INIT_TIMEOUT)
+            except asyncio.TimeoutError:
+                raise TimeoutError(
+                    f"Docker MCP list_tools timed out after {_DOCKER_MCP_INIT_TIMEOUT:.0f}s. "
+                    f"MCP server at {mcp_url} accepted initialize but is not responding to list_tools."
+                )
+
+            # Store discovered tools — server is the source of truth
+            global _discovered_tools
+            _discovered_tools = [
+                {
+                    "name": t.name,
+                    "description": getattr(t, "description", "") or "",
+                    "inputSchema": getattr(t, "inputSchema", {}) or {},
+                }
+                for t in tools_result.tools
+            ]
+            tool_names = [t["name"] for t in _discovered_tools]
             logger.info(
-                "Docker MCP HTTP session established — %d tools available: %s",
+                "Docker MCP HTTP session established — %d tools discovered: %s",
                 len(tool_names),
                 ", ".join(tool_names[:10])
                 + ("..." if len(tool_names) > 10 else ""),
@@ -1012,7 +872,36 @@ async def _ensure_docker_mcp_initialized() -> ClientSession:
 
             _docker_mcp_session = session
             return _docker_mcp_session
-        except Exception:
+        except Exception as exc:
+            # Detect HTTP 403 — this is the "stuck / Action History (0)" failure.
+            exc_str = str(exc)
+            is_403 = "403" in exc_str
+
+            if is_403:
+                hint = _hint_for_http_403(mcp_url)
+                logger.error(
+                    "Docker MCP init received HTTP 403 for %s — "
+                    "this BLOCKS all agent actions (Action History 0).\n%s",
+                    mcp_url, hint,
+                )
+                try:
+                    await _docker_exit_stack.aclose()
+                except Exception:
+                    pass
+                _docker_exit_stack = None
+                _docker_mcp_session = None
+                raise PermissionError(hint) from exc
+
+            # Non-403 failure — preserve existing behaviour.
+            # NOTE: 403 on 'curl -I' is expected (server only accepts POST
+            # JSON-RPC); but 403 on the actual initialize POST is a blocker.
+            logger.error(
+                "Docker MCP init failed for %s — %s. "
+                "(403 on 'curl -I %s' can be normal — server only accepts "
+                "POST JSON-RPC.  But 403 during initialize POST is a "
+                "hard blocker — see _hint_for_http_403.)",
+                mcp_url, exc, mcp_url,
+            )
             try:
                 await _docker_exit_stack.aclose()
             except Exception:
@@ -1042,6 +931,7 @@ async def _docker_mcp_call(tool_name: str, arguments: dict) -> dict:
     Returns ``{"success": bool, "message": str}``.
     Auto-reconnects once if the session has dropped.
     """
+    mcp_url = config.playwright_mcp_endpoint
     for attempt in range(2):
         try:
             session = await _ensure_docker_mcp_initialized()
@@ -1057,10 +947,28 @@ async def _docker_mcp_call(tool_name: str, arguments: dict) -> dict:
             _log_mcp_call(tool_name, "ok[docker]")
             return {"success": True, "message": text}
 
+        except PermissionError:
+            # 403 already diagnosed by _ensure_docker_mcp_initialized — surface hint directly.
+            hint = _hint_for_http_403(mcp_url)
+            _log_mcp_call(tool_name, "http_403[docker]", error=hint)
+            return {"success": False, "message": hint}
         except Exception as e:
             _log_mcp_call(tool_name, "exception[docker]", error=str(e))
+            is_403 = "403" in str(e)
+            if is_403:
+                hint = _hint_for_http_403(mcp_url)
+                logger.error(
+                    "Docker MCP call '%s' received HTTP 403 — "
+                    "agent actions will fail.\n%s",
+                    tool_name, hint,
+                )
+                return {"success": False, "message": hint}
             if attempt == 0:
-                logger.info("Docker MCP call failed — resetting HTTP session and retrying")
+                logger.info(
+                    "Docker MCP call failed — resetting HTTP session and retrying. "
+                    "URL=%s  If 'curl -I' returns 403, that is expected (use POST).",
+                    mcp_url,
+                )
                 await _reset_docker_session()
                 continue
             return {"success": False, "message": f"Docker MCP call failed after retry: {e}"}
@@ -1076,12 +984,17 @@ async def execute_mcp_action_docker(
 ) -> dict:
     """Execute an MCP action targeting the Docker container.
 
-    Since ``set_mcp_target("docker")`` is called at agent-run start,
-    the unified STDIO session already tunnels through
-    ``docker exec -i <container>``.  This function simply delegates to
-    ``execute_mcp_action`` with an extra safety net for
-    ``CancelledError`` / unexpected exceptions.
+    Enforces ``_mcp_target = "docker"`` so all downstream ``_mcp_call()``
+    invocations use Streamable HTTP transport to the container's MCP
+    server, regardless of what the global target was set to previously.
     """
+    global _mcp_target
+    if _mcp_target != "docker":
+        logger.warning(
+            "execute_mcp_action_docker called but _mcp_target was '%s' — forcing 'docker'",
+            _mcp_target,
+        )
+        _mcp_target = "docker"
     try:
         return await execute_mcp_action(action, text, target, step)
     except asyncio.CancelledError:
@@ -1092,7 +1005,7 @@ async def execute_mcp_action_docker(
         return {"success": False, "message": f"Docker MCP action '{action}' error: {exc}"}
 
 
-# ── Execution Dispatcher (Local STDIO) ────────────────────────────────────────
+# ── Execution Dispatcher ──────────────────────────────────────────────────────
 
 async def execute_mcp_action(
     action: str,
@@ -1100,31 +1013,130 @@ async def execute_mcp_action(
     target: str = "",
     step: int = 0,
 ) -> dict:
-    """Dispatcher for MCP actions using the handler table.
+    """Dispatch an MCP action directly to the Playwright MCP server.
 
-    Sets module-level ``_current_step`` / ``_current_action`` so all
-    downstream ``_mcp_call`` invocations emit structured logs with the
-    correct context.
+    The *action* field is expected to be an MCP tool name
+    (``browser_click``, ``browser_navigate``, etc.) or one of the
+    agent-control pseudo-actions (``done``, ``error``, ``wait``).
     """
     global _current_step, _current_action
     _current_step = step
     _current_action = action
 
-    handler = MCP_TOOL_HANDLERS.get(action)
-    if handler:
-        return await handler(text, target)
+    # ── Agent-control pseudo-actions ─────────────────────────────────
+    if action == "done":
+        return {"success": True, "message": "Task completed"}
+    if action == "error":
+        return {"success": False, "message": f"Agent error: {text}"}
+    if action == "wait":
+        duration = 2.0
+        try:
+            duration = float(text)
+        except (ValueError, TypeError):
+            pass
+        capped = min(max(duration, 0.1), 10.0)
+        await asyncio.sleep(capped)
+        return {"success": True, "message": f"Waited {capped:.1f}s"}
 
-    return {"success": False, "message": f"Unsupported action '{action}' in playwright_mcp engine"}
+    # ── Build tool-specific arguments ────────────────────────────────
+    args = await _build_mcp_args(action, target, text)
+
+    # Argument-build errors
+    if "_error" in args:
+        return {"success": False, "message": args["_error"]}
+
+    # JS click fallback path
+    if args.pop("_fallback_js_click", False):
+        return await _js_click_fallback(args.pop("_element", target))
+
+    # ── Call through to MCP server ───────────────────────────────────
+    result = await _mcp_call(action, args)
+
+    # Post-call hooks
+    if action in _INPUT_REF_TOOLS:
+        result = await _self_heal_input(result, target, text, args.get("ref", ""))
+    if action == "browser_navigate":
+        result = await _validate_browser_context(result)
+
+    return result
+
+
+async def execute_mcp_action_direct(
+    tool_name: str,
+    tool_args: dict,
+    step: int = 0,
+) -> dict:
+    """Direct MCP passthrough — LLM provided native tool arguments.
+
+    Bypasses ``_build_mcp_args``, ref resolution, self-heal, and JS
+    fallback.  The *tool_args* dict is forwarded verbatim to
+    ``session.call_tool(tool_name, tool_args)``.
+
+    Agent-control pseudo-actions (``done``, ``error``, ``wait``) are
+    routed through the existing ``execute_mcp_action`` handler.
+    """
+    global _current_step, _current_action
+    _current_step = step
+    _current_action = tool_name
+
+    # Pseudo-actions still go through the legacy path
+    if tool_name in ("done", "error", "wait"):
+        return await execute_mcp_action(
+            tool_name,
+            text=tool_args.get("text", ""),
+            target=tool_args.get("target", ""),
+            step=step,
+        )
+
+    # Direct call — no arg translation, no ref resolution
+    result = await _mcp_call(tool_name, tool_args)
+
+    # Post-call hook: validate browser context after navigation
+    if tool_name == "browser_navigate":
+        result = await _validate_browser_context(result)
+
+    return result
+
+
+async def execute_mcp_action_direct_docker(
+    tool_name: str,
+    tool_args: dict,
+    step: int = 0,
+) -> dict:
+    """Direct MCP passthrough targeting the Docker container.
+
+    Ensures ``_mcp_target`` is ``"docker"`` then delegates to
+    ``execute_mcp_action_direct``.
+    """
+    global _mcp_target
+    if _mcp_target != "docker":
+        logger.warning(
+            "execute_mcp_action_direct_docker called but _mcp_target was '%s' — forcing 'docker'",
+            _mcp_target,
+        )
+        _mcp_target = "docker"
+    try:
+        return await execute_mcp_action_direct(tool_name, tool_args, step)
+    except asyncio.CancelledError:
+        logger.error("Docker MCP direct action '%s' was cancelled", tool_name)
+        return {"success": False, "message": f"Docker MCP direct action '{tool_name}' was cancelled"}
+    except Exception as exc:
+        logger.error("Docker MCP direct action '%s' raised: %s", tool_name, exc, exc_info=True)
+        return {"success": False, "message": f"Docker MCP direct action '{tool_name}' error: {exc}"}
 
 
 async def check_mcp_health() -> bool:
     """Check if the Playwright MCP server is responsive.
 
+    Routes to STDIO or HTTP transport depending on ``_mcp_target``.
     Uses ``list_tools`` — if the server returns at least one tool,
     it is considered healthy.
     """
     try:
-        session = await _ensure_mcp_initialized()
+        if _mcp_target == "docker":
+            session = await _ensure_docker_mcp_initialized()
+        else:
+            session = await _ensure_mcp_initialized()
         result = await session.list_tools()
         return len(result.tools) > 0
     except Exception:
@@ -1132,22 +1144,25 @@ async def check_mcp_health() -> bool:
 
 
 async def close_mcp_session() -> None:
-    """Terminate the active STDIO MCP session and kill the child process.
+    """Terminate all active MCP sessions (STDIO and HTTP).
 
-    The ``AsyncExitStack`` will close both the ``ClientSession`` and the
-    ``stdio_client`` context, which terminates the child process.
+    Closes both the STDIO session (local) and the HTTP session (Docker)
+    if they are active.
     """
     global _exit_stack, _mcp_session
 
-    if not _exit_stack:
+    # Close STDIO session
+    if _exit_stack:
+        try:
+            await _exit_stack.aclose()
+            logger.info("MCP STDIO session closed")
+        except Exception as e:
+            logger.warning("MCP STDIO session close error: %s", e)
+        finally:
+            _exit_stack = None
+            _mcp_session = None
+    else:
         logger.debug("No active MCP STDIO session to close")
-        return
 
-    try:
-        await _exit_stack.aclose()
-        logger.info("MCP STDIO session closed")
-    except Exception as e:
-        logger.warning("MCP STDIO session close error: %s", e)
-    finally:
-        _exit_stack = None
-        _mcp_session = None
+    # Close Docker HTTP session
+    await _reset_docker_session()

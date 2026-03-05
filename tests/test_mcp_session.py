@@ -160,50 +160,54 @@ class TestToolCallRouting(unittest.IsolatedAsyncioTestCase):
 # ---------------------------------------------------------------------------
 
 class TestHandlerValidation(unittest.IsolatedAsyncioTestCase):
-    """Handler functions validate required parameters."""
+    """execute_mcp_action validates required parameters via _build_mcp_args."""
 
     async def test_open_url_missing_text(self):
-        from backend.agent.playwright_mcp_client import _h_open_url
-        result = await _h_open_url("", "")
-        self.assertFalse(result["success"])
-        self.assertIn("Missing URL", result["message"])
+        """browser_navigate with no URL still builds args (empty url)."""
+        from backend.agent.playwright_mcp_client import _build_mcp_args
+        args = await _build_mcp_args("browser_navigate", "", "")
+        # Args are built (url may be empty), MCP server will validate
+        self.assertIn("url", args)
 
     async def test_click_missing_target(self):
-        from backend.agent.playwright_mcp_client import _h_click
-        result = await _h_click("", "")
-        self.assertFalse(result["success"])
-        self.assertIn("Target required", result["message"])
+        """browser_click with empty target triggers JS fallback path."""
+        from backend.agent.playwright_mcp_client import _build_mcp_args
+        args = await _build_mcp_args("browser_click", "", "")
+        # Falls back to JS click when no ref can be resolved
+        self.assertTrue(args.get("_fallback_js_click"))
 
     async def test_type_missing_text(self):
-        from backend.agent.playwright_mcp_client import _h_type
-        result = await _h_type("", "input")
-        self.assertFalse(result["success"])
-        self.assertIn("Text required", result["message"])
+        """browser_type with no target returns error."""
+        from backend.agent.playwright_mcp_client import _build_mcp_args
+        args = await _build_mcp_args("browser_type", "", "")
+        self.assertIn("_error", args)
 
     async def test_type_missing_target(self):
-        from backend.agent.playwright_mcp_client import _h_type
-        result = await _h_type("hello", "")
-        self.assertFalse(result["success"])
-        self.assertIn("Target required", result["message"])
+        """browser_type with no target returns error."""
+        from backend.agent.playwright_mcp_client import _build_mcp_args
+        args = await _build_mcp_args("browser_type", "", "hello")
+        self.assertIn("_error", args)
 
     async def test_fill_missing_target(self):
-        from backend.agent.playwright_mcp_client import _h_fill
-        result = await _h_fill("value", "")
-        self.assertFalse(result["success"])
+        """browser_type (fill) with no target returns error."""
+        from backend.agent.playwright_mcp_client import _build_mcp_args
+        args = await _build_mcp_args("browser_type", "", "value")
+        self.assertIn("_error", args)
 
     async def test_select_option_missing_target(self):
-        from backend.agent.playwright_mcp_client import _h_select_option
-        result = await _h_select_option("opt", "")
-        self.assertFalse(result["success"])
+        """browser_select_option with no target returns error."""
+        from backend.agent.playwright_mcp_client import _build_mcp_args
+        args = await _build_mcp_args("browser_select_option", "", "opt")
+        self.assertIn("_error", args)
 
     async def test_done_always_succeeds(self):
-        from backend.agent.playwright_mcp_client import _h_done
-        result = await _h_done("", "")
+        from backend.agent.playwright_mcp_client import execute_mcp_action
+        result = await execute_mcp_action("done", "", "")
         self.assertTrue(result["success"])
 
     async def test_error_returns_failure(self):
-        from backend.agent.playwright_mcp_client import _h_error
-        result = await _h_error("Something broke", "")
+        from backend.agent.playwright_mcp_client import execute_mcp_action
+        result = await execute_mcp_action("error", "Something broke", "")
         self.assertFalse(result["success"])
         self.assertIn("Something broke", result["message"])
 
@@ -213,14 +217,14 @@ class TestHandlerValidation(unittest.IsolatedAsyncioTestCase):
 # ---------------------------------------------------------------------------
 
 class TestWaitCapping(unittest.IsolatedAsyncioTestCase):
-    """mcp_wait caps duration between 0.1 and 10 seconds."""
+    """execute_mcp_action("wait", ...) caps duration between 0.1 and 10 seconds."""
 
     async def test_caps_at_10_seconds(self):
-        from backend.agent.playwright_mcp_client import mcp_wait
-        result = await mcp_wait(999.0)
+        from backend.agent.playwright_mcp_client import execute_mcp_action
+        result = await execute_mcp_action("wait", text="999.0")
         self.assertIn("10.0", result["message"])
 
     async def test_minimum_0_1_seconds(self):
-        from backend.agent.playwright_mcp_client import mcp_wait
-        result = await mcp_wait(0.001)
+        from backend.agent.playwright_mcp_client import execute_mcp_action
+        result = await execute_mcp_action("wait", text="0.001")
         self.assertIn("0.1", result["message"])

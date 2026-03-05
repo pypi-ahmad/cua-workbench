@@ -321,14 +321,15 @@ class TestActionConsistency:
     def test_get_text_in_correct_engines(
         self, schema_raw: Dict[str, Any]
     ) -> None:
-        """Spot-check: get_text should be in accessibility and playwright."""
-        engines_with_get_text: Set[str] = set()
+        """Spot-check: some form of text extraction should be in accessibility and playwright."""
+        engines_with_text_extraction: Set[str] = set()
         for name, block in schema_raw["engines"].items():
             actions = block.get("allowed_actions", [])
-            if isinstance(actions, list) and "get_text" in actions:
-                engines_with_get_text.add(name)
-        assert len(engines_with_get_text) >= 2, (
-            f"Expected get_text in >=2 engines, found: {engines_with_get_text}"
+            if isinstance(actions, list):
+                if "get_text" in actions or "browser_evaluate" in actions:
+                    engines_with_text_extraction.add(name)
+        assert len(engines_with_text_extraction) >= 2, (
+            f"Expected text extraction in >=2 engines, found: {engines_with_text_extraction}"
         )
 
 
@@ -591,22 +592,20 @@ class TestCrossEngineValidation:
     def test_click_in_every_concrete_engine(
         self, schema_raw: Dict[str, Any], concrete_engines: List[str]
     ) -> None:
-        """Every concrete engine should support 'click'."""
-        # computer_use uses model-native 'click_at' instead of 'click'
-        standard_engines = [e for e in concrete_engines if e != "computer_use"]
-        for name in standard_engines:
+        """Every concrete engine should support some form of 'click'."""
+        for name in concrete_engines:
             actions = set(schema_raw["engines"][name].get("allowed_actions", []))
-            assert "click" in actions, f"[{name}] missing 'click' action"
+            click_like = {a for a in actions if "click" in a}
+            assert click_like, f"[{name}] missing any click-like action"
 
     def test_type_in_every_concrete_engine(
         self, schema_raw: Dict[str, Any], concrete_engines: List[str]
     ) -> None:
-        """Every concrete engine should support 'type'."""
-        # computer_use uses model-native 'type_text_at' instead of 'type'
-        standard_engines = [e for e in concrete_engines if e != "computer_use"]
-        for name in standard_engines:
+        """Every concrete engine should support some form of 'type'."""
+        for name in concrete_engines:
             actions = set(schema_raw["engines"][name].get("allowed_actions", []))
-            assert "type" in actions, f"[{name}] missing 'type' action"
+            type_like = {a for a in actions if "type" in a}
+            assert type_like, f"[{name}] missing any type-like action"
 
     def test_capability_comparison_covers_all_engines(
         self, schema_raw: Dict[str, Any], engine_names: List[str]

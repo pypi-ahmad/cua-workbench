@@ -74,8 +74,8 @@ class TestValidateAction:
     """validate_action must accept supported and reject unsupported actions."""
 
     @pytest.mark.parametrize("engine,action", [
-        ("playwright_mcp", "get_accessibility_tree"),
-        ("playwright_mcp", "fill"),
+        ("playwright_mcp", "browser_snapshot"),
+        ("playwright_mcp", "browser_type"),
         ("omni_accessibility", "find_by_role"),
         ("omni_accessibility", "invoke_action"),
         ("omni_accessibility", "subscribe_event"),
@@ -101,7 +101,7 @@ class TestValidateAction:
         assert not caps.validate_action("playwright_mcp", "fly_to_moon")
 
     def test_validate_detailed_gives_alternatives(self, caps: EngineCapabilities):
-        ok, msg = caps.validate_action_detailed("omni_accessibility", "evaluate_js")
+        ok, msg = caps.validate_action_detailed("omni_accessibility", "browser_evaluate")
         assert not ok
         assert "playwright_mcp" in msg  # should suggest playwright_mcp as alternative
 
@@ -218,14 +218,14 @@ class TestCrossEngine:
     """engines_supporting and capability comparison matrix."""
 
     def test_click_supported_by_all(self, caps: EngineCapabilities):
-        engines = caps.engines_supporting("click")
-        # computer_use uses model-native 'click_at' instead of 'click'
-        standard_engines = [e for e in ALL_ENGINES if e != "computer_use"]
-        for e in standard_engines:
-            assert e in engines, f"click should be supported by {e}"
+        # Each engine uses its own naming: playwright_mcp→browser_click, omni→click, CU→click_at
+        for engine in ALL_ENGINES:
+            actions = caps.get_engine_actions(engine)
+            click_like = {a for a in actions if "click" in a}
+            assert click_like, f"No click-like action found for {engine}"
 
     def test_evaluate_js_only_browser(self, caps: EngineCapabilities):
-        engines = caps.engines_supporting("evaluate_js")
+        engines = caps.engines_supporting("browser_evaluate")
         assert "playwright_mcp" in engines
         assert "omni_accessibility" not in engines
         assert "computer_use" not in engines

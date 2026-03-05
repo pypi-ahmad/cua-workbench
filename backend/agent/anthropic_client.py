@@ -23,9 +23,10 @@ logger = logging.getLogger(__name__)
 
 def _build_messages(
     task: str,
-    screenshot_b64: str,
+    screenshot_b64: str | None,
     action_history: list[AgentAction],
     step_number: int,
+    snapshot_text: str | None = None,
 ) -> list[dict]:
     """Build the messages list for Claude."""
     content_parts: list[dict] = []
@@ -55,21 +56,32 @@ def _build_messages(
         history_text = "Previous actions (most recent last):\n" + "\n".join(history_lines)
         content_parts.append({"type": "text", "text": history_text})
 
-    # Task + step info
-    content_parts.append({
-        "type": "text",
-        "text": f"Task: {task}\n\nCurrent step: {step_number}\n\nHere is the current screenshot. Decide the next action to complete the task.",
-    })
+    # Task + step info — adapt prompt depending on perception mode
+    if snapshot_text:
+        content_parts.append({
+            "type": "text",
+            "text": (
+                f"Task: {task}\n\nCurrent step: {step_number}\n\n"
+                "Below is the current accessibility-tree snapshot of the browser page. "
+                "Use element names, roles and refs to decide the next action.\n\n"
+                f"{snapshot_text}"
+            ),
+        })
+    else:
+        content_parts.append({
+            "type": "text",
+            "text": f"Task: {task}\n\nCurrent step: {step_number}\n\nHere is the current screenshot. Decide the next action to complete the task.",
+        })
 
-    # Screenshot as base64 image
-    content_parts.append({
-        "type": "image",
-        "source": {
-            "type": "base64",
-            "media_type": "image/png",
-            "data": screenshot_b64,
-        },
-    })
+        # Screenshot as base64 image
+        content_parts.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": screenshot_b64,
+            },
+        })
 
     return [{"role": "user", "content": content_parts}]
 
@@ -146,12 +158,19 @@ def _validate_action(data: dict) -> AgentAction:
     if reasoning and isinstance(reasoning, str) and len(reasoning) > 2000:
         reasoning = reasoning[:2000]
 
+    # MCP-native tool_args passthrough (Playwright MCP direct path)
+    tool_args = data.get("tool_args")
+    if tool_args is not None and not isinstance(tool_args, dict):
+        logger.warning("tool_args is not a dict (%s), ignoring", type(tool_args).__name__)
+        tool_args = None
+
     return AgentAction(
         action=ActionType(action_str),
         target=target,
         coordinates=coords,
         text=text,
         reasoning=reasoning,
+        tool_args=tool_args,
     )
 
 
@@ -159,19 +178,20 @@ async def query_claude(
     api_key: str,
     model_name: str,
     task: str,
-    screenshot_b64: str,
+    screenshot_b64: str | None,
     action_history: list[AgentAction],
     step_number: int = 1,
     mode: str = "browser",
     system_prompt: str = "",
+    snapshot_text: str | None = None,
 ) -> tuple[AgentAction, str]:
-    """Send screenshot + context to Claude and return parsed action.
+    """Send screenshot (or AX snapshot) + context to Claude and return parsed action.
 
     Returns:
         (AgentAction, raw_response_text)
     """
     client = anthropic.AsyncAnthropic(api_key=api_key)
-    messages = _build_messages(task, screenshot_b64, action_history, step_number)
+    messages = _build_messages(task, screenshot_b64, action_history, step_number, snapshot_text=snapshot_text)
 
     last_error = None
     for attempt in range(config.gemini_retry_attempts):
