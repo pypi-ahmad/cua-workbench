@@ -10,8 +10,9 @@ ENV LIBGL_ALWAYS_SOFTWARE=1
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PYTHONPATH=/app
 
-# GUI/runtime dependencies + build prerequisites (single layer)
-RUN apt-get update && apt-get install -y \
+# GUI/runtime dependencies + build prerequisites + utilities + desktop apps
+# (single layer to minimise image size)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     xfce4 \
     xfce4-terminal \
     xfce4-goodies \
@@ -43,6 +44,28 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     ca-certificates \
     socat \
+    # misc utilities
+    flameshot \
+    xournalpp \
+    htop \
+    lsof \
+    strace \
+    # desktop apps & tools
+    vlc \
+    libreoffice \
+    libreoffice-gtk3 \
+    evince \
+    gedit \
+    gnome-terminal \
+    file \
+    unzip \
+    p7zip-full \
+    jq \
+    git \
+    net-tools \
+    iputils-ping \
+    dnsutils \
+    xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js LTS 20 (required for Playwright MCP via npx)
@@ -55,20 +78,17 @@ RUN node -v && npm -v && npx -v
 # Pre-install Playwright MCP server globally (avoids npx download at runtime)
 RUN npm install -g @playwright/mcp@latest
 
-# Create virtual environment WITH system site-packages access.
-# python3-gi (GObject Introspection) and gir1.2-atspi-2.0 are apt-only
-# packages — the venv must see them for the AT-SPI accessibility engine.
+# Create application venv and install Python dependencies
+RUN python3 -m venv /opt/venv \
+ && /opt/venv/bin/pip install --no-cache-dir --upgrade pip
 
+COPY requirements.txt /tmp/requirements.txt
+RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt \
+ && /opt/venv/bin/pip install --no-cache-dir playwright
 
-# RUN python3 -m venv --system-site-packages /opt/venv
-# ENV PATH="/opt/venv/bin:$PATH"
-
-# COPY requirements.txt /tmp/requirements.txt
-# RUN pip install --no-cache-dir playwright -r /tmp/requirements.txt
-
-# Install Playwright browsers + OS deps
-RUN playwright
-
+# Install Playwright Chromium browser + its OS-level dependencies
+RUN /opt/venv/bin/python -m playwright install --with-deps chromium
+RUN /opt/venv/bin/python -m playwright --version
 
 # --- Google Chrome (item 1) ---
 RUN wget -qO- https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google.gpg \
@@ -91,72 +111,6 @@ RUN mkdir -p /opt/google/chrome \
       [ -n "$CHROMIUM" ] && ln -sf "$CHROMIUM" /opt/google/chrome/chrome \
         || echo 'WARNING: no Chrome/Chromium binary found for symlink'; \
     fi
-
-# --- Brave Browser (item 3) ---
-RUN curl -fsSL https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg \
-    -o /usr/share/keyrings/brave-browser-archive-keyring.gpg
-
-RUN echo "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main" \
-    > /etc/apt/sources.list.d/brave-browser-release.list
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    brave-browser \
-    && rm -rf /var/lib/apt/lists/*
-
-# --- Misc utilities (item 4) ---
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    flameshot \
-    xournalpp \
-    htop \
-    lsof \
-    strace \
-    && rm -rf /var/lib/apt/lists/*
-
-# --- Firefox via official Mozilla APT repo (item 5, no Snap) ---
-RUN install -d -m 0755 /etc/apt/keyrings \
- && curl -fsSL https://packages.mozilla.org/apt/repo-signing-key.gpg \
-    | gpg --dearmor -o /etc/apt/keyrings/mozilla.gpg
-
-RUN echo "deb [signed-by=/etc/apt/keyrings/mozilla.gpg] https://packages.mozilla.org/apt mozilla main" \
-    > /etc/apt/sources.list.d/mozilla.list \
- && printf "Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n" \
-    > /etc/apt/preferences.d/mozilla
-
-RUN apt-get update && apt-get install -y --no-install-recommends firefox \
-    && rm -rf /var/lib/apt/lists/*
-
-# --- Microsoft Edge (item 6) ---
-RUN wget -qO- https://packages.microsoft.com/keys/microsoft.asc \
-  | gpg --dearmor -o /usr/share/keyrings/microsoft.gpg
-
-RUN echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/edge stable main" \
-  > /etc/apt/sources.list.d/microsoft-edge.list
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    microsoft-edge-stable \
-    && rm -rf /var/lib/apt/lists/*
-
-# --- Desktop apps and tools (item 8) ---
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    vlc \
-    libreoffice \
-    libreoffice-gtk3 \
-    evince \
-    gedit \
-    gnome-terminal \
-    file \
-    unzip \
-    p7zip-full \
-    jq \
-    curl \
-    wget \
-    git \
-    net-tools \
-    iputils-ping \
-    dnsutils \
-    xdg-utils \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
 
 # ── Pre-create Chrome profile to suppress first-run dialogs & keyring ────────
 # Static profile creation only — NO browser execution during build.

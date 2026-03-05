@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
 export DISPLAY=:99
 export SCREEN_WIDTH=${SCREEN_WIDTH:-1440}
@@ -121,7 +121,7 @@ fi
 # 4. x11vnc
 # ─────────────────────────────────────────────
 echo "[VNC] Starting x11vnc..."
-if [ -n "$VNC_PASSWORD" ]; then
+if [ -n "${VNC_PASSWORD:-}" ]; then
     mkdir -p /root/.vnc
     x11vnc -storepasswd "$VNC_PASSWORD" /root/.vnc/passwd
     x11vnc -display :99 -forever -rfbauth /root/.vnc/passwd -shared -rfbport 5900 -bg -o /var/log/x11vnc.log
@@ -243,14 +243,10 @@ command -v xdotool  || echo "ERROR: xdotool missing from PATH"
 command -v wmctrl   || echo "ERROR: wmctrl missing from PATH"
 command -v xclip    || echo "ERROR: xclip missing from PATH"
 
-echo "[Agent] Starting internal agent service..."
-PYTHONPATH=/app /opt/venv/bin/python /app/docker/agent_service.py &
-AGENT_PID=$!
-
 echo "=== XFCE4 Desktop Ready ==="
 echo "Access via: http://localhost:6080"
 echo "MCP server: http://localhost:${MCP_PORT}"
 
-trap "kill $XVFB_PID $AGENT_PID $MCP_PID $ATSPI_PID 2>/dev/null; exit 0" SIGTERM SIGINT
-
-wait $AGENT_PID
+# Run agent as PID 1 so it receives SIGTERM directly from Docker
+echo "[Agent] Starting internal agent service (exec)..."
+exec env PYTHONPATH=/app /opt/venv/bin/python /app/docker/agent_service.py
