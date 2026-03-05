@@ -100,7 +100,7 @@ sequenceDiagram
     actor User
     participant UI as Frontend
     participant API as Backend (FastAPI)
-    participant Loop as AgentLoop
+    participant AL as AgentLoop
     participant LLM as Gemini / Claude
     participant Engine as Engine (MCP / A11y / CU)
     participant Container as Docker Container
@@ -109,22 +109,23 @@ sequenceDiagram
     UI->>API: POST /api/agent/start
     API->>API: Validate (rate limit, engine, model, API key)
     API->>Container: Start container if needed
-    API->>Loop: Create AgentLoop + spawn asyncio task
-    API-->>UI: { session_id, status: "running" }
+    API->>AL: Create AgentLoop + spawn asyncio task
+    API-->>UI: { session_id, status: running }
 
-    loop Each step (up to max_steps)
-        Loop->>Container: GET /screenshot (perceive)
-        Loop-->>UI: WS screenshot event
-        Loop->>LLM: Send screenshot + task + history (think)
-        LLM-->>Loop: JSON action response
-        Loop->>Loop: Parse + validate action
-        Loop->>Engine: Execute action (act)
+    rect rgb(240, 248, 255)
+    note right of AL: Each step (up to max_steps)
+        AL->>Container: GET /screenshot (perceive)
+        AL-->>UI: WS screenshot event
+        AL->>LLM: Send screenshot + task + history (think)
+        LLM-->>AL: JSON action response
+        AL->>AL: Parse + validate action
+        AL->>Engine: Execute action (act)
         Engine->>Container: Perform action in sandbox
-        Engine-->>Loop: { success, message }
-        Loop-->>UI: WS step + log events
+        Engine-->>AL: { success, message }
+        AL-->>UI: WS step + log events
     end
 
-    Loop-->>UI: WS agent_finished event
+    AL-->>UI: WS agent_finished event
 ```
 
 ### Engine Selection Flowchart
