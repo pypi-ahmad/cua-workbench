@@ -443,7 +443,7 @@ To add models: edit `backend/allowed_models.json`, restart the backend, and the 
 | `AGENT_SERVICE_HOST` | `127.0.0.1` | ✅ | Agent service hostname |
 | `AGENT_SERVICE_PORT` | `9222` | ✅ | Agent service port |
 | `AGENT_MODE` | `browser` | ✅ | Default agent mode (`browser` / `desktop`) |
-| `PLAYWRIGHT_MCP_HOST` | `127.0.0.1` | ✅ | MCP server hostname |
+| `PLAYWRIGHT_MCP_HOST` | `localhost` | ✅ | MCP server hostname (use `localhost`, not `127.0.0.1`) |
 | `PLAYWRIGHT_MCP_PORT` | `8931` | ✅ | MCP server port |
 | `PLAYWRIGHT_MCP_PATH` | `/mcp` | ✅ | MCP JSON-RPC endpoint path |
 | `PLAYWRIGHT_MCP_AUTOSTART` | `0` | ✅ | Auto-launch MCP subprocess (`0`/`1`) |

@@ -15,7 +15,7 @@ services:
       # ── Playwright MCP server (native env-var config) ──
       - PLAYWRIGHT_MCP_PORT=8931
       - PLAYWRIGHT_MCP_HOST=0.0.0.0
-      - PLAYWRIGHT_MCP_ALLOWED_HOSTS="*"
+      - PLAYWRIGHT_MCP_ALLOWED_HOSTS=*
       - PLAYWRIGHT_MCP_BROWSER=chromium
       - PLAYWRIGHT_MCP_NO_SANDBOX=true
       # - PLAYWRIGHT_MCP_HEADLESS=true   # omitted → headed mode (visible via VNC)

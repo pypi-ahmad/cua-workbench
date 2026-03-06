@@ -37,7 +37,7 @@ class Config:
     agent_mode: str = "browser"  # "browser" or "desktop"
 
     # Playwright MCP service
-    playwright_mcp_host: str = "127.0.0.1"
+    playwright_mcp_host: str = "localhost"
     playwright_mcp_port: int = 8931
     playwright_mcp_path: str = "/mcp"
     playwright_mcp_autostart: bool = False
