@@ -1,0 +1,87 @@
+<svg width="1400" height="860" viewBox="0 0 1400 860" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">CUA Workbench Runtime Topology</title>
+  <desc id="desc">Runtime topology diagram showing ports, localhost-only bindings, and the relationship between host services and the Docker sandbox.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1400" y2="860" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAFC"/>
+      <stop offset="1" stop-color="#FFF7ED"/>
+    </linearGradient>
+    <filter id="shadow" x="-20" y="-20" width="1440" height="900" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#0F172A" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10V0Z" fill="#475569"/>
+    </marker>
+    <style>
+      .title { font: 700 34px 'Segoe UI', Arial, sans-serif; fill: #0F172A; }
+      .subtitle { font: 400 16px 'Segoe UI', Arial, sans-serif; fill: #475569; }
+      .group { font: 700 20px 'Segoe UI', Arial, sans-serif; fill: #0F172A; }
+      .cardTitle { font: 700 18px 'Segoe UI', Arial, sans-serif; fill: #0F172A; }
+      .body { font: 400 14px 'Segoe UI', Arial, sans-serif; fill: #334155; }
+      .minor { font: 500 12px 'Segoe UI', Arial, sans-serif; fill: #64748B; }
+      .port { font: 700 12px 'Segoe UI', Arial, sans-serif; fill: #0F172A; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="860" rx="28" fill="url(#bg)"/>
+  <rect x="36" y="34" width="1328" height="792" rx="28" fill="#FFFFFF" filter="url(#shadow)"/>
+  <text x="84" y="96" class="title">Runtime and Port Topology</text>
+  <text x="84" y="124" class="subtitle">The public surface is intentionally local-first: container services are bound to 127.0.0.1 and proxied through the backend for the browser UI.</text>
+
+  <rect x="84" y="166" width="416" height="594" rx="28" fill="#EFF6FF"/>
+  <text x="116" y="208" class="group">Host machine</text>
+
+  <rect x="116" y="238" width="352" height="110" rx="22" fill="#FFFFFF" stroke="#BFDBFE"/>
+  <text x="144" y="276" class="cardTitle">Frontend dev server</text>
+  <text x="144" y="300" class="body">Serves the React workbench and proxies /api, /ws, and /vnc to the backend.</text>
+  <rect x="328" y="258" width="112" height="26" rx="13" fill="#DBEAFE"/>
+  <text x="384" y="276" text-anchor="middle" class="port">localhost:3000</text>
+
+  <rect x="116" y="382" width="352" height="138" rx="22" fill="#FFFFFF" stroke="#BFDBFE"/>
+  <text x="144" y="420" class="cardTitle">FastAPI backend</text>
+  <text x="144" y="444" class="body">Owns validation, orchestration, Docker control, session memory, and live event broadcasting.</text>
+  <rect x="328" y="402" width="112" height="26" rx="13" fill="#CCFBF1"/>
+  <text x="384" y="420" text-anchor="middle" class="port">localhost:8000</text>
+
+  <rect x="116" y="554" width="352" height="174" rx="22" fill="#FFFFFF" stroke="#BFDBFE"/>
+  <text x="144" y="592" class="cardTitle">Local execution options</text>
+  <text x="144" y="616" class="body">Playwright MCP can run on the host in STDIO mode. Omni Accessibility can target native Windows UIA or macOS JXA locally.</text>
+  <text x="144" y="646" class="minor">Computer Use local target is rejected by the API.</text>
+  <text x="144" y="672" class="minor">CORS is restricted to localhost development origins by default.</text>
+
+  <rect x="560" y="166" width="756" height="594" rx="28" fill="#0F172A"/>
+  <text x="592" y="208" class="group" fill="#F8FAFC">Docker container: cua-environment</text>
+
+  <rect x="592" y="238" width="332" height="130" rx="22" fill="#111827" stroke="#334155"/>
+  <text x="620" y="276" class="cardTitle" fill="#F8FAFC">Desktop services</text>
+  <text x="620" y="300" class="body" fill="#CBD5E1">XFCE, Xvfb, DBus, AT-SPI registry, x11vnc, and websockify create the visible desktop and accessibility environment.</text>
+  <rect x="738" y="328" width="158" height="26" rx="13" fill="#1E293B"/>
+  <text x="817" y="346" text-anchor="middle" class="port" fill="#E2E8F0">5900 / 6080</text>
+
+  <rect x="952" y="238" width="332" height="130" rx="22" fill="#111827" stroke="#334155"/>
+  <text x="980" y="276" class="cardTitle" fill="#F8FAFC">Browser services</text>
+  <text x="980" y="300" class="body" fill="#CBD5E1">Playwright Chromium, Google Chrome path shim, remote debugging on 9223, and Playwright MCP on 8931.</text>
+  <rect x="1098" y="328" width="158" height="26" rx="13" fill="#1E293B"/>
+  <text x="1177" y="346" text-anchor="middle" class="port" fill="#E2E8F0">8931 / 9223</text>
+
+  <rect x="592" y="412" width="692" height="142" rx="22" fill="#111827" stroke="#334155"/>
+  <text x="620" y="450" class="cardTitle" fill="#F8FAFC">Internal control API</text>
+  <text x="620" y="474" class="body" fill="#CBD5E1">agent_service.py exposes /health, /mode, /action, and /screenshot so the backend can drive browser or desktop mode over HTTP.</text>
+  <rect x="1126" y="432" width="130" height="26" rx="13" fill="#1D4ED8"/>
+  <text x="1191" y="450" text-anchor="middle" class="port" fill="#F8FAFC">localhost:9222</text>
+
+  <rect x="592" y="588" width="692" height="140" rx="22" fill="#111827" stroke="#334155"/>
+  <text x="620" y="626" class="cardTitle" fill="#F8FAFC">Container security and limits</text>
+  <text x="620" y="650" class="body" fill="#CBD5E1">docker-compose binds ports to 127.0.0.1, enables init, applies no-new-privileges, caps memory at 4 GB, CPUs at 2, and shared memory at 2 GB.</text>
+  <text x="620" y="680" class="minor" fill="#94A3B8">This is a local sandbox, not a hardened multitenant isolation boundary.</text>
+
+  <path d="M468 296H560" stroke="#475569" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="514" y="286" text-anchor="middle" class="minor">Browser opens UI</text>
+  <path d="M468 450H560" stroke="#475569" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="514" y="440" text-anchor="middle" class="minor">REST / WS / VNC proxy</text>
+  <path d="M468 640H560" stroke="#475569" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="514" y="630" text-anchor="middle" class="minor">Optional local engine path</text>
+
+  <path d="M938 520V588" stroke="#475569" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="956" y="562" class="minor">shared runtime</text>
+</svg>
