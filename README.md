@@ -27,7 +27,7 @@ That makes the repository useful for engineering evaluation, prompt iteration, r
 
 ## Implemented Features
 
-- React frontend with a home view and a more detailed `/workbench` view
+- React frontend with a landing page (`/`) and a full-featured `/workbench` operator view
 - FastAPI backend with REST endpoints for health, models, engines, container lifecycle, session control, screenshots, and key validation
 - WebSocket streaming for screenshots, logs, steps, and session completion
 - Three execution engines: `playwright_mcp`, `omni_accessibility`, and `computer_use`
@@ -197,51 +197,47 @@ python -m pip install aiortc av
 
 ## Running Locally
 
-### Recommended path for the current repository state
+### Option 1: convenience launchers (recommended)
 
-There is a real port mismatch in the current repo:
-
-- `frontend/vite.config.js` proxies `/api`, `/ws`, and `/vnc` to `localhost:8080`
-- `python -m backend.main` starts the backend on `8000`
-- `start.sh` and `start.bat` also start the backend on `8000`
-
-To use the frontend without editing source files, run the backend on `8080` manually.
-
-### 1. Start the Docker sandbox
+**Linux / macOS:**
 
 ```bash
-docker compose up -d --build
+./start.sh
 ```
 
-### 2. Start the backend on port 8080
+**Windows:**
+
+```bat
+start.bat
+```
+
+Both launchers start the backend on `http://localhost:8000` and the frontend on `http://localhost:3000`. They do not start or stop the Docker container — use the **Start Sandbox** button in the app or `docker compose up -d` to bring the sandbox up first.
+
+To stop all processes:
 
 ```bash
-python -m uvicorn backend.api.server:app --host 127.0.0.1 --port 8080
+./start.sh --stop
 ```
 
-### 3. Start the frontend
+### Option 2: manual start
 
 ```bash
-cd frontend
-npm run dev
+# 1. Activate the virtual environment created by setup.sh
+source .venv/bin/activate    # Windows: .venv\Scripts\activate.bat
+
+# 2. Start the sandbox container
+docker compose up -d
+
+# 3. Start the backend (separate terminal)
+python -m backend.main       # starts on http://localhost:8000
+
+# 4. Start the frontend (separate terminal)
+cd frontend && npm run dev   # starts on http://localhost:3000
 ```
 
-`frontend/vite.config.js` requests port `3000`. Open the URL Vite prints in the terminal.
+The Vite dev server at port 3000 proxies `/api`, `/ws`, and `/vnc` to `http://localhost:8000`.
 
-### Convenience launchers
-
-The repository also includes:
-
-- `./start.sh`
-- `start.bat`
-
-Current behavior of those launchers:
-
-- start backend on `http://localhost:8000`
-- start frontend and print `http://localhost:5173`
-- do not start the Docker container for you
-
-They are useful as convenience scripts, but they are not fully aligned with the current frontend proxy settings.
+> **Note:** The launch scripts do not activate `.venv`. If you used `setup.sh` to create a virtual environment, activate it before running the launch script, or ensure the same packages are available in your default Python installation.
 
 ## Available Commands
 
@@ -274,8 +270,8 @@ Defined in `frontend/package.json`:
 
 The frontend exposes two routes:
 
-- `/` - home view with control panel, live screen, and logs
-- `/workbench` - expanded workbench with sidebar, live screen, timeline, and log tabs
+- `/` — landing page with product overview, feature cards, and "Open Workbench →" link
+- `/workbench` — the primary working surface: provider/model/key config, engine selection, task input, live screen, timeline, and logs
 
 Typical flow:
 
@@ -286,23 +282,25 @@ Typical flow:
 5. Watch screenshots, logs, and steps as they stream into the UI.
 6. Stop the session, inspect history, or export the run as JSON.
 
-### Usage Guide
+## Usage Guide
 
-For the detailed operator guide, see [docs/USAGE.md](docs/USAGE.md). It contains the full usage flow, UI-level behavior, inputs and outputs, troubleshooting, and current limitations.
+For the complete operator reference, see **[docs/USAGE.md](docs/USAGE.md)**. It covers every UI flow, configuration option, engine behavior, WebSocket event, API endpoint, troubleshooting step, and known limitation in detail.
 
-Guide sections:
+Sections:
 
-- [Purpose](docs/USAGE.md#purpose)
 - [Who This App Is For](docs/USAGE.md#who-this-app-is-for)
 - [Before You Start](docs/USAGE.md#before-you-start)
 - [Setup and Prerequisites](docs/USAGE.md#setup-and-prerequisites)
-- [How to Start the App Locally](docs/USAGE.md#how-to-start-the-app-locally)
+- [How to Start the App](docs/USAGE.md#how-to-start-the-app)
 - [Main User Workflow](docs/USAGE.md#main-user-workflow)
 - [Feature Guide](docs/USAGE.md#feature-guide)
+- [Automation Engines](docs/USAGE.md#automation-engines)
 - [Input Expectations](docs/USAGE.md#input-expectations)
-- [Output and Result Behavior](docs/USAGE.md#output-and-result-behavior)
+- [Output and Export](docs/USAGE.md#output-and-export)
+- [Session Persistence](docs/USAGE.md#session-persistence)
+- [Safety Confirmation](docs/USAGE.md#safety-confirmation)
 - [Configuration Reference](docs/USAGE.md#configuration-reference)
-- [API and Realtime Surface](docs/USAGE.md#api-and-realtime-surface)
+- [Backend API Reference](docs/USAGE.md#backend-api-reference)
 - [Troubleshooting](docs/USAGE.md#troubleshooting)
 - [Limitations and Important Notes](docs/USAGE.md#limitations-and-important-notes)
 
@@ -392,12 +390,11 @@ What is not documented here as supported because the repo does not define it cle
 ## Limitations and Notes
 
 - Session state is in memory only; restarting the backend clears active sessions.
-- The frontend/backend port configuration is currently inconsistent unless you either run the backend on `8080` or change the Vite proxy.
-- `computer_use` rejects `execution_target=local` by design.
-- The Docker sandbox is local-first and its published ports are bound to `127.0.0.1` in `docker-compose.yml`.
-- WebRTC support is optional and requires extra packages.
-- The frontend does not currently expose a user-facing approval dialog for safety-confirmation events even though the backend exposes `/api/agent/safety-confirm`.
-- The Linux accessibility path is the primary implemented accessibility runtime; the codebase includes Windows UIA and macOS JXA preparation, but the repo is centered on the Dockerized Linux desktop.
+- `computer_use` rejects `execution_target=local` by design; it requires the Docker sandbox.
+- The Docker sandbox is local-first; all published ports are bound to `127.0.0.1` in `docker-compose.yml`.
+- WebRTC support is optional and requires `aiortc` and `av` installed separately.
+- VNC is not password-protected by default; set `VNC_PASSWORD` if you expose the app beyond localhost.
+- `pytest` is not in `requirements.txt`; install it explicitly before running tests.
 
 ## Contributing
 

@@ -14,11 +14,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.config import config, get_all_key_statuses, resolve_api_key
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from backend.models import (
     AgentAction,
-    LogEntry,
-    SessionStatus,
     StartTaskRequest,
     TaskStatusResponse,
 )
