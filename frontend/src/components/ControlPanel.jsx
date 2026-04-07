@@ -188,7 +188,7 @@ export default function ControlPanel({
             className={`key-src-btn ${keySource === 'env' ? 'active' : ''}`}
             onClick={() => setKeySource('env')}
             disabled={agentRunning || keyStatuses[provider]?.source !== 'env'}
-            style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'env' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'env' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.source === 'env' ? 1 : 0.4 }}
+            style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'env' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'env' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.source === 'env' ? 1 : 0.6 }}
             title={keyStatuses[provider]?.source === 'env' ? `Found (${keyStatuses[provider]?.masked_key})` : 'No environment variable set'}
           >
             Environment variable {keyStatuses[provider]?.source === 'env' ? '✓' : ''}
