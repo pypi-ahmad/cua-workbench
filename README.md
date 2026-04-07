@@ -1,9 +1,5 @@
 # CUA Workbench
 
-<p align="center">
-  <img src="docs/assets/architecture.svg" alt="CUA Workbench architecture" width="100%" />
-</p>
-
 CUA Workbench is a local development environment for running computer-using agents inside a visible Linux sandbox. It combines a React frontend, a FastAPI orchestration backend, and a Dockerized Ubuntu desktop so you can start an agent session, watch what it does, inspect step-by-step logs, and compare multiple execution engines without leaving the same interface.
 
 ## What the App Does
