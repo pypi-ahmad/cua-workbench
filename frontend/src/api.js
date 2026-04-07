@@ -43,10 +43,6 @@ export async function stopContainer() {
   return request('/container/stop', { method: 'POST' })
 }
 
-export async function buildImage() {
-  return request('/container/build', { method: 'POST' })
-}
-
 export async function startAgent({ task, apiKey, model, maxSteps, mode, engine, provider, executionTarget }) {
   // Bypass generic request() — validation errors return HTTP 400/429 with JSON body.
   // Always returns { error?: string, ... } so callers can inspect data.error without catching.
@@ -89,25 +85,6 @@ export async function startAgent({ task, apiKey, model, maxSteps, mode, engine, 
 
 export async function stopAgent(sessionId) {
   return request(`/agent/stop/${sessionId}`, { method: 'POST' })
-}
-
-export async function setAgentMode(mode) {
-  return request('/agent-service/mode', {
-    method: 'POST',
-    body: JSON.stringify({ mode }),
-  })
-}
-
-export async function getAgentStatus(sessionId) {
-  return request(`/agent/status/${sessionId}`)
-}
-
-export async function getScreenshot() {
-  return request('/screenshot')
-}
-
-export async function getAgentServiceHealth() {
-  return request('/agent-service/health')
 }
 
 export async function getKeyStatuses() {

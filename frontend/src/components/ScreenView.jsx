@@ -1,8 +1,5 @@
 import { useState } from 'react'
 
-// Derive the backend API base from the current page location (protocol-safe)
-const API_BASE = window.location.origin
-
 export default function ScreenView({ screenshot, containerRunning, agentServiceUp }) {
   // Default to VNC (interactive) when container is running
   const [useVnc, setUseVnc] = useState(true)
