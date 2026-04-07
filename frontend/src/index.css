@@ -13,7 +13,7 @@
   --bg-tertiary: #232633;
   --border: #2e3241;
   --text-primary: #e4e6ed;
-  --text-secondary: #9499ad;
+  --text-secondary: #a8adc0;
   --accent: #6c63ff;
   --accent-hover: #5a52e0;
   --success: #34d399;
@@ -497,6 +497,12 @@ html, body {
   background: var(--accent);
   border-radius: 2px;
   transition: width 0.4s ease;
+}
+
+/* ── Spinner ──────────────────────────────────────────────────────────────── */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 /* ── Action details ───────────────────────────────────────────────────────── */

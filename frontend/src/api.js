@@ -114,3 +114,26 @@ export async function getEngines() {
 export async function getModels() {
   return request('/models')
 }
+
+export async function validateApiKey(provider, apiKey) {
+  try {
+    return await request('/keys/validate', {
+      method: 'POST',
+      body: JSON.stringify({ provider, api_key: apiKey }),
+    })
+  } catch {
+    return { valid: null, error: 'Could not validate key' }
+  }
+}
+
+export async function getHealthDetailed() {
+  return request('/health/detailed')
+}
+
+export async function getContainerLogs(lines = 100) {
+  return request(`/container/logs?lines=${lines}`)
+}
+
+export async function getPreflight(engine, provider) {
+  return request(`/preflight?engine=${encodeURIComponent(engine)}&provider=${encodeURIComponent(provider)}`)
+}

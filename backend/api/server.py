@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.config import config, get_all_key_statuses, resolve_api_key
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from backend.models import (
     AgentAction,
     LogEntry,
@@ -28,6 +28,7 @@ from backend.tools.router import SUPPORTED_ENGINES
 from backend.utils.docker_manager import (
     build_image,
     get_container_status,
+    is_container_running,
     start_container,
     stop_container,
 )
@@ -43,6 +44,26 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="CUA — Computer Using Agent", version="1.0.0")
 
+
+# ── B-28: Request-ID middleware ───────────────────────────────────────────────
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
+
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    """Attach a unique request ID to every request/response cycle."""
+
+    async def dispatch(self, request: Request, call_next):
+        req_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+        request.state.request_id = req_id
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = req_id
+        return response
+
+
+app.add_middleware(RequestIDMiddleware)
+
+
 # CORS: restrict to local dev origins by default
 _ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -56,7 +77,7 @@ app.add_middleware(
     allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "X-Request-ID"],
 )
 
 # Security constants
@@ -128,6 +149,25 @@ async def on_startup():
     except Exception as e:
         logger.warning("Tool parity check failed: %s", e)
 
+    # B-19: Start idle-session reaper
+    asyncio.create_task(_reap_idle_sessions())
+
+
+async def _reap_idle_sessions() -> None:
+    """Background task: stop sessions idle for more than the timeout."""
+    while True:
+        await asyncio.sleep(60)  # check every minute
+        now = time.monotonic()
+        for sid in list(_session_last_activity.keys()):
+            if sid not in _active_loops:
+                _session_last_activity.pop(sid, None)
+                continue
+            elapsed = now - _session_last_activity.get(sid, now)
+            if elapsed > _SESSION_IDLE_TIMEOUT:
+                logger.info("AUDIT session_timeout — session_id=%s idle=%.0fs", sid, elapsed)
+                await _stop_agent(sid)
+                _session_last_activity.pop(sid, None)
+
 
 @app.on_event("shutdown")
 async def on_shutdown():
@@ -156,6 +196,33 @@ async def on_shutdown():
 _active_loops: dict[str, AgentLoop] = {}
 _active_tasks: dict[str, asyncio.Task] = {}
 _ws_clients: list[WebSocket] = []
+
+# B-19: Session idle timeout tracking  (last-activity timestamp per session)
+_SESSION_IDLE_TIMEOUT = 30 * 60  # 30 minutes
+_session_last_activity: dict[str, float] = {}
+
+
+def _touch_session(session_id: str) -> None:
+    """Update the last-activity timestamp for *session_id*."""
+    _session_last_activity[session_id] = time.monotonic()
+
+
+# ── B-14: Standardized error envelope ─────────────────────────────────────────
+
+def _error_response(
+    status_code: int,
+    message: str,
+    *,
+    detail: str | None = None,
+    request_id: str | None = None,
+) -> JSONResponse:
+    """Return a uniform ``{error, detail?, request_id?}`` JSON error."""
+    body: dict = {"error": message}
+    if detail:
+        body["detail"] = detail
+    if request_id:
+        body["request_id"] = request_id
+    return JSONResponse(status_code=status_code, content=body)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -307,6 +374,215 @@ async def api_keys_status():
     return {"keys": get_all_key_statuses()}
 
 
+class ValidateKeyRequest(BaseModel):
+    """Body for the key validation endpoint."""
+    provider: str
+    api_key: str
+
+
+@app.post("/api/keys/validate")
+async def api_validate_key(req: ValidateKeyRequest):
+    """Validate an API key by making a minimal test call to the provider.
+
+    Returns ``{"valid": true}`` or ``{"valid": false, "error": "..."}``
+    with a 5-second timeout.
+    """
+    if req.provider not in _VALID_PROVIDERS:
+        return {"valid": False, "error": f"Unknown provider: {req.provider}"}
+    if not req.api_key or len(req.api_key) < 8:
+        return {"valid": False, "error": "Key too short"}
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            if req.provider == "google":
+                # Test Google key by listing models
+                resp = await client.get(
+                    "https://generativelanguage.googleapis.com/v1beta/models",
+                    params={"key": req.api_key},
+                )
+                if resp.status_code == 200:
+                    return {"valid": True}
+                return {"valid": False, "error": "Invalid Google API key"}
+            elif req.provider == "anthropic":
+                # Test Anthropic key with a minimal request
+                resp = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": req.api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": "claude-sonnet-4-20250514",
+                        "max_tokens": 1,
+                        "messages": [{"role": "user", "content": "hi"}],
+                    },
+                )
+                # 200 or 400 (invalid request but key is valid) means key works
+                if resp.status_code in (200, 400):
+                    return {"valid": True}
+                if resp.status_code == 401:
+                    return {"valid": False, "error": "Invalid Anthropic API key"}
+                return {"valid": True}  # Other status codes likely mean key is ok
+    except httpx.TimeoutException:
+        return {"valid": None, "error": "Validation timed out — could not verify key"}
+    except Exception as e:
+        logger.debug("Key validation error: %s", e)
+        return {"valid": None, "error": "Could not verify key"}
+
+    return {"valid": None, "error": "Unknown provider"}
+
+
+@app.get("/api/health/detailed")
+async def api_health_detailed():
+    """Return component-level health status for the system.
+
+    Response::
+
+        {
+          "status": "healthy|degraded|unhealthy",
+          "components": {
+            "docker": {"status": "healthy", "message": "..."},
+            "agent_service": {"status": "healthy"|"unhealthy"|"unknown"},
+            "api_keys": {"google": true, "anthropic": false}
+          },
+          "active_sessions": 0
+        }
+    """
+    components = {}
+
+    # Docker container
+    try:
+        container_info = await get_container_status()
+        running = container_info.get("running", False)
+        components["docker"] = {
+            "status": "healthy" if running else "stopped",
+            "running": running,
+        }
+    except Exception:
+        components["docker"] = {"status": "unknown", "running": False}
+
+    # Agent service
+    try:
+        healthy = await check_service_health()
+        components["agent_service"] = {
+            "status": "healthy" if healthy else "unhealthy",
+        }
+    except Exception:
+        components["agent_service"] = {"status": "unknown"}
+
+    # API keys
+    key_statuses = get_all_key_statuses()
+    components["api_keys"] = {
+        ks["provider"]: ks["available"] for ks in key_statuses
+    }
+
+    # Active sessions
+    active_count = sum(1 for t in _active_tasks.values() if not t.done())
+
+    # Overall status
+    docker_ok = components["docker"]["status"] == "healthy"
+    agent_ok = components["agent_service"]["status"] == "healthy"
+    if docker_ok and agent_ok:
+        overall = "healthy"
+    elif docker_ok or agent_ok:
+        overall = "degraded"
+    else:
+        overall = "unhealthy"
+
+    return {
+        "status": overall,
+        "components": components,
+        "active_sessions": active_count,
+    }
+
+
+@app.get("/api/preflight")
+async def api_preflight(engine: str = "playwright_mcp", provider: str = "google"):
+    """Run a pre-flight checklist before starting an agent session.
+
+    Returns a list of checks with pass/fail status.
+    """
+    checks = []
+
+    # 1. API key available
+    resolved_key, key_source = resolve_api_key(provider, None)
+    checks.append({
+        "name": "api_key",
+        "label": f"{provider.capitalize()} API key",
+        "ok": bool(resolved_key and len(resolved_key) >= 8),
+        "message": f"Found ({key_source})" if resolved_key else "Not configured",
+    })
+
+    # 2. Container running
+    try:
+        running = await is_container_running()
+        checks.append({
+            "name": "container",
+            "label": "Docker container",
+            "ok": running,
+            "message": "Running" if running else "Not running — will be started automatically",
+        })
+    except Exception:
+        checks.append({
+            "name": "container",
+            "label": "Docker container",
+            "ok": False,
+            "message": "Could not check container status",
+        })
+
+    # 3. Agent service health
+    try:
+        healthy = await check_service_health()
+        checks.append({
+            "name": "agent_service",
+            "label": "Agent service",
+            "ok": healthy,
+            "message": "Ready" if healthy else "Not responding",
+        })
+    except Exception:
+        checks.append({
+            "name": "agent_service",
+            "label": "Agent service",
+            "ok": False,
+            "message": "Could not check",
+        })
+
+    # 4. Engine supported
+    engine_ok = engine in _VALID_ENGINES
+    checks.append({
+        "name": "engine",
+        "label": f"Engine: {engine}",
+        "ok": engine_ok,
+        "message": "Available" if engine_ok else "Unknown engine",
+    })
+
+    all_ok = all(c["ok"] for c in checks)
+    return {"ready": all_ok, "checks": checks}
+
+
+@app.get("/api/container/logs")
+async def api_container_logs(lines: int = 100):
+    """Return recent container logs (last N lines)."""
+    import subprocess
+    lines = min(max(lines, 1), 500)  # Cap at 500 lines
+    try:
+        result = subprocess.run(
+            ["docker", "logs", "--tail", str(lines), config.container_name],
+            capture_output=True, text=True, timeout=5,
+        )
+        return {
+            "logs": result.stdout[-10000:] if result.stdout else "",  # Cap output size
+            "stderr": result.stderr[-5000:] if result.stderr else "",
+        }
+    except subprocess.TimeoutExpired:
+        return {"logs": "", "stderr": "Timed out reading container logs"}
+    except FileNotFoundError:
+        return {"logs": "", "stderr": "Docker CLI not found"}
+    except Exception as e:
+        return {"logs": "", "stderr": str(e)}
+
+
 @app.get("/api/screenshot")
 async def api_screenshot():
     """Get current screenshot as base64."""
@@ -318,30 +594,29 @@ async def api_screenshot():
 
 
 @app.post("/api/agent/start")
-async def api_start_agent(req: StartTaskRequest):
+async def api_start_agent(req: StartTaskRequest, request: Request):
     """Start a new agent session with input validation."""
+    rid = getattr(request.state, "request_id", None)
 
     # ── Rate limit ────────────────────────────────────────────────────
     if not _agent_start_limiter.allow():
-        return JSONResponse(status_code=429, content={"error": "Rate limit exceeded — max 10 starts per minute"})
+        return _error_response(429, "Too many sessions started — wait a minute and try again.", request_id=rid)
 
     # ── Validate inputs ───────────────────────────────────────────────
     if req.engine not in _VALID_ENGINES:
-        return JSONResponse(status_code=400, content={"error": f"Invalid engine: {req.engine}"})
+        return _error_response(400, f"Invalid engine: {req.engine}", request_id=rid)
     if req.provider not in _VALID_PROVIDERS:
-        return JSONResponse(status_code=400, content={"error": f"Invalid provider: {req.provider}"})
+        return _error_response(400, f"Invalid provider: {req.provider}", request_id=rid)
     if req.model not in _VALID_MODELS_BY_PROVIDER.get(req.provider, set()):
         allowed = ", ".join(m["model_id"] for m in _ALLOWED_MODELS)
-        return JSONResponse(status_code=400, content={
-            "error": f"Model '{req.model}' is not allowed. Supported models: {allowed}"
-        })
+        return _error_response(400, f"Model '{req.model}' is not allowed. Supported models: {allowed}", request_id=rid)
     if not req.task or not req.task.strip():
-        return JSONResponse(status_code=400, content={"error": "Task description is required"})
+        return _error_response(400, "Describe what the agent should do.", request_id=rid)
 
     # Resolve API key: UI input → .env → system env
     resolved_key, key_source = resolve_api_key(req.provider, req.api_key)
     if not resolved_key or len(resolved_key) < 8:
-        return JSONResponse(status_code=400, content={"error": "API key is required. Provide it in the UI, .env file, or system environment variable."})
+        return _error_response(400, "API key is required. Provide it in the UI, .env file, or system environment variable.", request_id=rid)
 
     # Cap max_steps to prevent runaway agents
     req.max_steps = min(req.max_steps, _MAX_STEPS_HARD_CAP)
@@ -349,7 +624,7 @@ async def api_start_agent(req: StartTaskRequest):
     # Limit concurrent sessions
     active_count = sum(1 for t in _active_tasks.values() if not t.done())
     if active_count >= _MAX_CONCURRENT_SESSIONS:
-        return JSONResponse(status_code=429, content={"error": f"Maximum {_MAX_CONCURRENT_SESSIONS} concurrent sessions allowed"})
+        return _error_response(429, f"Maximum {_MAX_CONCURRENT_SESSIONS} concurrent sessions allowed.", request_id=rid)
 
     # Audit log (mask API key)
     masked_key = resolved_key[:4] + "..." + resolved_key[-4:] if len(resolved_key) > 8 else "****"
@@ -365,11 +640,11 @@ async def api_start_agent(req: StartTaskRequest):
     #   Gemini CU docs: https://ai.google.dev/gemini-api/docs/computer-use
     #   Anthropic CU docs: https://platform.claude.com/docs/en/docs/agents-and-tools/computer-use
     if req.engine == "computer_use" and execution_target == "local":
-        return JSONResponse(status_code=400, content={
-            "error": "Local computer_use is not supported yet. "
-                     "The computer_use engine requires the Docker Ubuntu sandbox. "
-                     "Please select 'Docker Ubuntu' as the run target."
-        })
+        return _error_response(400,
+            "Computer Use engine requires the Docker container. "
+            "Select 'Docker container' as the run location, or switch to the Browser engine.",
+            request_id=rid,
+        )
 
     container_ok = await start_container()
     if not container_ok:
@@ -387,17 +662,21 @@ async def api_start_agent(req: StartTaskRequest):
         on_log=lambda entry: asyncio.ensure_future(
             _broadcast("log", {"log": entry.model_dump()})
         ),
-        on_step=lambda step: asyncio.ensure_future(
-            _broadcast("step", {
-                "step": step.model_dump(exclude={"screenshot_b64", "raw_model_response"}),
-            })
-        ),
+        on_step=lambda step: (
+            _touch_session(loop.session_id),  # B-19: reset idle timer
+            asyncio.ensure_future(
+                _broadcast("step", {
+                    "step": step.model_dump(exclude={"screenshot_b64", "raw_model_response"}),
+                })
+            ),
+        )[-1],
         on_screenshot=lambda b64: asyncio.ensure_future(
             _broadcast("screenshot", {"screenshot": b64})
         ),
     )
 
     _active_loops[loop.session_id] = loop
+    _touch_session(loop.session_id)  # B-19: start idle timer
 
     async def _run_and_notify():
         """Run the agent loop then broadcast a finish event to all WS clients."""
@@ -410,6 +689,7 @@ async def api_start_agent(req: StartTaskRequest):
         # Cleanup bookkeeping so status endpoint reflects completion
         _active_tasks.pop(loop.session_id, None)
         _active_loops.pop(loop.session_id, None)
+        _session_last_activity.pop(loop.session_id, None)  # B-19
 
     task = asyncio.create_task(_run_and_notify())
     _active_tasks[loop.session_id] = task

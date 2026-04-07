@@ -3,13 +3,26 @@ import { useState } from 'react'
 // Derive the backend API base from the current page location (protocol-safe)
 const API_BASE = window.location.origin
 
-export default function ScreenView({ screenshot, containerRunning }) {
+export default function ScreenView({ screenshot, containerRunning, agentServiceUp }) {
   // Default to VNC (interactive) when container is running
   const [useVnc, setUseVnc] = useState(true)
 
   // Route noVNC through the backend reverse proxy (same origin) so the
   // browser never needs direct access to Docker-mapped port 6080.
   const vncUrl = `/vnc/vnc.html?autoconnect=true&resize=scale&path=vnc/websockify`
+
+  // Loading state: container running but agent service not yet ready
+  if (containerRunning && !agentServiceUp && !screenshot) {
+    return (
+      <div className="screen-container" style={{ position: 'relative' }}>
+        <div className="screen-placeholder">
+          <div style={{ width: 32, height: 32, border: '3px solid var(--border)', borderTop: '3px solid var(--accent)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+          <span>Waiting for agent service to start…</span>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>The container is running. Services are initializing.</span>
+        </div>
+      </div>
+    )
+  }
 
   // When container is running and VNC mode enabled, show interactive desktop
   if (containerRunning && useVnc) {
@@ -26,7 +39,7 @@ export default function ScreenView({ screenshot, containerRunning }) {
           }}
         />
         <div className="screen-overlay">
-          <span className="screen-badge">Interactive</span>
+          <span className="screen-badge" aria-label="Interactive VNC mode active">Interactive</span>
         </div>
       </div>
     )
@@ -39,7 +52,7 @@ export default function ScreenView({ screenshot, containerRunning }) {
         {screenshot && (
             <img
             src={`data:image/png;base64,${screenshot}`}
-            alt="Agent screen"
+            alt="Agent screen capture"
             draggable={false}
             style={{
                 width: '100%', height: '100%', objectFit: 'contain',
@@ -51,7 +64,7 @@ export default function ScreenView({ screenshot, containerRunning }) {
         {/* Empty state */}
         {!screenshot && (
             <div className="screen-placeholder">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
                 <rect x="2" y="3" width="20" height="14" rx="2" />
                 <path d="M8 21h8M12 17v4" />
             </svg>
@@ -67,6 +80,7 @@ export default function ScreenView({ screenshot, containerRunning }) {
                 {containerRunning && (
                     <button
                         onClick={() => setUseVnc(true)}
+                        aria-label="Switch to interactive VNC view"
                         style={{
                             marginLeft: 8, padding: '2px 8px', fontSize: 11,
                             background: 'rgba(0,0,0,0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)',

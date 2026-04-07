@@ -97,8 +97,13 @@ async def start_container(name: str | None = None) -> bool:
         "-p", f"127.0.0.1:{config.agent_service_port}:{config.agent_service_port}",
         "-p", "127.0.0.1:9223:9223",
         "--shm-size=2g",
-        config.container_image,
     ]
+
+    # B-31: Pass VNC password into the container if configured
+    if config.vnc_password:
+        args.extend(["-e", f"VNC_PASSWORD={config.vnc_password}"])
+
+    args.append(config.container_image)
     logger.info("Starting container: %s", container)
     rc, out, err = await _run(args)
 
