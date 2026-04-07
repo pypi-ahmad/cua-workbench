@@ -66,6 +66,9 @@ class Config:
     # WebSocket
     ws_screenshot_interval: float = 1.5
 
+    # VNC (B-31)
+    vnc_password: str = ""  # empty = no password (default for dev)
+
     @property
     def agent_service_url(self) -> str:
         """Full HTTP URL for the in-container agent service."""
@@ -103,6 +106,7 @@ class Config:
             step_timeout=float(os.getenv("STEP_TIMEOUT", str(cls.step_timeout))),
             gemini_retry_attempts=int(os.getenv("GEMINI_RETRY_ATTEMPTS", str(cls.gemini_retry_attempts))),
             debug=os.getenv("DEBUG", "").lower() in ("1", "true", "yes"),
+            vnc_password=os.getenv("VNC_PASSWORD", cls.vnc_password),
         )
 
 

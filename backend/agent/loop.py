@@ -224,9 +224,8 @@ class AgentLoop:
                 if not a11y_status.get("bindings"):
                     self._emit_log(
                         "error",
-                        "AT-SPI bindings unavailable inside container. "
-                        "Ensure gir1.2-atspi-2.0, python3-gi, and at-spi2-core are installed "
-                        "and the DBus session bus is running. "
+                        "Accessibility engine needs the Docker container running with AT-SPI support. "
+                        "Try the Browser engine, or ensure the container is started. "
                         f"Detail: {a11y_status.get('error', 'unknown')}",
                     )
                     self.session.status = SessionStatus.ERROR
@@ -283,13 +282,16 @@ class AgentLoop:
                         step=step_num,
                         action="step_timeout",
                         errorCode="step_timeout",
-                        message=f"Step timed out after {config.step_timeout}s",
+                        message=(
+                            f"Step {step_num} took longer than {config.step_timeout}s "
+                            "\u2014 the automation may have stalled. Check the screen view."
+                        ),
                     )
                     step = StepRecord(
                         step_number=step_num,
                         error=err.message,
                     )
-                    self._emit_log("error", f"Step {step_num}: Timed out", data=err.to_dict())
+                    self._emit_log("error", f"Step {step_num}: Timed out \u2014 check the screen view", data=err.to_dict())
 
                 self._action_count += 1
                 self.session.steps.append(step)

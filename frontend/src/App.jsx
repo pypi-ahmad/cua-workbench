@@ -7,7 +7,7 @@ import Header from './components/Header'
 import { getContainerStatus } from './api'
 
 export default function App() {
-  const { connected, lastScreenshot, logs, steps, clearLogs, clearSteps } = useWebSocket()
+  const { connected, lastScreenshot, logs, steps, agentFinished, clearLogs, clearSteps, clearFinished } = useWebSocket()
 
   const [containerRunning, setContainerRunning] = useState(false)
   const [agentServiceUp, setAgentServiceUp] = useState(false)
@@ -56,9 +56,11 @@ export default function App() {
           steps={steps}
           clearSteps={clearSteps}
           onRefreshContainer={refreshContainerStatus}
+          agentFinished={agentFinished}
+          clearFinished={clearFinished}
         />
         <div className="right-panel">
-          <ScreenView screenshot={lastScreenshot} containerRunning={containerRunning} />
+          <ScreenView screenshot={lastScreenshot} containerRunning={containerRunning} agentServiceUp={agentServiceUp} />
           <LogPanel logs={logs} onClear={clearLogs} />
         </div>
       </div>

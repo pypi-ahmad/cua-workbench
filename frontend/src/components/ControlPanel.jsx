@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { startAgent, stopAgent, getKeyStatuses, getEngines, getModels } from '../api'
+import { startAgent, stopAgent, startContainer, getPreflight } from '../api'
+import { ENGINE_HELP, SAMPLE_TASKS, ENGINES_WITH_TARGET, getDefaultTarget, estimateCost } from '../shared'
+import useAgentConfig from '../hooks/useAgentConfig'
 
 export default function ControlPanel({
   containerRunning,
@@ -11,96 +13,78 @@ export default function ControlPanel({
   steps,
   clearSteps,
   onRefreshContainer,
+  agentFinished,
+  clearFinished,
 }) {
-  const [apiKey, setApiKey] = useState('')
-  const [keySource, setKeySource] = useState('ui')
-  const [keyStatuses, setKeyStatuses] = useState({})
-  const [provider, setProvider] = useState('google')
-  const [model, setModel] = useState('')
+  // B-27: shared config hook replaces duplicated model/engine/key state
+  const {
+    provider, setProvider: handleProviderChange,
+    model, setModel,
+    models,
+    fetchedModels,
+    modelsLoaded,
+    backendReachable,
+    engineList,
+    keyStatuses,
+    keySource, setKeySource,
+    apiKey, setApiKey,
+    keyValid, setKeyValid,
+    keyValidating,
+    handleValidateKey,
+  } = useAgentConfig('google')
+
   const [task, setTask] = useState('')
   const [maxSteps, setMaxSteps] = useState(50)
   const [engine, setEngine] = useState('playwright_mcp')
-  const [engineList, setEngineList] = useState([])
   const [executionTarget, setExecutionTarget] = useState('local')
   const [error, setError] = useState('')
+  const [preflightWarnings, setPreflightWarnings] = useState(null)
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
-  // Smart default: docker for CU/a11y, local for playwright_mcp
-  const ENGINES_WITH_TARGET = ['playwright_mcp', 'omni_accessibility', 'computer_use']
-  const getDefaultTarget = (eng) => (eng === 'playwright_mcp' ? 'local' : 'docker')
-
-  // Model lists — fetched exclusively from /api/models (no hardcoded fallback)
-  const [fetchedModels, setFetchedModels] = useState([])
-  const [modelsLoaded, setModelsLoaded] = useState(false)
-
-  // Derive per-provider lists from fetched data only
-  const toOption = (m) => ({ value: m.model_id, label: `${m.display_name} (${m.model_id})` })
-  const googleModels = fetchedModels.filter(m => m.provider === 'google').map(toOption)
-  const anthropicModels = fetchedModels.filter(m => m.provider === 'anthropic').map(toOption)
-  const models = provider === 'anthropic' ? anthropicModels : googleModels
-
-  // Fetch API key statuses, engines, and models on mount
+  // Auto-stop when agent finishes (done/error/max-steps) — mirrors Workbench behavior
   useEffect(() => {
-    const fetchKeys = async () => {
-      try {
-        const data = await getKeyStatuses()
-        if (data.keys) {
-          const map = {}
-          data.keys.forEach(k => { map[k.provider] = k })
-          setKeyStatuses(map)
-          const current = map[provider]
-          if (current?.available) setKeySource(current.source)
-        }
-      } catch { /* backend not ready */ }
+    if (agentFinished && agentRunning) {
+      setAgentRunning(false)
+      setSessionId(null)
+      if (clearFinished) clearFinished()
     }
-    const fetchEngines = async () => {
-      try {
-        const data = await getEngines()
-        if (data.engines?.length) setEngineList(data.engines)
-      } catch { /* backend not ready */ }
-    }
-    const fetchModelList = async () => {
-      try {
-        const data = await getModels()
-        if (data.models?.length) {
-          setFetchedModels(data.models)
-          setModelsLoaded(true)
-          // Auto-select first model for the default provider
-          const firstForProvider = data.models.find(m => m.provider === 'google')
-          if (firstForProvider) setModel(firstForProvider.model_id)
-        }
-      } catch { /* backend not ready — models will stay empty */ }
-    }
-    fetchKeys()
-    fetchEngines()
-    fetchModelList()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleProviderChange = (newProvider) => {
-    setProvider(newProvider)
-    const list = newProvider === 'anthropic' ? anthropicModels : googleModels
-    setModel(list.length > 0 ? list[0].value : '')
-    // Auto-select key source
-    const status = keyStatuses[newProvider]
-    if (status?.available) {
-      setKeySource(status.source)
-    } else {
-      setKeySource('ui')
-    }
-  }
+  }, [agentFinished, agentRunning, setAgentRunning, setSessionId, clearFinished])
 
   const handleStart = async () => {
+    const providerLabel = provider === 'google' ? 'Google' : 'Anthropic'
+    const envVar = provider === 'google' ? 'GOOGLE_API_KEY' : 'ANTHROPIC_API_KEY'
     if (keySource === 'ui' && !apiKey.trim()) {
-      setError('API key is required')
+      setError(`Enter your ${providerLabel} API key, or add ${envVar} to your .env file.`)
       return
     }
     if (!task.trim()) {
-      setError('Task description is required')
+      setError('Describe what the agent should do.')
       return
     }
     setError('')
+    setPreflightWarnings(null)
     clearSteps()
 
     try {
+      // Auto-start container if needed (matches Workbench behavior)
+      if (!containerRunning) {
+        try {
+          await startContainer()
+          if (onRefreshContainer) onRefreshContainer()
+        } catch { /* will fail at agent start if container can't start */ }
+      }
+
+      // B-12: Pre-flight check — warn but never block
+      try {
+        const pf = await getPreflight(engine, provider)
+        if (pf.checks) {
+          const failed = pf.checks.filter(c => !c.ok)
+          if (failed.length > 0) {
+            setPreflightWarnings(failed.map(c => `${c.label}: ${c.message}`))
+          }
+        }
+      } catch { /* preflight itself failed — don't block start */ }
+
       // Derive agent service mode from engine selection
       const engineMode = engine === 'omni_accessibility' || engine === 'computer_use' ? 'desktop' : 'browser'
       const res = await startAgent({
@@ -120,7 +104,7 @@ export default function ControlPanel({
       setSessionId(res.session_id)
       setAgentRunning(true)
     } catch (e) {
-      setError(`Failed to start agent: ${e.message}`)
+      setError(`Failed to start: ${e.message}`)
     }
   }
 
@@ -132,6 +116,7 @@ export default function ControlPanel({
       // ignore
     }
     setAgentRunning(false)
+    setSessionId(null)
   }
 
   const handleKeyDown = (e) => {
@@ -145,38 +130,44 @@ export default function ControlPanel({
       {/* API Config */}
       <div className="panel-section">
         <h3>API Configuration</h3>
-        <select className="model-select" value={provider} onChange={(e) => handleProviderChange(e.target.value)} disabled={agentRunning}>
+        <select className="model-select" value={provider} onChange={(e) => handleProviderChange(e.target.value)} disabled={agentRunning} title="Which AI provider to use for the agent">
           <option value="google">Google Gemini</option>
           <option value="anthropic">Anthropic Claude</option>
         </select>
 
         {/* Key Source Toggle */}
-        <div className="key-source-row" style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+        <div className="key-source-row" role="radiogroup" aria-label="API key source" style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
           <button
+            role="radio"
+            aria-checked={keySource === 'ui'}
             className={`key-src-btn ${keySource === 'ui' ? 'active' : ''}`}
-            onClick={() => setKeySource('ui')}
+            onClick={() => { setKeySource('ui'); setKeyValid(null) }}
             disabled={agentRunning}
             style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'ui' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'ui' ? '#fff' : 'var(--text-primary)' }}
           >
-            ✏️ Manual
+            Enter key
           </button>
           <button
+            role="radio"
+            aria-checked={keySource === 'dotenv'}
             className={`key-src-btn ${keySource === 'dotenv' ? 'active' : ''}`}
             onClick={() => setKeySource('dotenv')}
             disabled={agentRunning || keyStatuses[provider]?.source !== 'dotenv'}
             style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'dotenv' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'dotenv' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.source === 'dotenv' ? 1 : 0.4 }}
-            title={keyStatuses[provider]?.source === 'dotenv' ? `Found (${keyStatuses[provider]?.masked_key})` : 'No key in .env'}
+            title={keyStatuses[provider]?.source === 'dotenv' ? `Found (${keyStatuses[provider]?.masked_key})` : 'No key in .env file'}
           >
-            📄 .env {keyStatuses[provider]?.source === 'dotenv' ? '✓' : ''}
+            From .env file {keyStatuses[provider]?.source === 'dotenv' ? '✓' : ''}
           </button>
           <button
+            role="radio"
+            aria-checked={keySource === 'env'}
             className={`key-src-btn ${keySource === 'env' ? 'active' : ''}`}
             onClick={() => setKeySource('env')}
             disabled={agentRunning || keyStatuses[provider]?.source !== 'env'}
             style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'env' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'env' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.source === 'env' ? 1 : 0.4 }}
-            title={keyStatuses[provider]?.source === 'env' ? `Found (${keyStatuses[provider]?.masked_key})` : 'No system env var'}
+            title={keyStatuses[provider]?.source === 'env' ? `Found (${keyStatuses[provider]?.masked_key})` : 'No environment variable set'}
           >
-            💻 System {keyStatuses[provider]?.source === 'env' ? '✓' : ''}
+            Environment variable {keyStatuses[provider]?.source === 'env' ? '✓' : ''}
           </button>
         </div>
 
@@ -193,48 +184,71 @@ export default function ControlPanel({
         )}
 
         {keySource === 'ui' && (
-          <input
-            type="password"
-            className="api-key-input"
-            placeholder={provider === 'anthropic' ? 'Anthropic API Key' : 'Gemini API Key'}
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            autoComplete="off"
-          />
+          <div style={{ position: 'relative' }}>
+            <input
+              type="password"
+              className="api-key-input"
+              placeholder={provider === 'anthropic' ? 'Anthropic API Key' : 'Gemini API Key'}
+              value={apiKey}
+              onChange={(e) => { setApiKey(e.target.value); setKeyValid(null) }}
+              onBlur={() => { if (apiKey.trim().length >= 8) handleValidateKey(apiKey.trim(), provider) }}
+              autoComplete="off"
+              title="Paste your API key here"
+            />
+            {keyValid === true && <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--success)', fontSize: 14 }} aria-label="Key valid">✓</span>}
+            {keyValid === false && <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--error)', fontSize: 14 }} aria-label="Key invalid">✗</span>}
+            {keyValidating && <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', fontSize: 11 }}>checking…</span>}
+          </div>
         )}
 
-        <select className="model-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={models.length === 0}>
+        <select className="model-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={models.length === 0} title="The specific AI model — larger models are slower but more capable">
           {models.length > 0 ? models.map((m) => (
             <option key={m.value} value={m.value}>{m.label}</option>
           )) : (
-            <option value="">Loading models…</option>
+            <option value="">{backendReachable ? 'Loading models…' : 'Backend offline'}</option>
           )}
         </select>
-        {modelsLoaded && models.length === 0 && (
+        {!backendReachable && (
+          <p style={{ color: 'var(--warning)', fontSize: 11, margin: '4px 0 0' }}>Cannot reach backend — start it with <code style={{ fontSize: 11, background: 'var(--bg-tertiary)', padding: '1px 4px', borderRadius: 3 }}>python -m backend.main</code></p>
+        )}
+        {backendReachable && modelsLoaded && models.length === 0 && (
           <p style={{ color: 'var(--error)', fontSize: 11, margin: '4px 0 0' }}>No models available for this provider.</p>
         )}
-        <select className="model-select" value={engine} onChange={(e) => { setEngine(e.target.value); setExecutionTarget(getDefaultTarget(e.target.value)) }} disabled={agentRunning}>
-          {engineList.length > 0 ? engineList.map(e => (
-            <option key={e.value} value={e.value}>{e.label}</option>
-          )) : (
+        <select className="model-select" value={engine} onChange={(e) => { setEngine(e.target.value); setExecutionTarget(getDefaultTarget(e.target.value)) }} disabled={agentRunning} title="How the agent interacts with the computer">
+          {engineList.length > 0 ? engineList.map(e => {
+            const selectedModel = fetchedModels.find(m => m.model_id === model)
+            const supported = !selectedModel || (
+              (e.value === 'playwright_mcp' && selectedModel.supports_playwright_mcp !== false) ||
+              (e.value === 'omni_accessibility' && selectedModel.supports_accessibility !== false) ||
+              (e.value === 'computer_use' && selectedModel.supports_computer_use !== false)
+            )
+            return <option key={e.value} value={e.value} disabled={!supported}>{e.label}{!supported ? ' (not supported by this model)' : ''}</option>
+          }) : (
             <>
-              <option value="playwright_mcp">🌳 Playwright MCP (Semantic Browser)</option>
-              <option value="omni_accessibility">♿ Omni Accessibility (AT-SPI/UIA/JXA)</option>
-              <option value="computer_use">🖥️ Computer Use (Native CU Protocol)</option>
+              <option value="playwright_mcp">Browser (Semantic)</option>
+              <option value="omni_accessibility">Desktop (Accessibility)</option>
+              <option value="computer_use">Computer Use (Native)</option>
             </>
           )}
         </select>
+        {ENGINE_HELP[engine] && (
+          <p style={{ color: 'var(--text-secondary)', fontSize: 11, margin: '4px 0 0', lineHeight: 1.4 }}>{ENGINE_HELP[engine]}</p>
+        )}
         {ENGINES_WITH_TARGET.includes(engine) && (
-          <select
-            className="model-select"
-            value={executionTarget}
-            onChange={(e) => setExecutionTarget(e.target.value)}
-            disabled={agentRunning}
-            title="Where to run the engine — Local (host machine) or Docker (Ubuntu container)"
-          >
-            <option value="local">🖥️ Run Locally (Host Machine)</option>
-            <option value="docker">🐳 Run in Docker (Ubuntu Container)</option>
-          </select>
+          <>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-secondary)', marginTop: 8, marginBottom: 4 }}>Run location</label>
+            <select
+              className="model-select"
+              style={{ marginTop: 0 }}
+              value={executionTarget}
+              onChange={(e) => setExecutionTarget(e.target.value)}
+              disabled={agentRunning}
+              title="Where to execute the automation — your machine or the Docker sandbox"
+            >
+              <option value="local">This machine</option>
+              <option value="docker">Docker container</option>
+            </select>
+          </>
         )}
         <Link to="/workbench" className="btn btn-secondary" style={{ textAlign: 'center', marginTop: 6, display: 'block', textDecoration: 'none' }}>
           Open Workbench →
@@ -251,10 +265,35 @@ export default function ControlPanel({
           onChange={(e) => setTask(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={agentRunning}
+          title="Plain English description of the task for the agent"
         />
+        {!task.trim() && !agentRunning && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+            {SAMPLE_TASKS.map((sample, i) => (
+              <button
+                key={i}
+                onClick={() => setTask(sample)}
+                style={{
+                  padding: '3px 8px', fontSize: 11, borderRadius: 4,
+                  border: '1px solid var(--border)', cursor: 'pointer',
+                  background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
+                }}
+                title={sample}
+              >
+                {sample}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="step-info" style={{ marginTop: 8 }}>
           <span>
             Max steps: <strong>{maxSteps}</strong>
+            {estimateCost(model, Number(maxSteps)) && (
+              <span style={{ color: 'var(--text-secondary)', fontSize: 11, marginLeft: 8 }} title="Rough API cost estimate">
+                (~${estimateCost(model, Number(maxSteps))})
+              </span>
+            )}
           </span>
           <input
             type="number"
@@ -264,16 +303,26 @@ export default function ControlPanel({
             value={maxSteps}
             onChange={(e) => setMaxSteps(e.target.value)}
             disabled={agentRunning}
+            title="Maximum number of actions the agent can take before stopping"
           />
         </div>
         {error && <p style={{ color: 'var(--error)', fontSize: 12, marginTop: 6 }}>{error}</p>}
+        {preflightWarnings && preflightWarnings.length > 0 && (
+          <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--warning, #fbbf24)', borderRadius: 4, padding: '6px 8px', marginTop: 6, fontSize: 11 }}>
+            <strong style={{ color: 'var(--warning, #fbbf24)' }}>Pre-flight warnings:</strong>
+            <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
+              {preflightWarnings.map((w, i) => <li key={i} style={{ color: 'var(--text-secondary)' }}>{w}</li>)}
+            </ul>
+          </div>
+        )}
         <div className="btn-row">
           <button
             className="btn btn-primary"
-            disabled={agentRunning || !containerRunning || models.length === 0}
+            disabled={agentRunning || models.length === 0}
             onClick={handleStart}
+            title="Start the agent (Ctrl+Enter)"
           >
-            {!containerRunning ? 'Start Container First' : models.length === 0 ? 'No Models Loaded' : 'Start Agent'}
+            {agentRunning ? 'Running...' : !backendReachable ? 'Backend Offline' : models.length === 0 ? 'No Models Loaded' : 'Start Agent (Ctrl+Enter)'}
           </button>
           <button className="btn btn-danger" disabled={!agentRunning} onClick={handleStop}>
             Stop
@@ -296,7 +345,7 @@ export default function ControlPanel({
       <div className="action-list">
         {steps.length === 0 && (
           <p style={{ color: 'var(--text-secondary)', fontSize: 13, padding: '8px 0' }}>
-            No actions yet. Start the agent to begin.
+            No steps yet. Start the agent to begin.
           </p>
         )}
         {steps.map((step, i) => (
