@@ -855,7 +855,13 @@ class GeminiCUClient:
                 if "safety_decision" in args:
                     sd = args.pop("safety_decision")
                     if isinstance(sd, dict) and sd.get("decision") == "require_confirmation":
-                        confirmed = on_safety(sd.get("explanation", "")) if on_safety else False
+                        if on_safety:
+                            if asyncio.iscoroutinefunction(on_safety):
+                                confirmed = await on_safety(sd.get("explanation", ""))
+                            else:
+                                confirmed = on_safety(sd.get("explanation", ""))
+                        else:
+                            confirmed = False
                         if not confirmed:
                             if on_log:
                                 on_log("warning", f"Safety denied for {fc.name}")

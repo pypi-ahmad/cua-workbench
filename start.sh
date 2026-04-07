@@ -62,12 +62,12 @@ for i in $(seq 1 15); do
 done
 
 # ── Launch frontend ───────────────────────────────────────────────────────────
-info "Starting frontend on http://localhost:5173 ..."
+info "Starting frontend on http://localhost:3000 ..."
 (cd frontend && npm run dev) &
 FRONTEND_PID=$!
 
 info "CUA Workbench is running!"
-info "  Frontend: http://localhost:5173"
+info "  Frontend: http://localhost:3000"
 info "  Backend:  http://localhost:8000"
 info "  Stop:     ./start.sh --stop  (or Ctrl+C)"
 

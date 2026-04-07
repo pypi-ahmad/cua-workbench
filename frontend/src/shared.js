@@ -40,10 +40,10 @@ export function estimateCost(modelId, stepCount) {
 }
 
 export const DEFAULT_BROWSER_ENGINES = [
-  { value: 'playwright_mcp', label: 'Browser (Semantic)' },
+  { value: 'playwright_mcp', label: 'Browser Automation' },
 ]
 
 export const DEFAULT_DESKTOP_ENGINES = [
-  { value: 'omni_accessibility', label: 'Desktop (Accessibility)' },
-  { value: 'computer_use', label: 'Computer Use (Native)' },
+  { value: 'omni_accessibility', label: 'Desktop Automation' },
+  { value: 'computer_use', label: 'Full Screen Control' },
 ]

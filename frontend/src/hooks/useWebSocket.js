@@ -10,6 +10,7 @@ export default function useWebSocket() {
   const [logs, setLogs] = useState([])
   const [steps, setSteps] = useState([])
   const [agentFinished, setAgentFinished] = useState(null)
+  const [safetyPrompt, setSafetyPrompt] = useState(null)
   const reconnectTimer = useRef(null)
 
   const connect = useCallback(() => {
@@ -47,6 +48,9 @@ export default function useWebSocket() {
           case 'agent_finished':
             setAgentFinished(msg)
             break
+          case 'safety_confirmation':
+            setSafetyPrompt({ sessionId: msg.session_id, explanation: msg.explanation })
+            break
           case 'pong':
             break
           default:
@@ -82,6 +86,7 @@ export default function useWebSocket() {
   const clearLogs = useCallback(() => setLogs([]), [])
   const clearSteps = useCallback(() => setSteps([]), [])
   const clearFinished = useCallback(() => setAgentFinished(null), [])
+  const clearSafetyPrompt = useCallback(() => setSafetyPrompt(null), [])
 
-  return { connected, lastScreenshot, logs, steps, agentFinished, clearLogs, clearSteps, clearFinished }
+  return { connected, lastScreenshot, logs, steps, agentFinished, safetyPrompt, clearLogs, clearSteps, clearFinished, clearSafetyPrompt }
 }

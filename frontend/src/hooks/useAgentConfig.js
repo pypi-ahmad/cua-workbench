@@ -25,7 +25,7 @@ export default function useAgentConfig(initialProvider = 'google') {
   const [keyValidating, setKeyValidating] = useState(false)
 
   // Derive per-provider model options
-  const toOption = (m) => ({ value: m.model_id, label: `${m.display_name} (${m.model_id})` })
+  const toOption = (m) => ({ value: m.model_id, label: m.display_name })
   const googleModels = useMemo(() => fetchedModels.filter(m => m.provider === 'google').map(toOption), [fetchedModels])
   const anthropicModels = useMemo(() => fetchedModels.filter(m => m.provider === 'anthropic').map(toOption), [fetchedModels])
   const models = provider === 'anthropic' ? anthropicModels : googleModels

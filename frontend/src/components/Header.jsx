@@ -34,36 +34,36 @@ export default function Header({ connected, containerRunning, agentServiceUp, ag
               title={healthLabel}
             />
           )}
-          <span className={`container-status ${containerRunning ? 'running' : 'stopped'}`} aria-label={containerRunning ? 'Container is running' : 'Container is stopped'}>
-            {containerRunning ? '● Container Running' : '✕ Container Stopped'}
+          <span className={`container-status ${containerRunning ? 'running' : 'stopped'}`} aria-label={containerRunning ? 'Sandbox is ready' : 'Sandbox is offline'}>
+            {containerRunning ? '● Sandbox Ready' : '✕ Sandbox Offline'}
           </span>
           {containerRunning && (
-            <span className={`service-badge ${agentServiceUp ? 'up' : 'down'}`} aria-label={agentServiceUp ? 'Agent service is ready' : 'Agent service is down'}>
-              Agent Service {agentServiceUp ? 'Ready' : 'Down'}
+            <span className={`service-badge ${agentServiceUp ? 'up' : 'down'}`} aria-label={agentServiceUp ? 'Automation is ready' : 'Automation is starting'}>
+              Automation {agentServiceUp ? 'Ready' : 'Starting…'}
             </span>
           )}
           {vncUnprotected && (
             <span
               style={{ fontSize: 10, color: 'var(--warning, #fbbf24)', marginLeft: 6 }}
-              title="VNC has no password. Set VNC_PASSWORD in .env for security."
-              aria-label="VNC is not password-protected"
+              title="The desktop view is not password-protected. Set VNC_PASSWORD in your configuration for security."
+              aria-label="Desktop view is not password-protected"
             >
-              ⚠ VNC open
+              ⚠ Desktop view unprotected
             </span>
           )}
           {!containerRunning && (
-            <button className="btn-sm" onClick={handleStartContainer} aria-label="Start Docker container">
-              Start Container
+            <button className="btn-sm" onClick={handleStartContainer} aria-label="Start the sandbox environment">
+              Start Sandbox
             </button>
           )}
           {containerRunning && !agentRunning && (
-            <button className="btn-sm" onClick={handleStopContainer} aria-label="Stop Docker container">
-              Stop Container
+            <button className="btn-sm" onClick={handleStopContainer} aria-label="Stop the sandbox environment">
+              Stop Sandbox
             </button>
           )}
         </div>
-        <span className={`status-dot ${connected ? 'connected' : ''} ${agentRunning ? 'running' : ''}`} aria-label={connected ? (agentRunning ? 'Agent is running' : 'WebSocket connected') : 'WebSocket disconnected'} />
-        <span>{connected ? (agentRunning ? 'Agent Running' : 'Connected') : 'Disconnected'}</span>
+        <span className={`status-dot ${connected ? 'connected' : ''} ${agentRunning ? 'running' : ''}`} aria-label={connected ? (agentRunning ? 'Agent is running' : 'Connected to server') : 'Reconnecting to server'} />
+        <span>{connected ? (agentRunning ? 'Agent Running' : 'Connected') : 'Reconnecting…'}</span>
       </div>
     </header>
   )

@@ -280,9 +280,9 @@ async def api_engines():
 
     # B-01: Clean, emoji-free display names for the UI
     _DISPLAY_NAMES = {
-        "playwright_mcp": "Browser (Semantic)",
-        "omni_accessibility": "Desktop (Accessibility)",
-        "computer_use": "Computer Use (Native)",
+        "playwright_mcp": "Browser Automation",
+        "omni_accessibility": "Desktop Automation",
+        "computer_use": "Full Screen Control",
     }
 
     caps = EngineCapabilities()
@@ -675,6 +675,12 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
         on_screenshot=lambda b64: asyncio.ensure_future(
             _broadcast("screenshot", {"screenshot": b64})
         ),
+        on_safety_broadcast=lambda sid, explanation: _broadcast(
+            "safety_confirmation",
+            {"session_id": sid, "explanation": explanation},
+        ),
+        safety_events=_safety_events,
+        safety_decisions=_safety_decisions,
     )
 
     _active_loops[loop.session_id] = loop

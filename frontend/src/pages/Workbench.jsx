@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import useWebSocket from '../hooks/useWebSocket'
 import useAgentConfig from '../hooks/useAgentConfig'
 import useContainerStatus from '../hooks/useContainerStatus'
-import { startAgent, stopAgent, startContainer, getPreflight, getContainerLogs } from '../api'
+import { startAgent, stopAgent, startContainer, getPreflight, getContainerLogs, confirmSafety } from '../api'
 import { ENGINE_HELP, SAMPLE_TASKS, ENGINES_WITH_TARGET, getDefaultTarget, estimateCost, DEFAULT_BROWSER_ENGINES, DEFAULT_DESKTOP_ENGINES } from '../shared'
 import ScreenView from '../components/ScreenView'
 import './Workbench.css'
@@ -11,7 +11,7 @@ import './Workbench.css'
 // No hardcoded fallback — models come exclusively from GET /api/models.
 
 export default function Workbench() {
-  const { connected, lastScreenshot, logs, steps, agentFinished, clearLogs, clearSteps, clearFinished } = useWebSocket()
+  const { connected, lastScreenshot, logs, steps, agentFinished, safetyPrompt, clearLogs, clearSteps, clearFinished, clearSafetyPrompt } = useWebSocket()
 
   // B-27: shared config hook replaces duplicated model/engine/key state
   const {
@@ -49,6 +49,40 @@ export default function Workbench() {
   const [logLevelFilter, setLogLevelFilter] = useState({ info: true, warning: true, error: true, debug: true })
   const [logTab, setLogTab] = useState('agent') // 'agent' | 'container'
   const [containerLogs, setContainerLogs] = useState('')
+  const [sessionResult, setSessionResult] = useState(null)
+  const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem('cua_welcomed'))
+  const [restorePrompt, setRestorePrompt] = useState(() => {
+    try { const s = localStorage.getItem('cua_session'); return s ? JSON.parse(s) : null } catch { return null }
+  })
+
+  // Persist recoverable config to localStorage
+  const configInitialised = useRef(false)
+  useEffect(() => {
+    // Skip the very first render so we don't overwrite stored state before the user decides to restore
+    if (!configInitialised.current) { configInitialised.current = true; return }
+    const payload = { provider, model, runMode, engine, task, maxSteps, executionTarget, keySource, apiKey, ts: Date.now() }
+    localStorage.setItem('cua_session', JSON.stringify(payload))
+  }, [provider, model, runMode, engine, task, maxSteps, executionTarget, keySource, apiKey])
+
+  const handleRestore = () => {
+    if (!restorePrompt) return
+    const s = restorePrompt
+    if (s.provider) setProvider(s.provider)
+    if (s.model) setModel(s.model)
+    if (s.runMode) setRunMode(s.runMode)
+    if (s.engine) setEngine(s.engine)
+    if (s.task) setTask(s.task)
+    if (s.maxSteps) setMaxSteps(s.maxSteps)
+    if (s.executionTarget) setExecutionTarget(s.executionTarget)
+    if (s.keySource) setKeySource(s.keySource)
+    if (s.apiKey) setApiKey(s.apiKey)
+    setRestorePrompt(null)
+  }
+
+  const handleDismissRestore = () => {
+    localStorage.removeItem('cua_session')
+    setRestorePrompt(null)
+  }
 
   // Smart default: docker for CU/a11y, local for playwright_mcp
 
@@ -69,6 +103,7 @@ export default function Workbench() {
   // Auto-stop frontend when agent finishes (done/error/max-steps)
   useEffect(() => {
     if (agentFinished && agentRunning) {
+      setSessionResult({ status: agentFinished.status, steps: agentFinished.steps })
       setAgentRunning(false)
       setSessionId(null)
       clearFinished()
@@ -89,6 +124,13 @@ export default function Workbench() {
     }
   }, [logs])
 
+  // Warn before closing/refreshing while agent is running
+  useEffect(() => {
+    const handler = (e) => { if (agentRunning) { e.preventDefault(); e.returnValue = '' } }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [agentRunning])
+
   // Sync engine when runMode changes
   useEffect(() => {
     const newEngine = runMode === 'browser' ? 'playwright_mcp' : 'computer_use'
@@ -100,10 +142,10 @@ export default function Workbench() {
 
   const handleStart = async () => {
     const providerLabel = provider === 'google' ? 'Google' : 'Anthropic'
-    const envVar = provider === 'google' ? 'GOOGLE_API_KEY' : 'ANTHROPIC_API_KEY'
-    if (keySource === 'ui' && !apiKey.trim()) return setError(`Enter your ${providerLabel} API key, or add ${envVar} to your .env file.`)
+    if (keySource === 'ui' && !apiKey.trim()) return setError(`Enter your ${providerLabel} API key above, or switch to "Saved key" if one is already configured.`)
     if (!task.trim()) return setError('Describe what the agent should do.')
     setError('')
+    setSessionResult(null)
     setPreflightWarnings(null)
     clearSteps()
     clearLogs()
@@ -147,6 +189,7 @@ export default function Workbench() {
 
   const handleStop = async () => {
     if (!sessionId) return
+    if (!window.confirm('Stop the agent? Progress from this session cannot be recovered.')) return
     try { await stopAgent(sessionId) } catch { /* ignore */ }
     setAgentRunning(false)
     setSessionId(null)
@@ -220,6 +263,21 @@ export default function Workbench() {
     return icons[action] || '⚡'
   }
 
+  const getActionLabel = (action) => {
+    const labels = {
+      click: 'Click', double_click: 'Double-click', right_click: 'Right-click', hover: 'Hover',
+      type: 'Type text', fill: 'Fill field', key: 'Press key', hotkey: 'Hotkey', paste: 'Paste', copy: 'Copy',
+      open_url: 'Open URL', reload: 'Reload page', go_back: 'Go back', go_forward: 'Go forward',
+      new_tab: 'New tab', close_tab: 'Close tab', switch_tab: 'Switch tab',
+      scroll: 'Scroll', scroll_to: 'Scroll to',
+      get_text: 'Read text', find_element: 'Find element', evaluate_js: 'Run script',
+      focus_window: 'Focus window', open_app: 'Open app',
+      wait: 'Wait', wait_for: 'Wait for', screenshot_region: 'Screenshot region',
+      done: 'Done', error: 'Error',
+    }
+    return labels[action] || action || 'Unknown'
+  }
+
   return (
     <div className="wb">
       {/* Header */}
@@ -227,11 +285,11 @@ export default function Workbench() {
         <div className="wb-header-left">
           <Link to="/" className="wb-back">← Back</Link>
           <h1>CUA Workbench</h1>
-          <span className={`wb-status-pill ${containerRunning ? 'up' : 'down'}`} aria-label={containerRunning ? 'Container is up' : 'Container is down'}>
-            {containerRunning ? '● Container Up' : '✕ Container Down'}
+          <span className={`wb-status-pill ${containerRunning ? 'up' : 'down'}`} aria-label={containerRunning ? 'Sandbox is ready' : 'Sandbox is offline'}>
+            {containerRunning ? '● Sandbox Ready' : '✕ Sandbox Offline'}
           </span>
-          <span className={`wb-status-pill ${connected ? 'up' : 'down'}`} aria-label={connected ? 'WebSocket connected' : 'WebSocket disconnected'}>
-            {connected ? 'WS Connected' : 'WS Disconnected'}
+          <span className={`wb-status-pill ${connected ? 'up' : 'down'}`} aria-label={connected ? 'Live connection active' : 'Reconnecting to server'}>
+            {connected ? 'Live' : 'Reconnecting…'}
           </span>
           {agentRunning && <span className="wb-status-pill running" aria-label="Agent is running">Agent Running</span>}
         </div>
@@ -246,6 +304,32 @@ export default function Workbench() {
       <div className="wb-body">
         {/* Left: Config */}
         <aside className="wb-sidebar">
+          {/* First-visit welcome card */}
+          {showWelcome && (
+            <div className="wb-section" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--accent)', borderRadius: 8, padding: 12, marginBottom: 6 }}>
+              <h4 style={{ margin: '0 0 4px', fontSize: 13 }}>👋 Welcome</h4>
+              <p style={{ margin: '0 0 6px', fontSize: 11, lineHeight: 1.5, color: 'var(--text-secondary)' }}>
+                Pick a provider, paste an API key, describe a task, and hit <strong>Start</strong>. The agent will work inside the sandbox shown on the right.
+              </p>
+              <button
+                onClick={() => { localStorage.setItem('cua_welcomed', '1'); setShowWelcome(false) }}
+                style={{ fontSize: 11, padding: '4px 12px', borderRadius: 5, border: 'none', background: 'var(--accent)', color: '#fff', cursor: 'pointer' }}
+              >Got it</button>
+            </div>
+          )}
+          {/* Restore previous session prompt */}
+          {restorePrompt && !agentRunning && (
+            <div className="wb-section" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--info, #60a5fa)', borderRadius: 8, padding: 12, marginBottom: 6 }}>
+              <h4 style={{ margin: '0 0 4px', fontSize: 13 }}>🔄 Restore previous session?</h4>
+              <p style={{ margin: '0 0 6px', fontSize: 11, lineHeight: 1.5, color: 'var(--text-secondary)' }}>
+                {restorePrompt.task ? `Task: "${restorePrompt.task.length > 60 ? restorePrompt.task.slice(0, 60) + '…' : restorePrompt.task}"` : 'Your previous settings were saved.'}
+              </p>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={handleRestore} style={{ fontSize: 11, padding: '4px 12px', borderRadius: 5, border: 'none', background: 'var(--accent)', color: '#fff', cursor: 'pointer' }}>Restore</button>
+                <button onClick={handleDismissRestore} style={{ fontSize: 11, padding: '4px 12px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>Discard</button>
+              </div>
+            </div>
+          )}
           {/* Run Mode Toggle */}
           <div className="wb-section">
             <label className="wb-label">Run Mode</label>
@@ -274,46 +358,33 @@ export default function Workbench() {
             <label className="wb-label">API Key Source</label>
             <div className="wb-key-source-group" role="radiogroup" aria-label="API key source">
               <button role="radio" aria-checked={keySource === 'ui'} className={`wb-key-src-btn ${keySource === 'ui' ? 'active' : ''}`} onClick={() => { setKeySource('ui'); setKeyValid(null) }} disabled={agentRunning} title="Enter key manually">
-                Enter key
+                Enter manually
               </button>
               <button
-                role="radio" aria-checked={keySource === 'dotenv'}
-                className={`wb-key-src-btn ${keySource === 'dotenv' ? 'active' : ''} ${keyStatuses[provider]?.source === 'dotenv' ? 'available' : ''}`}
-                onClick={() => setKeySource('dotenv')}
-                disabled={agentRunning || keyStatuses[provider]?.source !== 'dotenv'}
-                title={keyStatuses[provider]?.source === 'dotenv' ? `Found in .env (${keyStatuses[provider]?.masked_key})` : 'No key in .env file'}
+                role="radio" aria-checked={keySource !== 'ui'}
+                className={`wb-key-src-btn ${keySource !== 'ui' ? 'active' : ''} ${keyStatuses[provider]?.available ? 'available' : ''}`}
+                onClick={() => { const src = keyStatuses[provider]?.source; if (src) setKeySource(src) }}
+                disabled={agentRunning || !keyStatuses[provider]?.available}
+                title={keyStatuses[provider]?.available ? `Key found (${keyStatuses[provider]?.masked_key})` : 'No saved key found for this provider'}
               >
-                From .env file {keyStatuses[provider]?.source === 'dotenv' && '✓'}
-              </button>
-              <button
-                role="radio" aria-checked={keySource === 'env'}
-                className={`wb-key-src-btn ${keySource === 'env' ? 'active' : ''} ${keyStatuses[provider]?.source === 'env' ? 'available' : ''}`}
-                onClick={() => setKeySource('env')}
-                disabled={agentRunning || keyStatuses[provider]?.source !== 'env'}
-                title={keyStatuses[provider]?.source === 'env' ? `Found in system env (${keyStatuses[provider]?.masked_key})` : 'No environment variable set'}
-              >
-                Environment variable {keyStatuses[provider]?.source === 'env' && '✓'}
+                Saved key {keyStatuses[provider]?.available && '✓'}
               </button>
             </div>
             {keySource !== 'ui' && keyStatuses[provider]?.available && (
               <div className="wb-key-status">
                 <span className="wb-key-badge ok">🔑 {keyStatuses[provider]?.masked_key}</span>
-                <span className="wb-key-source-label">from {keySource === 'env' ? 'system variable' : '.env file'}</span>
               </div>
             )}
             {keySource !== 'ui' && !keyStatuses[provider]?.available && (
               <div className="wb-key-status">
-                <span className="wb-key-badge missing">⚠️ No key found</span>
-                <span className="wb-key-source-label">
-                  {provider === 'google' ? 'Set GOOGLE_API_KEY' : 'Set ANTHROPIC_API_KEY'}
-                </span>
+                <span className="wb-key-badge missing">⚠️ No saved key found</span>
               </div>
             )}
             {keySource === 'ui' && (
               <>
                 <label className="wb-label">API Key</label>
                 <div style={{ position: 'relative' }}>
-                  <input type="password" className="wb-input" placeholder={provider === 'anthropic' ? 'sk-ant-...' : 'AI...'} value={apiKey}
+                  <input type="password" className="wb-input" placeholder="Paste your API key here" value={apiKey}
                     onChange={(e) => { setApiKey(e.target.value); setKeyValid(null) }}
                     onBlur={() => { if (apiKey.trim().length >= 8) handleValidateKey(apiKey.trim(), provider) }}
                     autoComplete="off" />
@@ -321,6 +392,12 @@ export default function Workbench() {
                   {keyValid === false && <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--error)', fontSize: 14 }} aria-label="Key invalid">✗</span>}
                   {keyValidating && <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', fontSize: 10 }}>checking…</span>}
                 </div>
+                <a
+                  href={provider === 'anthropic' ? 'https://console.anthropic.com/settings/keys' : 'https://aistudio.google.com/apikey'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: 'inline-block', marginTop: 4, fontSize: 11, color: 'var(--accent)' }}
+                >Get {provider === 'anthropic' ? 'an Anthropic' : 'a Google'} API key ↗</a>
               </>
             )}
           </div>
@@ -352,7 +429,7 @@ export default function Workbench() {
               <p style={{ color: 'var(--text-secondary)', fontSize: 10, margin: '3px 0 0', lineHeight: 1.4 }}>{ENGINE_HELP[engine]}</p>
             )}
             {!backendReachable && (
-              <p className="wb-error" style={{ margin: '4px 0 0', fontSize: 10 }}>Cannot reach backend — start it with <code style={{ fontSize: 10 }}>python -m backend.main</code></p>
+              <p className="wb-error" style={{ margin: '4px 0 0', fontSize: 10 }}>Cannot reach the server — run <code style={{ fontSize: 10 }}>start.bat</code> (Windows) or <code style={{ fontSize: 10 }}>./start.sh</code> (Mac/Linux) to start it.</p>
             )}
             {ENGINES_WITH_TARGET.includes(engine) && (
               <>
@@ -407,6 +484,42 @@ export default function Workbench() {
               <button className="wb-btn wb-btn-danger" onClick={handleStop} disabled={!agentRunning}>Stop</button>
               <button className="wb-btn wb-btn-secondary" onClick={() => { clearSteps(); clearLogs() }} disabled={agentRunning} aria-label="Clear steps and logs">Clear</button>
             </div>
+            {sessionResult && !agentRunning && (
+              <div style={{ background: 'var(--bg-secondary)', border: `1px solid ${sessionResult.status === 'error' ? 'var(--error, #f44336)' : 'var(--success, #34d399)'}`, borderRadius: 4, padding: '8px 10px', marginTop: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <strong style={{ fontSize: 11, color: sessionResult.status === 'error' ? 'var(--error, #f44336)' : 'var(--success, #34d399)' }}>
+                    {sessionResult.status === 'error' ? '❌ Task failed' : '✅ Task completed'}
+                  </strong>
+                  <button onClick={() => setSessionResult(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12, padding: '0 2px', lineHeight: 1 }} aria-label="Dismiss result" title="Dismiss">✕</button>
+                </div>
+                <p style={{ fontSize: 10, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+                  {sessionResult.steps} step{sessionResult.steps !== 1 ? 's' : ''}
+                  {estimateCost(model, sessionResult.steps) && ` · ~$${estimateCost(model, sessionResult.steps)}`}
+                </p>
+                {steps.length > 0 && (
+                  <button onClick={handleExportSession} style={{ marginTop: 6, padding: '3px 8px', fontSize: 10, borderRadius: 3, border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} title="Export session as JSON">
+                    📦 Export Session
+                  </button>
+                )}
+              </div>
+            )}
+            {safetyPrompt && agentRunning && (
+              <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--warning, #fbbf24)', borderRadius: 4, padding: '8px 10px', marginTop: 6 }}>
+                <strong style={{ fontSize: 11, color: 'var(--warning, #fbbf24)', display: 'block', marginBottom: 4 }}>⚠️ Action requires approval</strong>
+                <p style={{ fontSize: 10, color: 'var(--text-secondary)', margin: '0 0 6px', lineHeight: 1.5 }}>{safetyPrompt.explanation}</p>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button
+                    onClick={async () => { await confirmSafety(safetyPrompt.sessionId, true); clearSafetyPrompt() }}
+                    style={{ padding: '3px 10px', fontSize: 10, borderRadius: 3, border: '1px solid var(--success, #34d399)', cursor: 'pointer', background: 'var(--success, #34d399)', color: '#000', fontWeight: 600 }}
+                  >Allow</button>
+                  <button
+                    onClick={async () => { await confirmSafety(safetyPrompt.sessionId, false); clearSafetyPrompt() }}
+                    style={{ padding: '3px 10px', fontSize: 10, borderRadius: 3, border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                  >Deny</button>
+                </div>
+                <p style={{ fontSize: 9, color: 'var(--text-secondary)', margin: '4px 0 0' }}>Auto-denied if not approved within 30 seconds.</p>
+              </div>
+            )}
           </div>
         </aside>
 
@@ -432,11 +545,11 @@ export default function Workbench() {
             <div className="wb-timeline" ref={timelineRef}>
               {steps.length === 0 && <p className="wb-empty">No steps yet.</p>}
               {steps.map((step, i) => (
-                <div key={i} className={`wb-timeline-item ${step.error ? 'has-error' : ''} ${expandedStep === i ? 'expanded' : ''}`} onClick={() => setExpandedStep(expandedStep === i ? null : i)} role="button" tabIndex={0} aria-expanded={expandedStep === i} aria-label={`Step ${step.step_number}: ${step.action?.action || 'unknown'}`} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedStep(expandedStep === i ? null : i) } }}>
+                <div key={i} className={`wb-timeline-item ${step.error ? 'has-error' : ''} ${expandedStep === i ? 'expanded' : ''}`} onClick={() => setExpandedStep(expandedStep === i ? null : i)} role="button" tabIndex={0} aria-expanded={expandedStep === i} aria-label={`Step ${step.step_number}: ${getActionLabel(step.action?.action)}`} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedStep(expandedStep === i ? null : i) } }}>
                   <div className="wb-timeline-head">
                     <span className="wb-step-num">#{step.step_number}</span>
                     <span className="wb-action-icon">{getActionIcon(step.action?.action)}</span>
-                    <span className="wb-action-name">{step.action?.action || 'unknown'}</span>
+                    <span className="wb-action-name">{getActionLabel(step.action?.action)}</span>
                     {step.action?.target && <span className="wb-action-target" title={step.action.target}>{step.action.target.length > 20 ? step.action.target.slice(0, 20) + '…' : step.action.target}</span>}
                     {step.action?.text && step.action.action !== 'done' && (
                       <span className="wb-action-text" title={step.action.text}>"{step.action.text.length > 20 ? step.action.text.slice(0, 20) + '…' : step.action.text}"</span>
@@ -448,7 +561,10 @@ export default function Workbench() {
                       {step.action?.reasoning && <p className="wb-reasoning">{step.action.reasoning}</p>}
                       {step.action?.coordinates && <p className="wb-coords">Coords: [{step.action.coordinates.join(', ')}]</p>}
                       {step.error && <p className="wb-step-error">Error: {step.error}</p>}
-                      <pre className="wb-json">{JSON.stringify(step.action, null, 2)}</pre>
+                      <details className="wb-raw-toggle">
+                        <summary>Show raw data</summary>
+                        <pre className="wb-json">{JSON.stringify(step.action, null, 2)}</pre>
+                      </details>
                     </div>
                   )}
                 </div>
