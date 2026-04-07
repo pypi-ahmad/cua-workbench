@@ -180,6 +180,7 @@ export default function Workbench() {
       config: { provider, model, engine, executionTarget, maxSteps: Number(maxSteps), runMode },
       steps,
       logs,
+      final_screenshot: lastScreenshot || null,
     }
     const blob = new Blob([JSON.stringify(session, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
