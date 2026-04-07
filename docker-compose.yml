@@ -7,19 +7,19 @@ services:
       dockerfile: docker/Dockerfile
     environment:
       - DISPLAY=:99
-      - SCREEN_WIDTH=1440
-      - SCREEN_HEIGHT=900
+      - SCREEN_WIDTH=${SCREEN_WIDTH:-1440}
+      - SCREEN_HEIGHT=${SCREEN_HEIGHT:-900}
       - SCREEN_DEPTH=24
-      - AGENT_SERVICE_PORT=9222
+      - AGENT_SERVICE_PORT=${AGENT_SERVICE_PORT:-9222}
       - AGENT_MODE=browser
       # ── Playwright MCP server (native env-var config) ──
-      - PLAYWRIGHT_MCP_PORT=8931
+      - PLAYWRIGHT_MCP_PORT=${PLAYWRIGHT_MCP_PORT:-8931}
       - PLAYWRIGHT_MCP_HOST=0.0.0.0
       - PLAYWRIGHT_MCP_ALLOWED_HOSTS=*
       - PLAYWRIGHT_MCP_BROWSER=chromium
       - PLAYWRIGHT_MCP_NO_SANDBOX=true
       # - PLAYWRIGHT_MCP_HEADLESS=true   # omitted → headed mode (visible via VNC)
-      # - VNC_PASSWORD=changeme   # uncomment to require VNC auth
+      - VNC_PASSWORD=${VNC_PASSWORD:-}
     ports:
       - "127.0.0.1:5900:5900"
       - "127.0.0.1:6080:6080"

@@ -1,9 +1,15 @@
 const API_BASE = '/api'
 
+function generateRequestId() {
+  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 async function request(path, options = {}) {
+  const requestId = generateRequestId()
+  const headers = { 'Content-Type': 'application/json', 'X-Request-ID': requestId, ...options.headers }
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...options,
+    headers,
   })
   if (!res.ok) {
     let message
@@ -45,9 +51,10 @@ export async function startAgent({ task, apiKey, model, maxSteps, mode, engine, 
   // Bypass generic request() — validation errors return HTTP 400/429 with JSON body.
   // Always returns { error?: string, ... } so callers can inspect data.error without catching.
   try {
+    const requestId = generateRequestId()
     const res = await fetch(`${API_BASE}/agent/start`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId },
       body: JSON.stringify({
         task,
         api_key: apiKey,

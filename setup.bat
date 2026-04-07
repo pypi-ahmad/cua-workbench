@@ -54,10 +54,15 @@ if /I "%~1"=="--clean" (
 )
 
 echo [INFO] Building Docker image (compose)... This may take several minutes on first run.
-docker compose build --progress=plain
+REM B-17: Filter build output to show only progress lines
+docker compose build --progress=plain 2>&1 | findstr /I /C:"Step " /C:"Successfully" /C:"CACHED" /C:"RUN " /C:"COPY " /C:"DONE" /C:"ERROR"
 if errorlevel 1 (
-  echo [ERROR] Docker compose build failed.
-  exit /b 1
+  REM findstr returns 1 if no lines matched, which is fine; check image exists
+  docker image inspect cua-ubuntu:latest >nul 2>&1
+  if errorlevel 1 (
+    echo [ERROR] Docker compose build failed.
+    exit /b 1
+  )
 )
 echo [INFO] Docker image built successfully.
 

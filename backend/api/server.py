@@ -278,10 +278,11 @@ async def api_engines():
     """Return available engines for frontend dropdowns."""
     from backend.engine_capabilities import EngineCapabilities
 
-    _ICONS = {
-        "playwright_mcp": "\U0001f333",
-        "omni_accessibility": "\u267f",
-        "computer_use": "\U0001f5a5\ufe0f",
+    # B-01: Clean, emoji-free display names for the UI
+    _DISPLAY_NAMES = {
+        "playwright_mcp": "Browser (Semantic)",
+        "omni_accessibility": "Desktop (Accessibility)",
+        "computer_use": "Computer Use (Native)",
     }
 
     caps = EngineCapabilities()
@@ -294,7 +295,7 @@ async def api_engines():
         category = "browser" if ("dom" in cats or "javascript" in cats) else "desktop"
         engines.append({
             "value": name,
-            "label": f"{_ICONS.get(name, '\u2699\ufe0f')} {schema.display_name}",
+            "label": _DISPLAY_NAMES.get(name, schema.display_name),
             "category": category,
             "priority": schema.fallback_priority,
         })
@@ -494,6 +495,7 @@ async def api_health_detailed():
         "status": overall,
         "components": components,
         "active_sessions": active_count,
+        "vnc_protected": bool(config.vnc_password),
     }
 
 
@@ -648,7 +650,7 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
 
     container_ok = await start_container()
     if not container_ok:
-        return {"error": "Failed to start Docker container"}
+        return _error_response(500, "Failed to start Docker container", request_id=rid)
 
     loop = AgentLoop(
         task=req.task,

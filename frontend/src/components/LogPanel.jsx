@@ -41,7 +41,7 @@ export default function LogPanel({ logs, onClear }) {
                 border: '1px solid var(--border)', cursor: 'pointer',
                 textTransform: 'uppercase', fontWeight: 600,
                 background: levelFilter[level] ? 'var(--bg-tertiary)' : 'transparent',
-                opacity: levelFilter[level] ? 1 : 0.4,
+                opacity: levelFilter[level] ? 1 : 0.6,
                 color: level === 'info' ? 'var(--info)' : level === 'warning' ? 'var(--warning)' : level === 'error' ? 'var(--error)' : 'var(--text-secondary)',
               }}
             >
