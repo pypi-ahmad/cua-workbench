@@ -4,128 +4,91 @@
   <img src="docs/assets/architecture.svg" alt="CUA Workbench architecture" width="100%" />
 </p>
 
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-F4B400" alt="MIT License" /></a>
-  <img src="https://img.shields.io/badge/python-3.10%2B-3776AB" alt="Python 3.10+" />
-  <img src="https://img.shields.io/badge/frontend-React%2019-61DAFB" alt="React 19" />
-  <img src="https://img.shields.io/badge/backend-FastAPI-009688" alt="FastAPI" />
-  <img src="https://img.shields.io/badge/runtime-Docker%20Ubuntu%2024.04-2496ED" alt="Docker Ubuntu 24.04" />
-  <img src="https://img.shields.io/badge/browser-Playwright%20MCP-2EAD33" alt="Playwright MCP" />
-</p>
+CUA Workbench is a local development environment for running computer-using agents inside a visible Linux sandbox. It combines a React frontend, a FastAPI orchestration backend, and a Dockerized Ubuntu desktop so you can start an agent session, watch what it does, inspect step-by-step logs, and compare multiple execution engines without leaving the same interface.
 
-CUA Workbench is a local-first environment for building, testing, and observing computer-using agents. It combines a React workbench, a FastAPI orchestration backend, and a Dockerized Ubuntu desktop so you can run browser and desktop automation in a visible sandbox while streaming logs, screenshots, and session status back to the UI.
+## What the App Does
 
-The repository supports three execution styles that are already wired into the codebase: semantic browser automation through Playwright MCP, accessibility-driven automation through platform accessibility APIs, and native Computer Use execution for allowlisted Gemini and Claude models.
+This repository provides a local workbench for:
 
-## Why this repository exists
+- Starting agent sessions from plain-language tasks
+- Choosing a provider, model, engine, and execution target per session
+- Running browser-semantic, accessibility-driven, or native computer-use flows
+- Streaming screenshots, logs, and step records back to the UI in real time
+- Viewing the sandbox desktop through noVNC or screenshot fallback
+- Exporting session history from the frontend as JSON
 
-- Run agent tasks inside a visible Linux sandbox instead of blind headless automation.
-- Compare browser-semantic, accessibility-semantic, and native computer-use execution paths from one UI.
-- Keep model and engine choices explicit. The backend validates the requested engine, provider, and model instead of auto-switching behind the scenes.
-- Observe every run through REST, WebSocket, screenshots, noVNC, and optional WebRTC streaming.
+The current app is a local operator tool, not a hosted platform. Session state is kept in memory, and the repository does not implement sign-in, persistence, or multi-user collaboration.
 
-## At a glance
+## Why It Exists
 
-| Layer | Implementation | What it does |
-| --- | --- | --- |
-| Frontend | React 19 + Vite 6 | Workbench UI, engine/model selection, logs, screenshots, and noVNC embedding |
-| Backend | FastAPI + Uvicorn | Validation, session orchestration, Docker lifecycle, WebSocket broadcast, and API surface |
-| Sandbox | Ubuntu 24.04 container | XFCE desktop, Xvfb, x11vnc, noVNC, Playwright MCP, Chromium, and internal agent service |
-| Models | Google Gemini and Anthropic Claude | Routed through a strict allowlist in `backend/allowed_models.json` |
-| Engines | `playwright_mcp`, `omni_accessibility`, `computer_use` | Browser semantic control, accessibility semantic control, and native computer-use flow |
+Most agent demos hide execution behind headless automation or loosely defined runtime behavior. This repository exists to make that behavior inspectable and explicit: the selected engine is the engine that runs, the selected model must be allowlisted, and the sandbox remains visible while the agent works.
 
-## Key features
+That makes the repository useful for engineering evaluation, prompt iteration, runtime debugging, and side-by-side comparison of automation styles.
 
-- Three built-in automation engines with explicit per-session selection.
-- Local React workbench with live screenshots, session logs, and step history.
-- Linux desktop sandbox exposed through noVNC and optional WebRTC.
-- Strict allowlists for engines and models at the API layer.
-- API key resolution from UI input, `.env`, or system environment variables.
-- In-memory session lifecycle with WebSocket broadcast for screenshots, logs, steps, and completion.
-- Docker runtime with localhost-only published ports, `no-new-privileges`, and resource limits in `docker-compose.yml`.
-- Extensive test coverage across engine routing, model policy, agent loop behavior, and stress scenarios.
+## Implemented Features
 
-## Architecture
+- React frontend with a home view and a more detailed `/workbench` view
+- FastAPI backend with REST endpoints for health, models, engines, container lifecycle, session control, screenshots, and key validation
+- WebSocket streaming for screenshots, logs, steps, and session completion
+- Three execution engines: `playwright_mcp`, `omni_accessibility`, and `computer_use`
+- Dockerized Ubuntu 24.04 sandbox with XFCE, Xvfb, x11vnc, noVNC, Chromium, Playwright MCP, and an internal agent service
+- Provider/model validation against `backend/allowed_models.json`
+- API key resolution from UI input, `.env`, or system environment variables
+- Optional WebRTC negotiation endpoint when additional packages are installed
+- Test coverage across engine routing, loop behavior, model policy, transport, and stress scenarios
 
-![Architecture](docs/assets/architecture.svg)
+## Tech Stack
 
-The host machine runs the frontend and backend. The backend always starts the Docker sandbox before launching a session, then delegates action execution to the selected engine. The container hosts the visible Linux runtime, the internal `agent_service.py` HTTP API on port `9222`, and Playwright MCP on port `8931`.
+| Layer | Implementation |
+| --- | --- |
+| Frontend | React 19, React Router 7, Vite 6 |
+| Backend | FastAPI, Uvicorn, Pydantic 2, HTTPX, websockets |
+| Model providers | Google GenAI SDK, Anthropic SDK |
+| Sandbox | Docker, Ubuntu 24.04, XFCE, Xvfb, x11vnc, noVNC |
+| Browser tooling | Playwright MCP, Chromium |
+| Media / image processing | Pillow, OpenCV, NumPy |
 
-### Core runtime surfaces
+## Project Structure
 
-| Surface | Port | Notes |
-| --- | --- | --- |
-| Frontend dev server | `3000` | Vite dev server, proxies `/api`, `/ws`, and `/vnc` |
-| Backend API | `8000` | FastAPI control plane |
-| Agent service | `9222` | In-container HTTP API for actions, screenshots, mode switching, and health |
-| Playwright MCP | `8931` | In-container MCP HTTP endpoint for browser-semantic actions |
-| Chromium remote debugging | `9223` | Used by the browser-side Computer Use path |
-| VNC / noVNC | `5900`, `6080` | Published on `127.0.0.1` only |
+```text
+.
+├── backend/
+│   ├── agent/                  # agent loop, model clients, prompts, screenshots, Playwright MCP client
+│   ├── api/                    # FastAPI server and request handling
+│   ├── engines/                # accessibility and Computer Use engines
+│   ├── health/                 # engine certification and health helpers
+│   ├── streaming/              # WebRTC and video-capture support
+│   ├── tools/                  # action routing, schemas, aliases
+│   └── utils/                  # Docker lifecycle and utility helpers
+├── docker/
+│   ├── Dockerfile              # Ubuntu desktop image definition
+│   ├── entrypoint.sh           # desktop, DBus, VNC, MCP, and agent-service boot sequence
+│   └── agent_service.py        # in-container execution service
+├── docs/
+│   ├── USAGE.md                # detailed operator guide
+│   └── assets/                 # architecture diagram used by docs
+├── frontend/
+│   ├── src/                    # React app, hooks, API client, pages, and components
+│   ├── package.json            # frontend scripts and dependencies
+│   └── vite.config.js          # dev-server configuration and proxy rules
+├── tests/                      # unit, integration, and stress tests
+├── docker-compose.yml          # local sandbox topology and published ports
+├── requirements.txt            # Python runtime dependencies
+├── setup.sh / setup.bat        # setup scripts
+└── start.sh / start.bat        # convenience launchers
+```
 
-## Request and execution flow
-
-![Execution Flow](docs/assets/execution-flow.svg)
-
-When the UI calls `POST /api/agent/start`, the backend validates the request, resolves the API key, caps step count, and enforces concurrency limits. It then creates an `AgentLoop`, starts the Docker container if necessary, and begins the perceive-think-act cycle.
-
-For `playwright_mcp` and `omni_accessibility`, the loop captures state, queries the selected provider, normalizes the resulting action, validates that action against the selected engine, executes it, and emits logs and step events. For `computer_use`, the loop delegates to the dedicated native Computer Use engine, which runs its own turn-based action cycle and can request explicit safety confirmation.
-
-## Component map
-
-![Components](docs/assets/components.svg)
-
-The repository is organized around a thin UI, a strict API layer, and execution engines that stay isolated from one another. The engine router is intentionally simple: the user-selected engine is the engine used for the full session.
-
-## Runtime topology
-
-![Runtime Topology](docs/assets/runtime-topology.svg)
-
-The published ports in `docker-compose.yml` are bound to `127.0.0.1`. The frontend does not talk to the container directly. Instead, it reaches noVNC and the WebSocket stream through backend proxy routes so the browser stays on the same origin during development.
-
-## Supported engines
-
-| Engine | Primary use | Execution target | Input style | Notes |
-| --- | --- | --- | --- | --- |
-| `playwright_mcp` | Semantic browser automation | `local` or `docker` | MCP tool calls and accessibility snapshot refs | Best fit for browser workflows where DOM and accessibility tree structure matter |
-| `omni_accessibility` | Semantic desktop automation | `docker` for Linux AT-SPI, `local` for native host accessibility providers | Accessibility tree, roles, names, states, and semantic actions | Code includes Linux AT-SPI, Windows UIA, and macOS JXA providers |
-| `computer_use` | Native model-controlled browser or desktop operation | `docker` only | Native Computer Use tool protocol | Backend rejects `execution_target=local` for this engine |
-
-### Execution behavior by engine
-
-| Capability | `playwright_mcp` | `omni_accessibility` | `computer_use` |
-| --- | --- | --- | --- |
-| Browser-semantic interaction | Yes | Limited to accessibility-exposed browser UI | No DOM semantics, pixel-oriented model tool flow |
-| Desktop-semantic interaction | No | Yes | Yes, through browser or desktop executors |
-| Model action format | MCP tool call or normalized action | Normalized action | Native model tool protocol |
-| Screenshot-driven reasoning | Sometimes | Yes | Yes |
-| Accessibility snapshot-driven reasoning | Yes | Yes | No |
-
-## Supported providers and models
-
-The backend reads the canonical allowlist from `backend/allowed_models.json`, and the frontend builds its dropdowns from `GET /api/models`.
-
-| Provider | Model ID | Display name | Computer Use metadata |
-| --- | --- | --- | --- |
-| Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Supports Computer Use |
-| Google | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | Supports Computer Use |
-| Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | Uses `computer_20251124` with `computer-use-2025-11-24` beta |
-| Anthropic | `claude-opus-4-6` | Claude Opus 4.6 | Uses `computer_20251124` with `computer-use-2025-11-24` beta |
-
-## Quickstart
-
-### Prerequisites
+## Prerequisites
 
 - Docker with a running daemon
-- Python 3.10 or newer
-- Node.js 18 or newer
+- Python 3.10+
+- Node.js 18+
 
-### Option 1: repository setup script
+The Docker image is large enough that low disk space can cause setup to fail. Both setup scripts check for that condition.
 
-Windows:
+## Installation
 
-```bat
-setup.bat
-```
+### Option 1: setup scripts
 
 Linux or macOS:
 
@@ -133,21 +96,44 @@ Linux or macOS:
 bash setup.sh
 ```
 
-Both scripts do the same core work:
+Windows:
 
-- verify Docker, Python, and Node.js
-- build the Docker image through `docker compose build`
-- create a local virtual environment and install `requirements.txt`
+```bat
+setup.bat
+```
+
+These scripts:
+
+- verify Docker, Python, and Node.js are installed
+- verify the Docker daemon is running
+- build the Docker image
+- create `.venv` if needed
+- install `requirements.txt`
 - install frontend dependencies with `npm install`
 
-### Option 2: manual setup
+Destructive cleanup is available through `--clean`:
+
+```bash
+bash setup.sh --clean
+```
+
+```bat
+setup.bat --clean
+```
+
+### Option 2: manual installation
 
 ```bash
 docker compose build
 
 python -m venv .venv
-# Windows: .venv\Scripts\activate
-# Linux/macOS: source .venv/bin/activate
+
+# Windows
+.venv\Scripts\activate
+
+# Linux / macOS
+source .venv/bin/activate
+
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 
@@ -156,191 +142,217 @@ npm install
 cd ..
 ```
 
-### Configure at least one provider key
+## Configuration
 
-You can provide keys in the UI, through a `.env` file in the repository root, or through system environment variables.
+### API keys
+
+At least one provider key is required to start a real session.
 
 ```env
 GOOGLE_API_KEY=your-google-key
 ANTHROPIC_API_KEY=your-anthropic-key
 ```
 
-Key resolution order in the backend is:
+The backend resolves keys in this order:
 
 1. key entered in the UI
-2. key in `.env`
-3. key in the system environment
+2. key from `.env` in the repository root
+3. key from the process environment
 
-### Run the stack
-
-Start the container:
-
-```bash
-docker compose up -d --build
-```
-
-Start the backend:
-
-```bash
-python -m backend.main
-```
-
-Start the frontend:
-
-```bash
-cd frontend
-npm run dev
-```
-
-Open `http://localhost:3000` and start a session from the workbench.
-
-## Usage
-
-### Typical workflow
-
-1. Open the workbench at `http://localhost:3000`.
-2. Choose run mode, provider, model, engine, target, and max steps.
-3. Enter a task description.
-4. Start the session and monitor screenshots, logs, and step records.
-5. Switch to the interactive noVNC view when you need direct visibility into the sandbox.
-
-### What the UI controls
-
-| Control | Effect |
-| --- | --- |
-| Run mode | Switches between browser-oriented and desktop-oriented session defaults |
-| Provider and model | Uses the backend allowlist exposed by `/api/models` |
-| Engine | Selects one of the three supported engines without fallback substitution |
-| Execution target | Uses local execution for supported engines or Docker execution inside the sandbox |
-| API key source | Chooses manual UI input, `.env`, or system environment when available |
-
-### Session behavior worth knowing
-
-- The backend always starts the Docker container before launching a session.
-- Session state is stored in memory only.
-- WebSocket clients receive screenshots, logs, step events, and final session status.
-- The loop injects recovery hints when it detects repeated actions or duplicate results.
-
-## Configuration
-
-The main runtime configuration lives in `backend/config.py` and is sourced from environment variables.
+### Environment variables actually loaded by `backend.config.Config.from_env()`
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `HOST` | `0.0.0.0` | Backend bind address |
-| `PORT` | `8000` | Backend port |
-| `DEBUG` | `false` | Enables debug logging and hot reload mode |
+| `GEMINI_MODEL` | `gemini-3-flash-preview` | Default model fallback in backend config |
 | `CONTAINER_NAME` | `cua-environment` | Docker container name |
-| `CONTAINER_IMAGE` | `cua-ubuntu:latest` | Docker image tag |
-| `AGENT_SERVICE_HOST` | `127.0.0.1` | Agent service host from the backend perspective |
-| `AGENT_SERVICE_PORT` | `9222` | Agent service port |
+| `AGENT_SERVICE_HOST` | `127.0.0.1` | Agent-service host from the backend's perspective |
+| `AGENT_SERVICE_PORT` | `9222` | Agent-service port |
+| `AGENT_MODE` | `browser` | Default agent mode |
 | `PLAYWRIGHT_MCP_HOST` | `localhost` | Playwright MCP host |
 | `PLAYWRIGHT_MCP_PORT` | `8931` | Playwright MCP port |
-| `PLAYWRIGHT_MCP_PATH` | `/mcp` | MCP HTTP endpoint path |
-| `PLAYWRIGHT_MCP_AUTOSTART` | `false` | Enables MCP auto-start when configured |
+| `PLAYWRIGHT_MCP_PATH` | `/mcp` | Playwright MCP path |
+| `PLAYWRIGHT_MCP_AUTOSTART` | `0` | Boolean-like autostart flag |
+| `PLAYWRIGHT_MCP_COMMAND` | `npx` | Local MCP command |
+| `PLAYWRIGHT_MCP_ARGS` | `-y @playwright/mcp@latest` | Local MCP arguments |
+| `PLAYWRIGHT_MCP_DOCKER_TRANSPORT` | `http` | Docker transport mode |
 | `SCREEN_WIDTH` | `1440` | Virtual screen width |
 | `SCREEN_HEIGHT` | `900` | Virtual screen height |
-| `MAX_STEPS` | `50` | Default session step budget |
-| `STEP_TIMEOUT` | `30.0` | Per-step timeout in seconds |
+| `MAX_STEPS` | `50` | Default step budget |
+| `STEP_TIMEOUT` | `30.0` | Per-step timeout |
+| `GEMINI_RETRY_ATTEMPTS` | `3` | Retry count used by provider clients |
+| `DEBUG` | `0` | Enables backend debug mode |
+| `VNC_PASSWORD` | empty | Empty means VNC is open to local machine users |
 
-### Optional extras
+### Important configuration note
 
-`requirements.txt` intentionally does not install WebRTC dependencies. If you want the `/webrtc/offer` path to work, install them separately:
+`backend/config.py` defines additional defaults such as `host`, `port`, `action_delay_ms`, `gemini_retry_delay`, `ws_screenshot_interval`, and `screenshot_format`, but those are not currently loaded from environment variables by `Config.from_env()`. This README does not document them as live env controls.
+
+### Optional WebRTC extras
+
+`requirements.txt` intentionally excludes the WebRTC extras. Install them separately if you need `/webrtc/offer`:
 
 ```bash
 python -m pip install aiortc av
 ```
 
-## Backend and API overview
+## Running Locally
 
-### Main REST endpoints
+### Recommended path for the current repository state
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/health` | Basic liveness check |
-| `GET` | `/api/container/status` | Reports container state and agent service health |
-| `POST` | `/api/container/start` | Starts the Docker sandbox |
-| `POST` | `/api/container/stop` | Stops active sessions and removes the container |
-| `POST` | `/api/container/build` | Builds the Docker image |
-| `GET` | `/api/keys/status` | Shows provider key availability and source |
-| `GET` | `/api/models` | Returns the allowlisted model list |
-| `GET` | `/api/engines` | Returns available engines and frontend metadata |
-| `GET` | `/api/screenshot` | Returns the current screenshot as base64 |
-| `POST` | `/api/agent/start` | Starts a new session |
-| `POST` | `/api/agent/stop/{session_id}` | Stops a running session |
-| `GET` | `/api/agent/status/{session_id}` | Returns current session progress |
-| `GET` | `/api/agent/history/{session_id}` | Returns step history without screenshots |
-| `POST` | `/api/agent/safety-confirm` | Responds to Computer Use safety confirmation requests |
-| `POST` | `/webrtc/offer` | Negotiates a WebRTC screen stream when optional packages are installed |
+There is a real port mismatch in the current repo:
 
-### WebSocket events
+- `frontend/vite.config.js` proxies `/api`, `/ws`, and `/vnc` to `localhost:8080`
+- `python -m backend.main` starts the backend on `8000`
+- `start.sh` and `start.bat` also start the backend on `8000`
 
-The frontend connects to `/ws` and receives JSON events with the following shapes:
+To use the frontend without editing source files, run the backend on `8080` manually.
 
-| Event | Meaning |
-| --- | --- |
-| `screenshot` | Step-specific screenshot emitted during execution |
-| `screenshot_stream` | Periodic desktop screenshot stream |
-| `log` | Structured log entry |
-| `step` | Step record without raw model response or image payload |
-| `agent_finished` | Session completion summary |
-| `pong` | Reply to frontend keepalive ping |
-
-### VNC and live screen routes
-
-| Route | Purpose |
-| --- | --- |
-| `/vnc/{path}` | Reverse proxy for noVNC static assets |
-| `/vnc/websockify` | WebSocket proxy for the noVNC transport |
-
-## Project structure
-
-```text
-.
-├── backend/
-│   ├── agent/                  # model routing, prompts, screenshot capture, execution loop
-│   ├── api/                    # FastAPI server and endpoints
-│   ├── engines/                # Computer Use and accessibility engines
-│   ├── streaming/              # optional WebRTC/X11 video support
-│   ├── tools/                  # action normalization, engine router, schema helpers
-│   └── utils/                  # Docker lifecycle and utility helpers
-├── docker/
-│   ├── Dockerfile              # Ubuntu desktop image
-│   ├── entrypoint.sh           # Xvfb, XFCE, AT-SPI, VNC, MCP, agent service boot
-│   └── agent_service.py        # in-container browser and desktop execution API
-├── frontend/
-│   └── src/                    # React workbench UI, API client, hooks, and components
-├── tests/                      # unit, policy, transport, loop, and stress tests
-├── docs/assets/                # README diagrams
-├── docker-compose.yml          # local runtime topology and limits
-├── requirements.txt            # Python runtime dependencies
-├── setup.bat                   # Windows setup script
-└── setup.sh                    # Linux/macOS setup script
-```
-
-## Safety and runtime notes
-
-- The Docker runtime is local-first. Ports are bound to `127.0.0.1` in `docker-compose.yml`.
-- The container uses `no-new-privileges:true`, `init: true`, a 4 GB memory limit, a 2 CPU limit, and a 2 GB shared-memory allocation.
-- This is a useful local sandbox, not a formal security boundary or multitenant isolation system.
-- The backend keeps session state in memory. Restarting the backend clears active sessions and history.
-- The Computer Use engine can surface `require_confirmation` decisions that must be resolved through `/api/agent/safety-confirm`.
-
-## Development and testing
-
-### Run the application in development
+### 1. Start the Docker sandbox
 
 ```bash
 docker compose up -d --build
-python -m backend.main
+```
 
+### 2. Start the backend on port 8080
+
+```bash
+python -m uvicorn backend.api.server:app --host 127.0.0.1 --port 8080
+```
+
+### 3. Start the frontend
+
+```bash
 cd frontend
 npm run dev
 ```
 
-### Run tests
+`frontend/vite.config.js` requests port `3000`. Open the URL Vite prints in the terminal.
 
-The repository includes pytest-based tests, but `pytest` is not pinned in `requirements.txt`, so install it explicitly in your dev environment first.
+### Convenience launchers
+
+The repository also includes:
+
+- `./start.sh`
+- `start.bat`
+
+Current behavior of those launchers:
+
+- start backend on `http://localhost:8000`
+- start frontend and print `http://localhost:5173`
+- do not start the Docker container for you
+
+They are useful as convenience scripts, but they are not fully aligned with the current frontend proxy settings.
+
+## Available Commands
+
+### Repository-level commands
+
+| Command | What it does |
+| --- | --- |
+| `bash setup.sh` | Full setup on Linux/macOS |
+| `setup.bat` | Full setup on Windows |
+| `bash setup.sh --clean` | Destructive cleanup, rebuild path on Linux/macOS |
+| `setup.bat --clean` | Destructive cleanup, rebuild path on Windows |
+| `./start.sh` | Convenience launcher for backend + frontend on Linux/macOS |
+| `./start.sh --stop` | Stops frontend and backend processes started by `start.sh` |
+| `start.bat` | Convenience launcher for backend + frontend on Windows |
+| `start.bat --stop` | Stops frontend and backend processes started by `start.bat` |
+| `docker compose build` | Build the sandbox image |
+| `docker compose up -d --build` | Build and run the sandbox container |
+
+### Frontend commands
+
+Defined in `frontend/package.json`:
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Start the Vite dev server |
+| `npm run build` | Build the production frontend bundle |
+| `npm run preview` | Preview the built frontend |
+
+## Usage Overview
+
+The frontend exposes two routes:
+
+- `/` - home view with control panel, live screen, and logs
+- `/workbench` - expanded workbench with sidebar, live screen, timeline, and log tabs
+
+Typical flow:
+
+1. Start the Docker container, backend, and frontend.
+2. Open the app and confirm the header shows a healthy or reachable state.
+3. Choose a provider, model, key source, engine, and run location.
+4. Enter a task and start the session.
+5. Watch screenshots, logs, and steps as they stream into the UI.
+6. Stop the session, inspect history, or export the run as JSON.
+
+### Usage Guide
+
+For the detailed operator guide, see [docs/USAGE.md](docs/USAGE.md). It contains the full usage flow, UI-level behavior, inputs and outputs, troubleshooting, and current limitations.
+
+Guide sections:
+
+- [Purpose](docs/USAGE.md#purpose)
+- [Who This App Is For](docs/USAGE.md#who-this-app-is-for)
+- [Before You Start](docs/USAGE.md#before-you-start)
+- [Setup and Prerequisites](docs/USAGE.md#setup-and-prerequisites)
+- [How to Start the App Locally](docs/USAGE.md#how-to-start-the-app-locally)
+- [Main User Workflow](docs/USAGE.md#main-user-workflow)
+- [Feature Guide](docs/USAGE.md#feature-guide)
+- [Input Expectations](docs/USAGE.md#input-expectations)
+- [Output and Result Behavior](docs/USAGE.md#output-and-result-behavior)
+- [Configuration Reference](docs/USAGE.md#configuration-reference)
+- [API and Realtime Surface](docs/USAGE.md#api-and-realtime-surface)
+- [Troubleshooting](docs/USAGE.md#troubleshooting)
+- [Limitations and Important Notes](docs/USAGE.md#limitations-and-important-notes)
+
+## API Overview
+
+The backend exposes implemented endpoints for:
+
+- health checks
+- model and engine discovery
+- API key status and validation
+- Docker container lifecycle
+- agent-service mode and health
+- screenshot retrieval
+- session start, stop, status, history, and safety confirmation
+- optional WebRTC negotiation
+- noVNC proxying
+
+Core endpoints include:
+
+| Method | Path |
+| --- | --- |
+| `GET` | `/api/health` |
+| `GET` | `/api/health/detailed` |
+| `GET` | `/api/models` |
+| `GET` | `/api/engines` |
+| `GET` | `/api/keys/status` |
+| `POST` | `/api/keys/validate` |
+| `GET` | `/api/container/status` |
+| `POST` | `/api/container/start` |
+| `POST` | `/api/container/stop` |
+| `POST` | `/api/container/build` |
+| `GET` | `/api/container/logs` |
+| `GET` | `/api/agent-service/health` |
+| `POST` | `/api/agent-service/mode` |
+| `GET` | `/api/preflight` |
+| `GET` | `/api/screenshot` |
+| `POST` | `/api/agent/start` |
+| `POST` | `/api/agent/stop/{session_id}` |
+| `GET` | `/api/agent/status/{session_id}` |
+| `GET` | `/api/agent/history/{session_id}` |
+| `POST` | `/api/agent/safety-confirm` |
+| `POST` | `/webrtc/offer` |
+
+The realtime stream is exposed over `WebSocket /ws`.
+
+## Testing
+
+The repository contains pytest-based tests under `tests/` and `tests/stress/`.
+
+`pytest` is not pinned in `requirements.txt`, so install it explicitly first:
 
 ```bash
 python -m pip install pytest
@@ -352,44 +364,51 @@ Run the main suite:
 pytest tests -v --ignore=tests/stress
 ```
 
-Run stress-oriented scenarios separately:
+Run the stress scenarios separately:
 
 ```bash
 pytest tests/stress -v
 ```
 
-There is also a standalone harness under `backend/tests/stress_system.py` for backend-driven stress execution.
+There is also a standalone backend-oriented harness at `backend/tests/stress_system.py`.
 
-## Troubleshooting
+## Build and Deployment Notes
 
-| Problem | What to check |
-| --- | --- |
-| Container does not start | Make sure Docker is running, then try `docker compose up -d --build` and inspect `docker compose ps` |
-| UI shows no screenshots | Check that the container is running and that the backend can reach `http://127.0.0.1:9222/health` |
-| Model start request is rejected | Verify the provider key is available and the selected model matches the allowlist from `/api/models` |
-| Computer Use fails on local target | Switch the execution target to Docker; the backend rejects local Computer Use sessions by design |
-| noVNC view is unavailable | Confirm the backend is up and the `/vnc` proxy can reach the container on port `6080` |
-| WebRTC endpoint errors | Install `aiortc` and `av`, then restart the backend |
-| Accessibility actions fail in Docker | Check that the container completed AT-SPI startup and that DBus, `at-spi2-registryd`, and XFCE initialized correctly |
+The repository supports local Docker image builds and local development/runtime flows.
 
-## Limitations and near-term gaps
+What is clearly implemented today:
 
-- Session persistence is not implemented. All runtime state is in memory.
-- There is no CI configuration in this repository today, so verification is local and script-driven.
+- local Docker image build through `docker compose build`
+- local sandbox startup through `docker compose up -d --build`
+- frontend production build through `npm run build`
+
+What is not documented here as supported because the repo does not define it clearly:
+
+- a production deployment topology
+- infrastructure-as-code for cloud deployment
+- CI/CD pipelines
+- packaged releases
+
+## Limitations and Notes
+
+- Session state is in memory only; restarting the backend clears active sessions.
+- The frontend/backend port configuration is currently inconsistent unless you either run the backend on `8080` or change the Vite proxy.
+- `computer_use` rejects `execution_target=local` by design.
+- The Docker sandbox is local-first and its published ports are bound to `127.0.0.1` in `docker-compose.yml`.
 - WebRTC support is optional and requires extra packages.
-- The browser-facing path is stronger than the desktop path for general-purpose web workflows because it has richer semantic tooling.
-- The repository is optimized for local development and evaluation, not remote multitenant hosting.
+- The frontend does not currently expose a user-facing approval dialog for safety-confirmation events even though the backend exposes `/api/agent/safety-confirm`.
+- The Linux accessibility path is the primary implemented accessibility runtime; the codebase includes Windows UIA and macOS JXA preparation, but the repo is centered on the Dockerized Linux desktop.
 
 ## Contributing
 
-Contributions should preserve the repository's current design principles:
+Contributions are appropriate here because the repository already includes tests, setup scripts, and structured documentation.
 
-- keep engine selection explicit rather than silently switching engines
-- keep model exposure rooted in `backend/allowed_models.json`
-- avoid broadening public claims beyond what the code implements today
-- prefer documentation and tests when changing behavior that affects prompts, engine routing, or runtime setup
+When changing behavior, keep these current design constraints intact:
 
-If you change runtime behavior, update the diagrams and README sections that describe the affected flow.
+- engine selection should remain explicit
+- model exposure should remain rooted in `backend/allowed_models.json`
+- public documentation should not claim behavior that the code does not implement
+- docs and tests should be updated when runtime behavior changes
 
 ## License
 

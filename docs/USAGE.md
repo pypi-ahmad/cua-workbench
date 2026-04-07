@@ -1,736 +1,794 @@
-# CUA Workbench — Usage Guide
+# CUA Workbench Usage Guide
 
-A complete reference for setting up, configuring, and operating CUA Workbench.
+This document explains how to set up and use CUA Workbench as it exists in this repository today.
 
----
+CUA Workbench is a local operator console for running AI agents against a visible computer sandbox. The repository combines:
+
+- A React frontend with a home view and a more detailed workbench view
+- A FastAPI backend for session orchestration, validation, and streaming
+- A Dockerized Ubuntu desktop with XFCE, noVNC, an internal agent service, and Playwright MCP
 
 ## Table of Contents
 
-1. [What is CUA Workbench?](#1-what-is-cua-workbench)
-2. [Architecture](#2-architecture)
-3. [Prerequisites](#3-prerequisites)
-4. [Installation](#4-installation)
-5. [Configuration](#5-configuration)
-6. [Running the Stack](#6-running-the-stack)
-7. [The Web Interface](#7-the-web-interface)
-8. [Automation Engines](#8-automation-engines)
-9. [Models & Providers](#9-models--providers)
-10. [Session Lifecycle](#10-session-lifecycle)
-11. [REST API Reference](#11-rest-api-reference)
-12. [WebSocket Events](#12-websocket-events)
-13. [Advanced Topics](#13-advanced-topics)
-14. [Troubleshooting](#14-troubleshooting)
+1. [Purpose](#purpose)
+2. [Who This App Is For](#who-this-app-is-for)
+3. [Before You Start](#before-you-start)
+4. [Setup and Prerequisites](#setup-and-prerequisites)
+5. [How to Start the App Locally](#how-to-start-the-app-locally)
+6. [Main User Workflow](#main-user-workflow)
+7. [Feature Guide](#feature-guide)
+8. [Input Expectations](#input-expectations)
+9. [Output and Result Behavior](#output-and-result-behavior)
+10. [Configuration Reference](#configuration-reference)
+11. [API and Realtime Surface](#api-and-realtime-surface)
+12. [Troubleshooting](#troubleshooting)
+13. [Limitations and Important Notes](#limitations-and-important-notes)
 
----
+## Purpose
 
-## 1. What is CUA Workbench?
+CUA Workbench is for running browser and desktop automation sessions with an LLM while keeping the execution environment visible and inspectable.
 
-CUA Workbench is a local environment for running AI agents that automate real computer tasks inside a visible sandbox. It connects a React control panel, a FastAPI orchestration backend, and a Dockerized Ubuntu 24.04 desktop so you can direct an agent, watch every action it takes, and inspect a complete log of its reasoning.
+In the current implementation, you can:
 
-**What makes it distinct:**
+- Select a provider, model, engine, and execution target from the UI
+- Start an agent session from a plain-text task description
+- Watch screenshots or an interactive noVNC desktop view
+- Inspect logs and per-step action history in real time
+- Export a completed session as JSON from the UI
 
-- The desktop is always **visible** through an embedded noVNC pane — not headless.
-- **Three execution engines** are shipped and can be selected per session without rebuilding.
-- Engine, model, and provider selection is **explicit**. The backend validates the combination and rejects invalid ones; it never silently substitutes an alternative.
-- Full session observability: live screenshots, structured per-step logs, and WebSocket event streaming are built in from the start.
-- Both Google Gemini and Anthropic Claude are supported, routed through a strict model allowlist.
+The app does not present itself as a hosted product. It is a local development and experimentation workbench.
 
-**Typical use cases:**
+## Who This App Is For
 
-| Use case | Example task |
-|---|---|
-| Web research automation | "Search for the top 5 AI papers published this week and summarize each one" |
-| UI testing in a clean environment | "Open the file manager, navigate to /tmp, and verify test fixtures exist" |
-| Comparing engine and model behavior | Run the same task on Playwright MCP vs. Computer Use and compare logs |
-| Verifying in-container state | Execute shell commands or inspect files through the Desktop accessibility engine |
+This repository is best suited for:
 
----
+- Engineers building or testing agent workflows
+- QA or automation engineers comparing browser-semantic and desktop-semantic execution
+- Model and prompt developers who need to inspect step-by-step agent behavior
+- Developers who want a visible Linux sandbox instead of headless automation
 
-## 2. Architecture
+It is not currently structured as a multi-user application with accounts, saved workspaces, or persistent server-side history.
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  Browser  →  Frontend (React 19 + Vite)  :3000                  │
-│               Control panel · Screen view · Logs · Timeline      │
-└──────────────────┬───────────────────────────────────────────────┘
-                   │  HTTP /api/*  +  WebSocket /ws
-                   ▼
-┌──────────────────────────────────────────────────────────────────┐
-│  Backend (FastAPI + Uvicorn)  :8000                              │
-│  Validation · Session orchestration · Docker lifecycle           │
-│  Model router (Gemini / Claude) · WebSocket broadcast            │
-│  noVNC reverse proxy (/vnc) · WebRTC (optional)                  │
-└──────────────────┬───────────────────────────────────────────────┘
-                   │  Docker API  +  HTTP to container services
-                   ▼
-┌──────────────────────────────────────────────────────────────────┐
-│  Ubuntu 24.04 Container  (cua-environment)                       │
-│  Xvfb :99 · XFCE4 desktop · AT-SPI2 accessibility bridge        │
-│  x11vnc :5900 · noVNC :6080 · Chromium browser                  │
-│  Agent Service  :9222  (actions, screenshots, health)            │
-│  Playwright MCP :8931  (semantic browser tools)                  │
-└──────────────────────────────────────────────────────────────────┘
-```
+## Before You Start
 
-The frontend **never talks to the container directly**. All container traffic — screenshots, noVNC, action results — flows through the backend, keeping the browser on a single origin.
+Review these repo-specific realities before you launch anything:
 
-### Port map
+1. Docker is effectively required for the visible sandbox experience. The UI can load without Docker, but container-backed features will be unavailable.
+2. You need at least one supported provider key: `GOOGLE_API_KEY` or `ANTHROPIC_API_KEY`, unless you plan to paste the key into the UI each session.
+3. The current frontend proxy configuration and the default backend entry point are not aligned:
+   - `frontend/vite.config.js` proxies `/api`, `/ws`, and `/vnc` to `http://localhost:8080`
+   - `python -m backend.main` starts the backend on port `8000`
+   - `start.sh` and `start.bat` also start the backend on `8000`
 
-| Port | Service | Bound to |
-|------|---------|----------|
-| `3000` | Vite dev server | localhost |
-| `8000` | FastAPI backend | `0.0.0.0` (configurable) |
-| `5900` | VNC (x11vnc) | `127.0.0.1` only |
-| `6080` | noVNC web | `127.0.0.1` only |
-| `8931` | Playwright MCP | `127.0.0.1` only |
-| `9222` | Agent Service | `127.0.0.1` only |
-| `9223` | Chromium remote debug | `127.0.0.1` only |
+Because of that mismatch, the most reliable no-edit local flow today is to start the backend on port `8080` when using the frontend as currently configured.
 
----
+## Setup and Prerequisites
 
-## 3. Prerequisites
+### Required software
 
-| Requirement | Minimum version | Notes |
-|---|---|---|
-| Docker with a running daemon | 24.x | Docker Desktop on Windows/macOS |
-| Python | 3.10 | 3.11+ recommended |
-| Node.js | 18 | 20 LTS recommended |
-| Disk space | 10 GB free | For the Ubuntu Docker image |
+| Requirement | What the repo expects |
+| --- | --- |
+| Docker | Running daemon available to `docker` and `docker compose` |
+| Python | `python` or `python3`, version 3.10+ |
+| Node.js | Version 18+ |
 
----
+### One-command setup
 
-## 4. Installation
+Linux or macOS:
 
-### Option A — Setup scripts (recommended)
-
-The scripts verify prerequisites, build the image, create a Python virtual environment, and install all dependencies in one pass.
-
-**Linux / macOS:**
 ```bash
 bash setup.sh
 ```
 
-**Windows (PowerShell):**
+Windows:
+
 ```bat
 setup.bat
 ```
 
-### Option B — Manual
+What these scripts actually do:
+
+- Check for Docker, Python, and Node.js
+- Check that the Docker daemon is running
+- Build the Docker image
+- Create `.venv` if needed
+- Install `requirements.txt`
+- Run `npm install` in `frontend`
+
+Both setup scripts also support destructive cleanup first:
 
 ```bash
-# 1. Build the Docker image (~10 GB, takes several minutes on first run)
+bash setup.sh --clean
+```
+
+```bat
+setup.bat --clean
+```
+
+### Manual setup
+
+```bash
 docker compose build
 
-# 2. Create a Python virtual environment
-python3 -m venv .venv
-source .venv/bin/activate          # Linux / macOS
-# .venv\Scripts\activate.bat       # Windows
+python -m venv .venv
 
-# 3. Install Python dependencies
-pip install --upgrade pip
-pip install -r requirements.txt
+# Windows
+.venv\Scripts\activate
 
-# 4. Install frontend dependencies
-cd frontend && npm install && cd ..
+# Linux / macOS
+source .venv/bin/activate
+
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+
+cd frontend
+npm install
+cd ..
 ```
 
-### Clean rebuild
+## How to Start the App Locally
 
-Use `--clean` to remove all containers, images, and volumes before rebuilding:
+### Recommended path for the current repo state
+
+This path matches the current frontend proxy settings without editing source files.
+
+### 1. Start the Docker container
 
 ```bash
-bash setup.sh --clean    # Linux / macOS
-setup.bat --clean         # Windows
+docker compose up -d --build
 ```
 
----
-
-## 5. Configuration
-
-### Environment variables
-
-Create a `.env` file in the repository root. All variables are optional — the app runs with defaults if the file is absent.
-
-```env
-# ── API Keys ───────────────────────────────────────────────────────────────
-# Resolution order: UI input > .env file > system environment variable
-GOOGLE_API_KEY=your-google-api-key
-ANTHROPIC_API_KEY=your-anthropic-api-key
-
-# ── Backend ────────────────────────────────────────────────────────────────
-HOST=0.0.0.0                   # bind address (use 127.0.0.1 to restrict to localhost)
-PORT=8000
-DEBUG=0                        # set to 1 for debug logging and hot reload
-
-# ── Container ──────────────────────────────────────────────────────────────
-CONTAINER_NAME=cua-environment
-AGENT_SERVICE_HOST=127.0.0.1
-AGENT_SERVICE_PORT=9222
-
-# ── Playwright MCP ─────────────────────────────────────────────────────────
-PLAYWRIGHT_MCP_HOST=localhost
-PLAYWRIGHT_MCP_PORT=8931
-PLAYWRIGHT_MCP_AUTOSTART=0     # set to 1 to auto-start when container is up
-
-# ── Display ────────────────────────────────────────────────────────────────
-SCREEN_WIDTH=1440
-SCREEN_HEIGHT=900
-
-# ── Agent tuning ───────────────────────────────────────────────────────────
-MAX_STEPS=50                   # default step budget per session
-STEP_TIMEOUT=30.0              # seconds before a single step times out
-ACTION_DELAY_MS=500            # pause between executed actions
-
-# ── Security ───────────────────────────────────────────────────────────────
-VNC_PASSWORD=                  # leave empty to run noVNC without a password
-```
-
-> **Security note:** When `VNC_PASSWORD` is unset, noVNC runs without authentication. The UI shows a "⚠ VNC open" badge in the header as a reminder. Set a password in `.env` if the machine is shared.
-
-### Model allowlist
-
-`backend/allowed_models.json` is the single source of truth for which models are available. Both the backend validator and the frontend dropdown read from it. Add or remove entries here to change what models appear in the UI — changes take effect on next backend restart.
-
-```json
-{
-  "models": [
-    {
-      "provider": "google",
-      "model_id": "gemini-3-flash-preview",
-      "display_name": "Gemini 3 Flash Preview",
-      "supports_computer_use": true,
-      "supports_playwright_mcp": true,
-      "supports_accessibility": true
-    }
-  ]
-}
-```
-
----
-
-## 6. Running the Stack
-
-Three processes run on the host, plus the Docker container:
-
-### Step 1 — Start the container
+Optional checks:
 
 ```bash
-docker compose up -d
-```
-
-The container boots Xvfb, XFCE4, the AT-SPI accessibility bridge, VNC servers, the agent service (`:9222`), and the Playwright MCP server (`:8931`). Allow 10–15 seconds for all services to initialize.
-
-```bash
-# Verify the container is running and healthy
 docker compose ps
-
-# Stream container startup logs
 docker compose logs -f cua-environment
 ```
 
-### Step 2 — Start the backend
+### 2. Start the backend on port 8080
+
+Activate the virtual environment first, then run:
 
 ```bash
-source .venv/bin/activate   # Linux / macOS
-# .venv\Scripts\activate.bat  # Windows
-
-python -m backend.main
+python -m uvicorn backend.api.server:app --host 127.0.0.1 --port 8080
 ```
 
-The API is now available at `http://localhost:8000`. You'll see:
-```
-INFO: CUA backend starting — model=gemini-3-flash-preview, agent_service=http://127.0.0.1:9222
-INFO: Application startup complete.
-INFO: Uvicorn running on http://0.0.0.0:8000
-```
+Why `8080` is recommended here:
 
-### Step 3 — Start the frontend
+- The frontend proxy currently points to `localhost:8080`
+- The default backend entry point still uses `8000`
+- Starting uvicorn directly on `8080` avoids changing code just to make local development work
+
+### 3. Start the frontend
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-Navigate to **http://localhost:3000**.
+`frontend/vite.config.js` requests port `3000`.
 
----
+Open the URL Vite prints in the terminal. In the current codebase, the intended frontend URL is `http://localhost:3000`, but if that port is already occupied, Vite may choose another port.
 
-## 7. The Web Interface
+### Alternative launcher scripts
 
-### Header
+The repository also includes:
 
-The top bar shows live system status at a glance:
+- `start.sh`
+- `start.bat`
 
-| Element | Meaning |
-|---|---|
-| Health dot (green) | All systems healthy (container up + agent service ready) |
-| Health dot (yellow) | Degraded — one component is down |
-| Health dot (red) | Unhealthy — critical component down |
-| ● Container Running | Docker container is up |
-| ✕ Container Stopped | Container is not running; click "Start Container" |
-| Agent Service Ready / Down | Whether the in-container agent API is responding |
-| ⚠ VNC open | VNC is running without a password |
-| Status dot + "Connected" | WebSocket to backend is active |
-| Status dot + "Agent Running" | A session is in progress |
+Those scripts currently:
 
-### Home page — Control panel
+- Start the backend on `http://localhost:8000`
+- Start the frontend and print `http://localhost:5173`
+- Do not start the Docker container for you
 
-The left panel is the main control surface.
+Use them only if you understand the current port mismatch and have aligned the frontend proxy with the backend port you want to use.
 
-**API Configuration**
+## Main User Workflow
 
-| Field | Description |
-|---|---|
-| Provider | Google Gemini or Anthropic Claude |
-| Model | Populated from `GET /api/models`; models unsupported by the current engine are greyed out |
-| Key source | **Enter key** — type it directly · **From .env file** — uses the .env key · **Environment variable** — uses the shell env. Buttons are disabled when that source has no key |
-| API key input | Visible only in "Enter key" mode; validated on blur with a ✓/✗ indicator |
+This is the primary end-user flow supported by the current UI.
 
-**Engine and advanced options**
+### 1. Open the app
 
-Click **Advanced Settings ▶** to reveal:
+The frontend has two routes:
 
-| Field | Description |
-|---|---|
-| Run location | **This machine** (local host) or **Docker container** |
-| Max steps | Step budget cap (hard server-side limit: 200) |
+- `/` - the home page with the control panel, screen, and logs
+- `/workbench` - the expanded three-pane workbench view
 
-The engine selector and its one-line help text are always visible above the accordion.
+### 2. Confirm backend and container status
 
-**Task input**
+The header and workbench status pills show whether:
 
-- Write a plain-English description of the task.
-- Click a sample chip to prefill the textarea.
-- Press **Ctrl+Enter** or **Start Agent (Ctrl+Enter)** to launch.
-- A pre-flight check runs before starting and shows warnings (e.g., "API key not configured") without blocking the session.
+- The WebSocket is connected
+- The Docker container is running
+- The internal agent service is ready
+- VNC is open without a password
 
-**Action history**
+If the container is stopped, use `Start Container` from the header or let agent start trigger an automatic container start.
 
-Every completed step appears in the scrollable action list below the task section. After the session ends, a cost estimate (`~N steps · est. ~$X.XX`) is shown. Click **📦** to export the full session as JSON.
+### 3. Choose provider and model
+
+The UI loads provider and model options from backend endpoints, not from hardcoded frontend constants.
+
+Supported providers in the current repo:
+
+- Google Gemini
+- Anthropic Claude
+
+Supported models come from `backend/allowed_models.json`.
+
+### 4. Choose an API key source
+
+The UI exposes three key-source modes:
+
+- `Enter key`
+- `From .env file`
+- `Environment variable`
+
+If the selected provider key is already available from `.env` or the process environment, the corresponding button is enabled and shows a masked key preview.
+
+### 5. Choose engine and run location
+
+Available engines are loaded from `GET /api/engines`.
+
+Current engine choices:
+
+- `Browser (Semantic)` -> `playwright_mcp`
+- `Desktop (Accessibility)` -> `omni_accessibility`
+- `Computer Use (Native)` -> `computer_use`
+
+Run location values exposed in the UI:
+
+- `This machine`
+- `Docker container`
+
+Default behavior in the frontend:
+
+- `playwright_mcp` defaults to `local`
+- `omni_accessibility` defaults to `docker`
+- `computer_use` defaults to `docker`
+
+### 6. Enter a task
+
+Provide a plain-language task in the text area.
+
+The UI also exposes sample task chips, currently including examples like:
+
+- `Search Google for 'latest AI news'`
+- `Open the file manager and list files in /tmp`
+- `Take a screenshot of the desktop`
+- `Go to wikipedia.org and find the main page featured article`
+
+### 7. Start the agent
+
+You can start from either view using:
+
+- The `Start Agent (Ctrl+Enter)` button
+- `Ctrl+Enter` in the task field
+
+Before start, the frontend runs a pre-flight check through `GET /api/preflight`. Warnings are displayed, but they do not block session start.
+
+### 8. Watch the run
+
+During execution, the app can show:
+
+- Screenshots over WebSocket
+- An interactive noVNC view, when available
+- Live logs
+- Action history or timeline entries
+
+### 9. Stop, inspect, or export
+
+After or during a run, you can:
+
+- Stop the session with `Stop`
+- Clear logs and steps in the workbench view
+- Download logs as `.txt` from the workbench log panel
+- Export a session as `.json` from the home view or workbench view
+
+## Feature Guide
+
+### Header and top-level status
+
+The home page header shows:
+
+- Health dot derived from `GET /api/health/detailed`
+- `Container Running` or `Container Stopped`
+- `Agent Service Ready` or `Agent Service Down`
+- `Start Container` or `Stop Container`
+- `Connected`, `Disconnected`, or `Agent Running`
+- `VNC open` warning when `VNC_PASSWORD` is unset
+
+### Home page
+
+The `/` route is composed of:
+
+- `Header`
+- `ControlPanel`
+- `ScreenView`
+- `LogPanel`
+
+#### API Configuration section
+
+This section includes:
+
+- Provider selector
+- API key source buttons
+- API key input when `Enter key` is selected
+- Model selector
+- Engine selector
+- A short engine help line
+- `Advanced Settings`
+- `Open Workbench ->` link
+
+Behavior worth knowing:
+
+- If the backend is unreachable, model loading fails and the UI shows backend-offline messaging
+- Models unsupported by the selected engine are disabled in the engine dropdown logic
+- API key validation runs on blur when the typed key has length >= 8
+
+#### Advanced Settings on the home page
+
+The home view exposes `Run location` inside the advanced section. `Max steps` is shown near the task section as a numeric input.
+
+#### Task section
+
+The task section includes:
+
+- Multi-line task input
+- Sample task buttons when the task box is empty
+- `Max steps` numeric input
+- Optional pre-flight warnings block
+- `Start Agent (Ctrl+Enter)` button
+- `Stop` button
+- JSON export button after a run has produced steps
+
+#### Action History section
+
+The home page shows a compact step list with:
+
+- Step number
+- Action badge
+- Coordinates when present
+- Text preview when present
+- Reasoning text when present
+- Error text for failed steps
+
+When the agent is running, a progress bar is shown. When the run is complete, the home view also shows an estimated total cost based on the selected model prefix and the number of steps.
 
 ### Workbench page
 
-Navigate to `/workbench` (or click **Open Workbench →**) for the three-pane expert view.
+The `/workbench` route is the more detailed operator view.
 
-```
-┌────────────────┬──────────────────────┬─────────────────────┐
-│  Config        │   Live Screen        │  Timeline           │
-│  (sidebar)     │   (noVNC or         │  (step-by-step)     │
-│                │    screenshot)       │─────────────────────│
-│                │                      │  Logs               │
-│                │                      │  (agent / container)│
-└────────────────┴──────────────────────┴─────────────────────┘
-```
+#### Left sidebar
 
-**Sidebar** contains the full config form: run mode toggle (Browser / Desktop), provider, model, API key source, and an **Advanced Settings** accordion for engine, run location, and max steps.
+The sidebar exposes:
 
-**Live Screen** shows the container desktop. When the container is running but the agent service hasn't finished initializing, a spinner with "Waiting for agent service to start…" is shown. Once ready, the screen defaults to the interactive noVNC pane; a **Screenshot** overlay badge is shown when in screenshot-fallback mode.
+- `Run Mode` toggle: `Browser` or `Desktop`
+- Provider selector
+- Model selector
+- `API Key Source`
+- API key field when `Enter key` is active
+- `Advanced Settings`
+- Task text area
+- `Start Agent (Ctrl+Enter)`
+- `Stop`
+- `Clear`
 
-**Timeline** lists every step with action type, target, and timestamp. Click any step to expand its reasoning, coordinates, and raw JSON.
+The `Run Mode` toggle changes the default engine:
 
-**Logs panel** has two tabs:
-- **Logs** — real-time agent logs with per-level filter toggles (INFO / WARNING / ERROR / DEBUG). Download as `.txt` or export the full session as `.json`.
-- **Container** — fetches the last 200 lines from `docker logs` on demand. Click **Refresh** to update.
+- `Browser` -> `playwright_mcp`
+- `Desktop` -> `computer_use`
 
----
+#### Live Screen panel
 
-## 8. Automation Engines
+`ScreenView` has three real user-visible states:
 
-### Engine quick-reference
+1. Loading state: `Waiting for agent service to start...`
+2. Interactive state: embedded noVNC iframe with `Interactive` badge
+3. Fallback state: screenshot image with `Screenshot` badge and `Interactive View` button
 
-| Engine | UI name | Best for | Execution target |
-|---|---|---|---|
-| `playwright_mcp` | Browser (Semantic) | Web tasks — navigation, forms, search | `local` or `docker` |
-| `omni_accessibility` | Desktop (Accessibility) | Desktop apps — file manager, settings, office | `docker` (Linux AT-SPI) |
-| `computer_use` | Computer Use (Native) | Complex browser + desktop with safety gates | `docker` only |
+If there is no screenshot and the container is not ready, the empty state reads:
 
-### Browser (Semantic) — `playwright_mcp`
+- `No screen capture available`
+- `Start the container to see the live view`
 
-Uses the **Playwright MCP** server to interact with Chromium via its accessibility tree. The model receives a structured text snapshot of the page DOM instead of a screenshot, then references elements by `[ref=...]` identifiers — no pixel coordinates required for most actions.
+#### Timeline panel
 
-**Typical actions:**
-`browser_navigate`, `browser_click`, `browser_type`, `browser_fill_form`, `browser_snapshot`, `browser_evaluate`, `browser_wait_for`
+The workbench timeline shows:
 
-**Example task:** *"Search Google for 'latest AI research papers' and open the first result"*
+- Step number
+- Action icon
+- Action name
+- Target preview when present
+- Text preview when present
+- Timestamp
 
-**When to choose this engine:** Any task that lives primarily inside a browser. It's the most reliable engine for web automation because it uses structured DOM references rather than visual coordinates.
+Clicking a timeline row expands:
 
-### Desktop (Accessibility) — `omni_accessibility`
+- Reasoning
+- Coordinates
+- Error message, if any
+- Raw action JSON
 
-Uses the platform's native accessibility API — **AT-SPI2** on Linux (inside the container), UIAutomation on Windows (local), JXA on macOS (local). The model receives a tree of accessible elements with roles, names, states, and bounding boxes.
+#### Logs panel
 
-**Typical actions:**
-`get_accessibility_tree`, `click`, `type`, `scroll`, `open_app`, `run_command`, `find_by_role`, `find_by_text`
+The workbench logs panel has two tabs:
 
-**Example task:** *"Open the file manager, navigate to /tmp, and create a file called test.txt"*
+- `Logs`
+- `Container`
 
-**When to choose this engine:** Tasks that involve native desktop applications (file managers, text editors, system utilities) rather than the browser.
+`Logs` supports:
 
-### Computer Use (Native) — `computer_use`
+- Per-level filters for `info`, `warning`, `error`, and `debug`
+- `Download` to save logs as `.txt`
+- `Export` to save session JSON
+- `Clear`
 
-Uses the native **computer-use tool protocol** that Gemini 3 and Claude 4.6 models understand directly. The model emits structured CU actions; the backend can interrupt execution and request a **safety confirmation** before executing sensitive actions.
+`Container` supports:
 
-**Execution sub-modes:** `browser` (Playwright) or `desktop` (xdotool + scrot screenshot-driven)
+- On-demand fetch of the last 200 lines through `GET /api/container/logs?lines=200`
+- `Refresh`
 
-**Coordinate systems:**
-- Gemini models: 0–999 normalized (normalized to viewport at runtime)
-- Claude models: real pixel coordinates
+### Automation engines
 
-**Example task:** *"Take a screenshot of the current desktop and describe what is visible"*
+#### `playwright_mcp`
 
-**When to choose this engine:** Tasks that require the model to reason visually and issue arbitrary click/type/keyboard actions without a semantic tree, or when the target model's native CU protocol is preferred over the MCP layer.
+Intended for browser-centric tasks.
 
-> **Note:** The backend rejects `execution_target=local` for the Computer Use engine. Set execution target to **Docker container**.
+Current repo behavior:
 
----
+- Can run with `local` or `docker` execution target
+- Uses Playwright MCP tooling
+- The backend discovers available MCP tools dynamically from the server using `tools/list`
 
-## 9. Models & Providers
+#### `omni_accessibility`
 
-### Google Gemini
+Intended for accessibility-tree-driven desktop control.
 
-| Model ID | Display name | CU | MCP | Accessibility |
-|---|---|---|---|---|
-| `gemini-3-flash-preview` | Gemini 3 Flash Preview | ✅ | ✅ | ✅ |
-| `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | ✅ | ✅ | ✅ |
+Current repo behavior:
 
-Get an API key: [aistudio.google.com](https://aistudio.google.com/) → **Get API Key**
+- Defaults to `docker` in the frontend
+- Uses the accessibility engine path rather than Playwright MCP
+- Is exposed in the UI as `Desktop (Accessibility)`
 
-### Anthropic Claude
+#### `computer_use`
 
-| Model ID | Display name | CU | MCP | Accessibility |
-|---|---|---|---|---|
-| `claude-sonnet-4-6` | Claude Sonnet 4.6 | ✅ | ✅ | ✅ |
-| `claude-opus-4-6` | Claude Opus 4.6 | ✅ | ✅ | ✅ |
+Intended for native computer-use-capable models.
 
-Get an API key: [console.anthropic.com](https://console.anthropic.com/) → **Create API Key**
+Current repo behavior:
 
-### Cost estimates
+- Exposed in the UI as `Computer Use (Native)`
+- Backend rejects `execution_target=local`
+- Uses model-native computer-use execution rather than the standard action router
 
-The UI shows a rough per-step cost estimate based on the selected model. These are display-only estimates; actual billing depends on token volume.
+## Input Expectations
 
-| Model | Approx. cost per step |
-|---|---|
-| Gemini 3 Flash | ~$0.003 |
-| Gemini 3.1 Pro | ~$0.020 |
-| Claude Sonnet | ~$0.015 |
-| Claude Opus | ~$0.075 |
-| Claude Haiku | ~$0.003 |
+### Task text
 
----
+- Required
+- Plain text
+- Maximum request size is constrained by the backend request model to 10,000 characters
 
-## 10. Session Lifecycle
+### API keys
 
-### What happens when you click Start
+- UI key entry is optional if `.env` or system environment already provides the key
+- The backend resolves keys in this exact order:
+  1. UI input
+  2. `.env`
+  3. process environment
 
-1. **Pre-flight check** — Backend verifies API key availability, container state, and engine validity. Warnings are shown in the UI but never block the session.
-2. **Container start** — Backend calls `start_container()` if the container isn't already running.
-3. **Input validation** — Engine, provider, model, and task are validated. Rate limit (10/min) and concurrency limit (3 concurrent sessions) are enforced.
-4. **Key resolution** — `resolve_api_key(provider, ui_key)`: UI input → `.env` → system env.
-5. **Loop start** — `AgentLoop` begins the perceive → think → act cycle up to `max_steps`.
-6. **Step execution:**
-   - Capture state (accessibility snapshot or screenshot)
-   - Query the model (Gemini or Claude) with action history context
-   - Validate the returned action against the engine's capability schema
-   - Execute the action via the in-container agent service or local Playwright MCP
-   - Emit `step`, `log`, and `screenshot` WebSocket events
-7. **Termination** — The loop stops when the model returns `done`/`error`, max steps are reached, the user stops the session, or the session is idle for 30 minutes.
-8. **`agent_finished` event** — Broadcast to all connected WebSocket clients with session ID, status, and step count.
+### Provider and model
 
-### Session state
+- Provider must be `google` or `anthropic`
+- Model must be allowlisted in `backend/allowed_models.json`
 
-All session state is **in-memory only**. Restarting the backend clears all active sessions. There is no database or persistent session store.
+### Max steps
 
-### Idle timeout
+- UI input accepts `1` through `200`
+- Backend hard-caps the value at `200`
 
-Sessions with no step activity for 30 minutes are stopped automatically. Active sessions running at full speed are not affected.
+### Run location
 
----
+- UI exposes `local` and `docker`
+- `computer_use` with `local` is rejected by the backend with a 400 error
 
-## 11. REST API Reference
+### Things this UI does not currently ask for
 
-All paths are prefixed with `/api`. The backend is at `http://localhost:8000` by default.
+There is no implemented user flow for:
 
-### Health & discovery
+- Account sign-in
+- Onboarding wizard
+- File upload
+- Saved projects or saved workflows
+- Server-side persisted results
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/health` | Liveness probe. Returns `{"status": "ok"}` |
-| `GET` | `/api/health/detailed` | Component-level health: Docker, agent service, API key availability. Returns overall `status` (`healthy` / `degraded` / `unhealthy`) |
-| `GET` | `/api/models` | Allowlisted models with capability flags |
-| `GET` | `/api/engines` | Available engines with display names and categories |
-| `GET` | `/api/keys/status` | API key availability and source for each provider |
-| `GET` | `/api/preflight` | Pre-flight checklist for a given engine+provider combination |
+## Output and Result Behavior
 
-### Container lifecycle
+### Session state and completion
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/container/status` | Container running state and agent service health |
-| `POST` | `/api/container/start` | Start (and build-if-missing) the Docker container |
-| `POST` | `/api/container/stop` | Stop active sessions, then stop the container |
-| `POST` | `/api/container/build` | Trigger a Docker image rebuild |
-| `GET` | `/api/container/logs?lines=N` | Last N lines of container stdout (default 100, max 500) |
+Session state is in memory only.
 
-### Agent sessions
+If the backend process stops, active session state is lost.
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/agent/start` | Start a new session |
-| `POST` | `/api/agent/stop/{session_id}` | Stop a running session |
-| `GET` | `/api/agent/status/{session_id}` | Current status and step count |
-| `GET` | `/api/agent/history/{session_id}` | Full step history (no screenshots) |
-| `POST` | `/api/agent/safety-confirm` | Resolve a Computer Use safety confirmation prompt |
+The backend enforces:
 
-**Start session — request body:**
+- Rate limit: 10 session starts per 60 seconds
+- Maximum concurrent sessions: 3
+- Idle timeout reaper: 30 minutes of inactivity
+
+### Realtime events shown in the frontend
+
+The current frontend WebSocket hook handles these event types:
+
+- `screenshot`
+- `screenshot_stream`
+- `log`
+- `step`
+- `agent_finished`
+- `pong`
+
+The frontend stores only the latest 200 log records in client state.
+
+### Export behavior
+
+Session export is client-side JSON generation. The exported file includes:
+
 ```json
 {
-  "task": "Search for the latest AI news on Google",
-  "api_key": "",
-  "model": "gemini-3-flash-preview",
-  "provider": "google",
-  "engine": "playwright_mcp",
-  "execution_target": "local",
-  "mode": "browser",
-  "max_steps": 50
+  "exported_at": "ISO timestamp",
+  "config": {
+    "provider": "google",
+    "model": "gemini-3-flash-preview",
+    "engine": "playwright_mcp",
+    "executionTarget": "local",
+    "maxSteps": 50,
+    "runMode": "browser"
+  },
+  "steps": [],
+  "logs": [],
+  "final_screenshot": null
 }
 ```
 
-Leave `api_key` empty to let the backend resolve the key from `.env` or environment.
+Home view exports omit `runMode` because that value is only tracked in the workbench page.
 
-**Start session — validation rules:**
+Filename pattern:
 
-| Rule | Limit |
-|---|---|
-| Rate limit | 10 starts per 60 seconds |
-| Concurrent sessions | Max 3 |
-| Max steps (hard cap) | 200 |
-| Engine | Must be in the supported engine list |
-| Model | Must be in `allowed_models.json` for the selected provider |
-| `computer_use` + `local` | Rejected — must use `docker` target |
+- Session export: `CUA_session_YYYYMMDD_HHMMSS.json`
+- Log download: `CUA_logs_YYYYMMDD_HHMMSS.txt`
 
-### API key validation
+### Result visibility
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/keys/validate` | Test a key against the provider (5-second timeout). Returns `{"valid": true/false/null}` |
+Completed work is exposed through:
 
-Request body: `{"provider": "google", "api_key": "AIza..."}`
+- Action history on the home page
+- Timeline on the workbench page
+- Log streams in both views
+- Latest screenshot image
 
-`null` means the validation call timed out or failed — the key may still be valid.
+There is no dedicated summary page or persisted report view in the current frontend.
 
-### Error responses
+## Configuration Reference
 
-All error responses use a consistent envelope:
-```json
-{
-  "error": "Human-readable message",
-  "detail": "Optional additional context",
-  "request_id": "UUID of the originating request"
-}
+This section lists configuration that is actually wired into the current codebase.
+
+### API key environment variables
+
+| Variable | Used for |
+| --- | --- |
+| `GOOGLE_API_KEY` | Google provider sessions |
+| `ANTHROPIC_API_KEY` | Anthropic provider sessions |
+
+### Environment variables read by `backend.config.Config.from_env()`
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `GEMINI_MODEL` | `gemini-3-flash-preview` | Default model used when code falls back to config |
+| `CONTAINER_NAME` | `cua-environment` | Container name used by backend helpers |
+| `AGENT_SERVICE_HOST` | `127.0.0.1` | Backend-side agent service host |
+| `AGENT_SERVICE_PORT` | `9222` | Backend-side agent service port |
+| `AGENT_MODE` | `browser` | Default agent mode in config |
+| `PLAYWRIGHT_MCP_HOST` | `localhost` | Important for host-header-sensitive MCP calls |
+| `PLAYWRIGHT_MCP_PORT` | `8931` | Playwright MCP port |
+| `PLAYWRIGHT_MCP_PATH` | `/mcp` | MCP HTTP endpoint path |
+| `PLAYWRIGHT_MCP_AUTOSTART` | `0` | Boolean-like string |
+| `PLAYWRIGHT_MCP_COMMAND` | `npx` | Command used for local MCP startup |
+| `PLAYWRIGHT_MCP_ARGS` | `-y @playwright/mcp@latest` | Arguments for local MCP startup |
+| `PLAYWRIGHT_MCP_DOCKER_TRANSPORT` | `http` | Transport mode string |
+| `SCREEN_WIDTH` | `1440` | Screen width used by backend and container |
+| `SCREEN_HEIGHT` | `900` | Screen height used by backend and container |
+| `MAX_STEPS` | `50` | Default step budget |
+| `STEP_TIMEOUT` | `30.0` | Per-step timeout |
+| `GEMINI_RETRY_ATTEMPTS` | `3` | Shared retry count used by both provider clients |
+| `DEBUG` | `0` | Enables backend debug mode |
+| `VNC_PASSWORD` | empty | Empty means VNC is not password protected |
+
+### Defaults present in config but not currently loaded from env
+
+The config class also defines defaults such as `host`, `port`, `action_delay_ms`, `gemini_retry_delay`, `ws_screenshot_interval`, and `screenshot_format`.
+
+As of the current code, `Config.from_env()` does not load those values from environment variables. Documenting them as configurable env vars would be misleading.
+
+### Model allowlist
+
+The model dropdown and backend validation both depend on `backend/allowed_models.json`.
+
+Current allowlisted models:
+
+| Provider | Model ID | Notes |
+| --- | --- | --- |
+| Google | `gemini-3-flash-preview` | Supports all three engine capability flags in the allowlist |
+| Google | `gemini-3.1-pro-preview` | Supports all three engine capability flags in the allowlist |
+| Anthropic | `claude-sonnet-4-6` | Includes `cu_tool_version` and `cu_betas` metadata |
+| Anthropic | `claude-opus-4-6` | Includes `cu_tool_version` and `cu_betas` metadata |
+
+## API and Realtime Surface
+
+This is the backend surface actually exposed by `backend/api/server.py`.
+
+### Core REST endpoints
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/health` | Basic liveness probe |
+| `GET` | `/api/health/detailed` | Component health and VNC-protection signal |
+| `GET` | `/api/models` | Allowlisted models |
+| `GET` | `/api/engines` | Engine list for the UI |
+| `GET` | `/api/keys/status` | Key availability and source |
+| `POST` | `/api/keys/validate` | Provider key validation |
+| `GET` | `/api/preflight` | Pre-flight readiness checks |
+| `GET` | `/api/container/status` | Container and agent-service status |
+| `POST` | `/api/container/start` | Start container |
+| `POST` | `/api/container/stop` | Stop active sessions and stop container |
+| `POST` | `/api/container/build` | Build Docker image |
+| `GET` | `/api/container/logs` | Fetch recent container logs |
+| `GET` | `/api/agent-service/health` | Agent service health probe |
+| `POST` | `/api/agent-service/mode` | Switch agent-service mode |
+| `GET` | `/api/screenshot` | Get current screenshot |
+| `POST` | `/api/agent/start` | Start agent session |
+| `POST` | `/api/agent/stop/{session_id}` | Stop running session |
+| `GET` | `/api/agent/status/{session_id}` | Session status |
+| `GET` | `/api/agent/history/{session_id}` | Step history without screenshots |
+| `POST` | `/api/agent/safety-confirm` | Safety-confirmation response endpoint |
+| `POST` | `/webrtc/offer` | Optional WebRTC negotiation endpoint |
+| `GET` | `/vnc/{path:path}` | noVNC reverse proxy |
+
+### WebSocket endpoint
+
+The backend exposes one WebSocket endpoint:
+
+```text
+/ws
 ```
 
-Every request and response carries an `X-Request-ID` header for log correlation.
+The frontend connects to same-origin `/ws` and sends a ping every 15 seconds.
 
----
+## Troubleshooting
 
-## 12. WebSocket Events
+### The frontend loads, but API calls fail immediately
 
-Connect to `ws://localhost:3000/ws` (via the Vite proxy) or `ws://localhost:8000/ws` directly.
+Most likely cause in the current repo: frontend and backend ports are not aligned.
 
-The client sends a heartbeat every 15 seconds:
-```json
-{ "type": "ping" }
-```
+Current state:
 
-The server responds:
-```json
-{ "event": "pong" }
-```
+- Frontend proxy points to `localhost:8080`
+- `python -m backend.main` serves on `8000`
 
-### Event reference
+Use one of these fixes:
 
-**`screenshot`** / **`screenshot_stream`** — desktop frame
-```json
-{
-  "event": "screenshot",
-  "screenshot": "<base64-encoded PNG>"
-}
-```
-
-**`log`** — structured log entry
-```json
-{
-  "event": "log",
-  "log": {
-    "timestamp": "2026-04-07T09:15:30.123456Z",
-    "level": "info",
-    "message": "Step 3: clicked Search button"
-  }
-}
-```
-
-**`step`** — completed action record
-```json
-{
-  "event": "step",
-  "step": {
-    "step_number": 3,
-    "action": "browser_click",
-    "target": "[ref=S4]",
-    "reasoning": "The Search button is the correct next action",
-    "result": "Success",
-    "timestamp": "2026-04-07T09:15:31.000Z"
-  }
-}
-```
-
-**`agent_finished`** — session complete
-```json
-{
-  "event": "agent_finished",
-  "session_id": "3f8a2c10-...",
-  "status": "completed",
-  "steps": 12
-}
-```
-
-Status values: `completed`, `error`, `stopped`, `max_steps_reached`.
-
----
-
-## 13. Advanced Topics
-
-### Recovery and stuck detection
-
-The agent loop maintains a sliding window of recent actions and applies three automatic recovery strategies:
-
-| Condition | Response |
-|---|---|
-| Same action repeated 2–3× (based on engine type) | Inject a recovery hint into the next model prompt |
-| Consecutive execution errors ≥ 3 | Stop the session with status `error` |
-| Identical evaluation results repeated 2× | Issue an ultimatum: the model must return `done` or `error` on the next step |
-| `MAX_STUCK_DETECTIONS` (3) exceeded | Force-terminate the loop |
-
-### Engine capability validation
-
-`backend/engine_capabilities.json` declares the exact set of valid actions for each engine. Every action is validated against this schema **before** being dispatched to the container. An action not in the `allowed_actions` list for the selected engine is rejected at the validation layer, not at execution time.
-
-### Dynamic MCP tool discovery
-
-At session start, the agent loop calls `tools/list` on the Playwright MCP server to get the live tool manifest. The **system prompt is generated from this live list**, so the model always has an accurate and up-to-date catalog of what it can do.
-
-### Computer Use safety confirmations
-
-When the Computer Use engine encounters an action that requires explicit user approval (e.g., a `require_confirmation` safety decision), the backend broadcasts a `safety_confirmation` WebSocket event. The session pauses until the frontend calls `POST /api/agent/safety-confirm` with `{"session_id": "...", "confirm": true}`.
-
-### Session export
-
-After a session completes, the **📦 Export** button (home page and Workbench logs panel) downloads a JSON file containing:
-- Session config (provider, model, engine, max steps)
-- All step records
-- All log entries
-- Final screenshot (base64 PNG)
-
-Filename format: `CUA_session_YYYYMMDD_HHMMSS.json`
-
-### WebRTC streaming (optional)
-
-For lower-latency video from the container, install the optional AV dependencies:
-
-```bash
-pip install aiortc av
-```
-
-Then restart the backend. The `POST /webrtc/offer` endpoint becomes active.
-
-### Running tests
-
-```bash
-pip install pytest
-
-# Main suite
-pytest tests/ -v --ignore=tests/stress
-
-# Stress tests (separate — resource-intensive)
-pytest tests/stress/ -v
-```
-
----
-
-## 14. Troubleshooting
-
-### Container won't start
-
-```bash
-# Verify the Docker daemon is running
-docker info
-
-# Rebuild and start
-docker compose build
-docker compose up -d
-
-# Check what the container is doing
-docker compose ps
-docker compose logs -f cua-environment
-```
-
-### Backend fails to bind (port already in use)
-
-If port 8000 is blocked or reserved (common with Hyper-V on Windows), start uvicorn on an alternate port and update the Vite proxy:
+1. Start the backend on `8080` with uvicorn:
 
 ```bash
 python -m uvicorn backend.api.server:app --host 127.0.0.1 --port 8080
 ```
 
-In `frontend/vite.config.js`, change all three proxy targets from `8000` to `8080`, then restart the frontend.
+2. Or edit `frontend/vite.config.js` to proxy to `8000` if you specifically want to keep using `python -m backend.main`.
 
-### UI shows no screenshots or logs
+### The backend starts, but the UI still shows `Backend Offline`
 
-1. Confirm the backend is running: `curl http://localhost:8000/api/health`
-2. Check the browser console for WebSocket errors.
-3. Verify the Vite dev server is proxying `/ws` correctly (`npm run dev` must be active, not a static build).
+Check:
 
-### Agent starts but takes no actions
-
-| Symptom | Likely cause |
-|---|---|
-| "Playwright MCP 403 Forbidden" | Set `PLAYWRIGHT_MCP_HOST=localhost` (not `127.0.0.1`) |
-| "MCP not responding" | Check container logs: `docker compose logs cua-environment \| grep -i mcp` |
-| "AT-SPI bus returned no applications" | Desktop is still initializing; wait 15–20s and retry |
-| "Agent service not responding" | Run `docker compose exec cua-environment curl http://localhost:9222/health` |
-
-### API key is not found
-
-1. Check resolution order: UI input → `.env` → system env.
-2. Call `GET /api/keys/status` to see what the backend detects.
-3. In `.env`, use `KEY=value` with no quotes: `GOOGLE_API_KEY=AIzaSy...`
-4. Make sure `.env` is in the **repository root**, not inside `backend/` or `frontend/`.
-
-### Computer Use engine is rejected
-
-The backend rejects `execution_target=local` for the `computer_use` engine. Set **Run location** to **Docker container** in the Advanced Settings accordion.
-
-### Step timeout errors
-
-Increase the per-step timeout in `.env`:
-```env
-STEP_TIMEOUT=60.0
+```bash
+curl http://127.0.0.1:8080/api/health
 ```
 
-### noVNC view is blank or shows "noVNC not available yet"
+If you are running the backend on `8000` instead, test that port instead and make sure the frontend proxy matches it.
 
-1. Verify the container is running: `docker compose ps`
-2. Check that port 6080 is reachable from the backend host: `curl http://127.0.0.1:6080`
-3. Allow 10–20 seconds after `docker compose up` for noVNC to initialize.
+### The screen shows `Waiting for agent service to start...`
 
-### Debug mode
+This means the container is up, but the agent service is not healthy yet.
 
-Set `DEBUG=1` in `.env` for verbose logging and uvicorn hot reload:
-```env
-DEBUG=1
+Check:
+
+```bash
+docker compose ps
+docker compose logs -f cua-environment
 ```
 
----
+### The screen stays blank or shows `No screen capture available`
 
-*For architecture diagrams, component maps, and the full engine compatibility matrix, see the [README](../README.md).*
+Confirm that:
 
+- The container is running
+- The backend is reachable from the frontend
+- The agent service has started
+
+You can also hit:
+
+```bash
+curl http://127.0.0.1:8080/api/screenshot
+```
+
+### The UI says no key is available
+
+The backend only resolves keys from:
+
+1. UI input
+2. `.env` in the repository root
+3. process environment
+
+Use:
+
+```bash
+curl http://127.0.0.1:8080/api/keys/status
+```
+
+### `Computer Use` fails before doing anything
+
+The backend explicitly rejects `computer_use` with `execution_target=local`.
+
+Use `Docker container` as the run location.
+
+### Playwright MCP calls fail with host-header-related errors
+
+The codebase includes a specific safeguard for `PLAYWRIGHT_MCP_HOST=localhost`. If you set it to `127.0.0.1`, some MCP flows can fail due to host-header expectations.
+
+### Container logs are empty in the workbench
+
+The workbench fetches container logs only when you open the `Container` tab or click `Refresh`. It is not a streaming container-log viewer.
+
+### WebRTC does not work
+
+`/webrtc/offer` exists, but it depends on optional packages not installed by default.
+
+Install them manually:
+
+```bash
+python -m pip install aiortc av
+```
+
+## Limitations and Important Notes
+
+These are important current-repo limitations, not future plans.
+
+### No persistence layer
+
+- Session state is in memory only
+- Restarting the backend clears active sessions
+- There is no database-backed history or result archive
+
+### No auth or onboarding flow
+
+- No sign-in or user accounts
+- No onboarding wizard
+- No permission model between users
+
+### No upload workflow
+
+There is no implemented file-upload UI or upload-specific backend flow in the current app.
+
+### Current launcher mismatch
+
+The repository's convenience launcher scripts and frontend proxy settings do not currently line up on the same backend port. The docs above call that out explicitly instead of assuming an idealized setup.
+
+### Safety confirmation is only partially surfaced
+
+The backend exposes a safety-confirmation endpoint and the Computer Use engine emits safety-related log data, but the current frontend WebSocket hook does not handle a `safety_confirmation` event and no approval dialog is rendered in the UI.
+
+In the current Computer Use path, the engine-side callback conservatively returns `False` rather than silently proceeding.
+
+### Some config values are defaults, not live env controls
+
+Do not assume every field in `backend/config.py` can be changed with an environment variable. This guide lists only configuration that is actually wired up today, and it explicitly calls out defaults that are not env-backed.
