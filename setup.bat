@@ -91,7 +91,7 @@ echo Or run manually:
 echo   1. Start container: docker compose up -d --build
 echo   2. Start backend:   .venv\Scripts\activate ^& python -m backend.main
 echo   3. Start frontend:  cd frontend ^& npm run dev
-echo   4. Open http://localhost:5173
+echo   4. Open http://localhost:3000
 echo.
 
 endlocal

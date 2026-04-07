@@ -1,6 +1,5 @@
 /**
- * Shared constants and helpers used by both ControlPanel and Workbench views.
- * B-27: Eliminates duplication across the two views.
+ * Shared constants and helpers used by the Workbench.
  */
 
 export const ENGINE_HELP = {
