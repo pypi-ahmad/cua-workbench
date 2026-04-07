@@ -1,6 +1,6 @@
 import { startContainer, stopContainer } from '../api'
 
-export default function Header({ connected, containerRunning, agentServiceUp, agentRunning, onRefreshContainer }) {
+export default function Header({ connected, containerRunning, agentServiceUp, agentRunning, onRefreshContainer, systemHealth }) {
 
   const handleStartContainer = async () => {
     await startContainer()
@@ -12,6 +12,14 @@ export default function Header({ connected, containerRunning, agentServiceUp, ag
     onRefreshContainer()
   }
 
+  // B-13: Derive health badge color from systemHealth
+  const healthStatus = systemHealth?.status
+  const healthColor = healthStatus === 'healthy' ? 'var(--success, #34d399)' : healthStatus === 'degraded' ? 'var(--warning, #fbbf24)' : healthStatus === 'unhealthy' ? 'var(--error, #f44336)' : 'var(--text-secondary)'
+  const healthLabel = healthStatus === 'healthy' ? 'All systems healthy' : healthStatus === 'degraded' ? 'System degraded' : healthStatus === 'unhealthy' ? 'System unhealthy' : 'Health unknown'
+
+  // B-31: VNC warning
+  const vncUnprotected = systemHealth && containerRunning && systemHealth.vnc_protected === false
+
   return (
     <header className="header">
       <h1>
@@ -19,12 +27,28 @@ export default function Header({ connected, containerRunning, agentServiceUp, ag
       </h1>
       <div className="header-status">
         <div className="container-controls">
+          {systemHealth && (
+            <span
+              style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: healthColor, marginRight: 6, flexShrink: 0 }}
+              aria-label={healthLabel}
+              title={healthLabel}
+            />
+          )}
           <span className={`container-status ${containerRunning ? 'running' : 'stopped'}`} aria-label={containerRunning ? 'Container is running' : 'Container is stopped'}>
             {containerRunning ? '● Container Running' : '✕ Container Stopped'}
           </span>
           {containerRunning && (
             <span className={`service-badge ${agentServiceUp ? 'up' : 'down'}`} aria-label={agentServiceUp ? 'Agent service is ready' : 'Agent service is down'}>
               Agent Service {agentServiceUp ? 'Ready' : 'Down'}
+            </span>
+          )}
+          {vncUnprotected && (
+            <span
+              style={{ fontSize: 10, color: 'var(--warning, #fbbf24)', marginLeft: 6 }}
+              title="VNC has no password. Set VNC_PASSWORD in .env for security."
+              aria-label="VNC is not password-protected"
+            >
+              ⚠ VNC open
             </span>
           )}
           {!containerRunning && (

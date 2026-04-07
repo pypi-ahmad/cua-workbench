@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import useWebSocket from '../hooks/useWebSocket'
 import useAgentConfig from '../hooks/useAgentConfig'
-import { startAgent, stopAgent, getContainerStatus, startContainer, getPreflight } from '../api'
+import useContainerStatus from '../hooks/useContainerStatus'
+import { startAgent, stopAgent, startContainer, getPreflight, getContainerLogs } from '../api'
 import { ENGINE_HELP, SAMPLE_TASKS, ENGINES_WITH_TARGET, getDefaultTarget, estimateCost, DEFAULT_BROWSER_ENGINES, DEFAULT_DESKTOP_ENGINES } from '../shared'
 import ScreenView from '../components/ScreenView'
 import './Workbench.css'
@@ -29,8 +30,8 @@ export default function Workbench() {
     handleValidateKey,
   } = useAgentConfig('google')
 
-  // Container state
-  const [containerRunning, setContainerRunning] = useState(false)
+  // B-27: shared container status hook
+  const { containerRunning, agentServiceUp, refreshContainer } = useContainerStatus()
 
   // Agent state
   const [agentRunning, setAgentRunning] = useState(false)
@@ -46,6 +47,8 @@ export default function Workbench() {
   const [preflightWarnings, setPreflightWarnings] = useState(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [logLevelFilter, setLogLevelFilter] = useState({ info: true, warning: true, error: true, debug: true })
+  const [logTab, setLogTab] = useState('agent') // 'agent' | 'container'
+  const [containerLogs, setContainerLogs] = useState('')
 
   // Smart default: docker for CU/a11y, local for playwright_mcp
 
@@ -62,22 +65,6 @@ export default function Workbench() {
   const engines = runMode === 'browser'
     ? (browserEngines.length > 0 ? browserEngines : DEFAULT_BROWSER_ENGINES)
     : (desktopEngines.length > 0 ? desktopEngines : DEFAULT_DESKTOP_ENGINES)
-
-  // Poll container
-  const refreshContainer = useCallback(async () => {
-    try {
-      const data = await getContainerStatus()
-      setContainerRunning(data.running || false)
-    } catch {
-      setContainerRunning(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    refreshContainer()
-    const id = setInterval(refreshContainer, 5000)
-    return () => clearInterval(id)
-  }, [refreshContainer])
 
   // Auto-stop frontend when agent finishes (done/error/max-steps)
   useEffect(() => {
@@ -203,6 +190,15 @@ export default function Workbench() {
     URL.revokeObjectURL(url)
   }
 
+  const handleFetchContainerLogs = async () => {
+    try {
+      const data = await getContainerLogs(200)
+      setContainerLogs(data.logs || data.stderr || 'No logs available.')
+    } catch {
+      setContainerLogs('Could not fetch container logs.')
+    }
+  }
+
   const formatTime = (ts) => {
     try { return new Date(ts).toLocaleTimeString('en-US', { hour12: false }) }
     catch { return '--:--:--' }
@@ -261,12 +257,12 @@ export default function Workbench() {
           {/* Provider & Model */}
           <div className="wb-section">
             <label className="wb-label">Provider</label>
-            <select className="wb-select" value={provider} onChange={(e) => setProvider(e.target.value)} disabled={agentRunning}>
+            <select className="wb-select" value={provider} onChange={(e) => setProvider(e.target.value)} disabled={agentRunning} title="Which AI provider to use for the agent">
               <option value="google">Google Gemini</option>
               <option value="anthropic">Anthropic Claude</option>
             </select>
             <label className="wb-label">Model</label>
-            <select className="wb-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={agentRunning || models.length === 0}>
+            <select className="wb-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={agentRunning || models.length === 0} title="The specific AI model — larger models are slower but more capable">
               {models.length > 0 ? models.map(m => <option key={m.value} value={m.value}>{m.label}</option>) : (
                 <option value="">Loading models…</option>
               )}
@@ -295,7 +291,7 @@ export default function Workbench() {
                 disabled={agentRunning || keyStatuses[provider]?.source !== 'env'}
                 title={keyStatuses[provider]?.source === 'env' ? `Found in system env (${keyStatuses[provider]?.masked_key})` : 'No environment variable set'}
               >
-                Env variable {keyStatuses[provider]?.source === 'env' && '✓'}
+                Environment variable {keyStatuses[provider]?.source === 'env' && '✓'}
               </button>
             </div>
             {keySource !== 'ui' && keyStatuses[provider]?.available && (
@@ -415,7 +411,7 @@ export default function Workbench() {
 
         {/* Center: Live Screen */}
         <main className="wb-screen-area">
-          <ScreenView screenshot={lastScreenshot} containerRunning={containerRunning} />
+          <ScreenView screenshot={lastScreenshot} containerRunning={containerRunning} agentServiceUp={agentServiceUp} />
 
           {/* Progress bar */}
           {agentRunning && steps.length > 0 && (
@@ -435,7 +431,7 @@ export default function Workbench() {
             <div className="wb-timeline" ref={timelineRef}>
               {steps.length === 0 && <p className="wb-empty">No steps yet.</p>}
               {steps.map((step, i) => (
-                <div key={i} className={`wb-timeline-item ${step.error ? 'has-error' : ''} ${expandedStep === i ? 'expanded' : ''}`} onClick={() => setExpandedStep(expandedStep === i ? null : i)}>
+                <div key={i} className={`wb-timeline-item ${step.error ? 'has-error' : ''} ${expandedStep === i ? 'expanded' : ''}`} onClick={() => setExpandedStep(expandedStep === i ? null : i)} role="button" tabIndex={0} aria-expanded={expandedStep === i} aria-label={`Step ${step.step_number}: ${step.action?.action || 'unknown'}`} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedStep(expandedStep === i ? null : i) } }}>
                   <div className="wb-timeline-head">
                     <span className="wb-step-num">#{step.step_number}</span>
                     <span className="wb-action-icon">{getActionIcon(step.action?.action)}</span>
@@ -462,13 +458,23 @@ export default function Workbench() {
           {/* Logs */}
           <div className="wb-log-section">
             <div className="wb-panel-header">
-              <h3>Logs ({logs.filter(l => logLevelFilter[l.level] !== false).length})</h3>
+              <div style={{ display: 'flex', gap: 0 }}>
+                <button onClick={() => setLogTab('agent')}
+                  style={{ padding: '2px 8px', fontSize: 11, fontWeight: logTab === 'agent' ? 700 : 400, background: logTab === 'agent' ? 'var(--bg-primary)' : 'transparent', border: '1px solid var(--border)', borderBottom: logTab === 'agent' ? 'none' : '1px solid var(--border)', borderRadius: '4px 4px 0 0', cursor: 'pointer', color: 'var(--text-primary)' }}>
+                  Logs ({logs.filter(l => logLevelFilter[l.level] !== false).length})
+                </button>
+                <button onClick={() => { setLogTab('container'); handleFetchContainerLogs() }}
+                  style={{ padding: '2px 8px', fontSize: 11, fontWeight: logTab === 'container' ? 700 : 400, background: logTab === 'container' ? 'var(--bg-primary)' : 'transparent', border: '1px solid var(--border)', borderBottom: logTab === 'container' ? 'none' : '1px solid var(--border)', borderRadius: '4px 4px 0 0', cursor: 'pointer', color: 'var(--text-primary)', marginLeft: -1 }}>
+                  Container
+                </button>
+              </div>
+              {logTab === 'agent' && (
               <div className="wb-log-actions">
                 {['info', 'warning', 'error', 'debug'].map(level => (
                   <button key={level} onClick={() => setLogLevelFilter(prev => ({ ...prev, [level]: !prev[level] }))}
                     aria-label={`${logLevelFilter[level] ? 'Hide' : 'Show'} ${level} logs`}
                     aria-pressed={logLevelFilter[level]}
-                    style={{ padding: '1px 4px', fontSize: 9, borderRadius: 3, border: '1px solid var(--border)', cursor: 'pointer', textTransform: 'uppercase', fontWeight: 600, background: logLevelFilter[level] ? 'var(--bg-primary)' : 'transparent', opacity: logLevelFilter[level] ? 1 : 0.4, color: level === 'info' ? 'var(--accent)' : level === 'error' ? 'var(--error)' : level === 'warning' ? 'var(--warning,#fbbf24)' : 'var(--text-secondary)' }}>
+                    style={{ padding: '1px 4px', fontSize: 9, borderRadius: 3, border: '1px solid var(--border)', cursor: 'pointer', textTransform: 'uppercase', fontWeight: 600, background: logLevelFilter[level] ? 'var(--bg-primary)' : 'transparent', opacity: logLevelFilter[level] ? 1 : 0.6, color: level === 'info' ? 'var(--accent)' : level === 'error' ? 'var(--error)' : level === 'warning' ? 'var(--warning,#fbbf24)' : 'var(--text-secondary)' }}>
                     {level}
                   </button>
                 ))}
@@ -476,7 +482,14 @@ export default function Workbench() {
                 <button className="wb-download-btn" onClick={handleExportSession} disabled={steps.length === 0} title="Export session as JSON" aria-label="Export session">📦 Export</button>
                 <button className="wb-clear-btn" onClick={clearLogs} aria-label="Clear logs">Clear</button>
               </div>
+              )}
+              {logTab === 'container' && (
+              <div className="wb-log-actions">
+                <button className="wb-clear-btn" onClick={handleFetchContainerLogs} aria-label="Refresh container logs">Refresh</button>
+              </div>
+              )}
             </div>
+            {logTab === 'agent' && (
             <div className="wb-logs" ref={logRef} role="log" aria-live="polite">
               {(() => { const filtered = logs.filter(l => logLevelFilter[l.level] !== false); return filtered.length === 0 ? (
                 <p className="wb-empty">{logs.length === 0 ? 'Waiting for logs...' : 'No logs match the current filter.'}</p>
@@ -488,6 +501,12 @@ export default function Workbench() {
                 </div>
               )); })()}
             </div>
+            )}
+            {logTab === 'container' && (
+            <div className="wb-logs" style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 11 }}>
+              {containerLogs || <p className="wb-empty">Click the Container tab to load logs.</p>}
+            </div>
+            )}
           </div>
         </aside>
       </div>

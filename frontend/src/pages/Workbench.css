@@ -62,7 +62,7 @@
   transition: background .15s, color .15s, opacity .15s;
   white-space: nowrap;
 }
-.wb-key-src-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.wb-key-src-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .wb-key-src-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .wb-key-src-btn.available:not(.active) { border-color: var(--success, #4caf50); }
 .wb-key-status { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11px; }

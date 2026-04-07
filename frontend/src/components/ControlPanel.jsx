@@ -11,6 +11,8 @@ export default function ControlPanel({
   sessionId,
   setSessionId,
   steps,
+  logs,
+  lastScreenshot,
   clearSteps,
   onRefreshContainer,
   agentFinished,
@@ -125,6 +127,28 @@ export default function ControlPanel({
     }
   }
 
+  // B-24: Export session as JSON
+  const handleExportSession = () => {
+    if (steps.length === 0) return
+    const now = new Date()
+    const pad = (n, w = 2) => String(n).padStart(w, '0')
+    const filename = `CUA_session_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.json`
+    const session = {
+      exported_at: now.toISOString(),
+      config: { provider, model, engine, executionTarget, maxSteps: Number(maxSteps) },
+      steps,
+      logs: logs || [],
+      final_screenshot: lastScreenshot || null,
+    }
+    const blob = new Blob([JSON.stringify(session, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="left-panel">
       {/* API Config */}
@@ -153,7 +177,7 @@ export default function ControlPanel({
             className={`key-src-btn ${keySource === 'dotenv' ? 'active' : ''}`}
             onClick={() => setKeySource('dotenv')}
             disabled={agentRunning || keyStatuses[provider]?.source !== 'dotenv'}
-            style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'dotenv' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'dotenv' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.source === 'dotenv' ? 1 : 0.4 }}
+            style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'dotenv' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'dotenv' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.source === 'dotenv' ? 1 : 0.6 }}
             title={keyStatuses[provider]?.source === 'dotenv' ? `Found (${keyStatuses[provider]?.masked_key})` : 'No key in .env file'}
           >
             From .env file {keyStatuses[provider]?.source === 'dotenv' ? '✓' : ''}
@@ -234,6 +258,17 @@ export default function ControlPanel({
         {ENGINE_HELP[engine] && (
           <p style={{ color: 'var(--text-secondary)', fontSize: 11, margin: '4px 0 0', lineHeight: 1.4 }}>{ENGINE_HELP[engine]}</p>
         )}
+
+        {/* B-26: Progressive disclosure — advanced settings */}
+        <button onClick={() => setShowAdvanced(!showAdvanced)}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 11, padding: 0, display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left', marginTop: 8 }}
+          aria-expanded={showAdvanced}
+        >
+          <span style={{ transform: showAdvanced ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.15s', display: 'inline-block' }}>▶</span>
+          Advanced Settings
+        </button>
+        {showAdvanced && (
+          <>
         {ENGINES_WITH_TARGET.includes(engine) && (
           <>
             <label style={{ display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-secondary)', marginTop: 8, marginBottom: 4 }}>Run location</label>
@@ -248,6 +283,8 @@ export default function ControlPanel({
               <option value="local">This machine</option>
               <option value="docker">Docker container</option>
             </select>
+          </>
+        )}
           </>
         )}
         <Link to="/workbench" className="btn btn-secondary" style={{ textAlign: 'center', marginTop: 6, display: 'block', textDecoration: 'none' }}>
@@ -327,6 +364,11 @@ export default function ControlPanel({
           <button className="btn btn-danger" disabled={!agentRunning} onClick={handleStop}>
             Stop
           </button>
+          {steps.length > 0 && !agentRunning && (
+            <button className="btn btn-secondary" onClick={handleExportSession} title="Export session as JSON" aria-label="Export session" style={{ flex: 'none', padding: '10px 12px' }}>
+              📦
+            </button>
+          )}
         </div>
       </div>
 
@@ -340,6 +382,11 @@ export default function ControlPanel({
               style={{ width: `${Math.min((steps.length / maxSteps) * 100, 100)}%` }}
             />
           </div>
+        )}
+        {!agentRunning && steps.length > 0 && estimateCost(model, steps.length) && (
+          <p style={{ color: 'var(--text-secondary)', fontSize: 11, marginTop: 4 }}>
+            ~{steps.length} steps · est. ~${estimateCost(model, steps.length)}
+          </p>
         )}
       </div>
       <div className="action-list">
