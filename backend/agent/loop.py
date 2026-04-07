@@ -69,6 +69,9 @@ class AgentLoop:
         on_step: Optional[Callable] = None,
         on_log: Optional[Callable] = None,
         on_screenshot: Optional[Callable] = None,
+        on_safety_broadcast: Optional[Callable] = None,
+        safety_events: dict | None = None,
+        safety_decisions: dict | None = None,
     ):
         """Initialise a new agent loop for *task* using the given provider/model."""
         self.session = AgentSession(
@@ -96,6 +99,11 @@ class AgentLoop:
         self._on_step = on_step
         self._on_log = on_log
         self._on_screenshot = on_screenshot
+        self._on_safety_broadcast = on_safety_broadcast
+
+        # Shared dicts for safety confirmation (written by server.py endpoint)
+        self._safety_events = safety_events
+        self._safety_decisions = safety_decisions
 
         # Playwright lifecycle refs (cleaned up on session end)
         self._pw = None
@@ -531,13 +539,14 @@ class AgentLoop:
         def _on_log(level: str, message: str) -> None:
             self._emit_log(level, message)
 
-        def _on_safety(explanation: str) -> bool:
+        async def _on_safety(explanation: str) -> bool:
             """Safety confirmation callback for CU require_confirmation.
 
-            Broadcasts the safety prompt via WebSocket and waits for user
-            response.  Falls back to DENY (False) if no response within
-            30 seconds — this satisfies the TOS requirement to never
-            silently proceed on require_confirmation.
+            Broadcasts a dedicated safety_confirmation event via WebSocket
+            and waits for the user to respond via /api/agent/safety-confirm.
+            Falls back to DENY (False) if no response within 30 seconds —
+            this satisfies the TOS requirement to never silently proceed on
+            require_confirmation.
             """
             self._emit_log(
                 "warning",
@@ -545,9 +554,29 @@ class AgentLoop:
                 data={"type": "safety_confirmation", "explanation": explanation,
                       "session_id": self.session.session_id},
             )
-            # In a production system this would block on an asyncio.Event
-            # that the /api/agent/safety-confirm endpoint sets.  For now
-            # we conservatively deny — the user sees the log and can retry.
+            # Also broadcast a dedicated event so the frontend can render
+            # an approval dialog (log events alone are not sufficient).
+            if self._on_safety_broadcast:
+                try:
+                    await self._on_safety_broadcast(
+                        self.session.session_id, explanation
+                    )
+                except Exception:
+                    pass
+            # Wait for the user decision from /api/agent/safety-confirm
+            if self._safety_events is not None:
+                sid = self.session.session_id
+                evt = asyncio.Event()
+                self._safety_events[sid] = evt
+                try:
+                    await asyncio.wait_for(evt.wait(), timeout=30)
+                    return self._safety_decisions.pop(sid, False)
+                except asyncio.TimeoutError:
+                    self._emit_log("warning", "Safety confirmation timed out — action denied")
+                    return False
+                finally:
+                    self._safety_events.pop(sid, None)
+                    self._safety_decisions.pop(sid, None)
             return False
 
         try:

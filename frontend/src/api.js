@@ -121,3 +121,10 @@ export async function getContainerLogs(lines = 100) {
 export async function getPreflight(engine, provider) {
   return request(`/preflight?engine=${encodeURIComponent(engine)}&provider=${encodeURIComponent(provider)}`)
 }
+
+export async function confirmSafety(sessionId, confirm) {
+  return request('/agent/safety-confirm', {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId, confirm }),
+  })
+}

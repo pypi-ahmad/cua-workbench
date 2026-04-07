@@ -43,7 +43,7 @@
   border: 1px solid var(--border); border-radius: 6px;
   outline: none; transition: border-color .15s;
 }
-.wb-select:focus, .wb-input:focus { border-color: var(--accent); }
+.wb-select:focus-visible, .wb-input:focus-visible { border-color: var(--accent); }
 .wb-input-sm { width: 80px; }
 .wb-textarea {
   flex: 1; min-height: 80px; max-height: 200px; resize: vertical; width: 100%;
@@ -51,7 +51,7 @@
   background: var(--bg-primary); color: var(--text-primary);
   border: 1px solid var(--border); border-radius: 6px; outline: none;
 }
-.wb-textarea:focus { border-color: var(--accent); }
+.wb-textarea:focus-visible { border-color: var(--accent); }
 
 /* Key source selector */
 .wb-key-source-group { display: flex; gap: 4px; margin-top: 4px; }
@@ -172,6 +172,9 @@
 .wb-reasoning { color: var(--text-secondary); margin: 0 0 4px; line-height: 1.4; }
 .wb-coords { color: var(--text-secondary); margin: 0 0 4px; font-family: var(--font-mono,'Fira Code',monospace); }
 .wb-step-error { color: var(--error); margin: 0 0 4px; }
+.wb-raw-toggle { margin: 4px 0 0; }
+.wb-raw-toggle summary { cursor: pointer; font-size: 11px; color: var(--text-secondary); user-select: none; }
+.wb-raw-toggle summary:hover { color: var(--text-primary); }
 .wb-json {
   background: var(--bg-primary); padding: 6px 8px; border-radius: 4px; font-size: 11px;
   font-family: var(--font-mono,'Fira Code',monospace); overflow-x: auto; max-height: 150px;

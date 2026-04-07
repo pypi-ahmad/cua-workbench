@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { startAgent, stopAgent, startContainer, getPreflight } from '../api'
+import { startAgent, stopAgent, startContainer, getPreflight, confirmSafety } from '../api'
 import { ENGINE_HELP, SAMPLE_TASKS, ENGINES_WITH_TARGET, getDefaultTarget, estimateCost } from '../shared'
 import useAgentConfig from '../hooks/useAgentConfig'
 
@@ -17,6 +17,8 @@ export default function ControlPanel({
   onRefreshContainer,
   agentFinished,
   clearFinished,
+  safetyPrompt,
+  clearSafetyPrompt,
 }) {
   // B-27: shared config hook replaces duplicated model/engine/key state
   const {
@@ -42,10 +44,13 @@ export default function ControlPanel({
   const [error, setError] = useState('')
   const [preflightWarnings, setPreflightWarnings] = useState(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [sessionResult, setSessionResult] = useState(null)
+  const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem('cua_welcomed'))
 
   // Auto-stop when agent finishes (done/error/max-steps) — mirrors Workbench behavior
   useEffect(() => {
     if (agentFinished && agentRunning) {
+      setSessionResult({ status: agentFinished.status, steps: agentFinished.steps })
       setAgentRunning(false)
       setSessionId(null)
       if (clearFinished) clearFinished()
@@ -54,9 +59,8 @@ export default function ControlPanel({
 
   const handleStart = async () => {
     const providerLabel = provider === 'google' ? 'Google' : 'Anthropic'
-    const envVar = provider === 'google' ? 'GOOGLE_API_KEY' : 'ANTHROPIC_API_KEY'
     if (keySource === 'ui' && !apiKey.trim()) {
-      setError(`Enter your ${providerLabel} API key, or add ${envVar} to your .env file.`)
+      setError(`Enter your ${providerLabel} API key above, or switch to "Saved key" if one is already configured.`)
       return
     }
     if (!task.trim()) {
@@ -64,6 +68,7 @@ export default function ControlPanel({
       return
     }
     setError('')
+    setSessionResult(null)
     setPreflightWarnings(null)
     clearSteps()
 
@@ -112,6 +117,7 @@ export default function ControlPanel({
 
   const handleStop = async () => {
     if (!sessionId) return
+    if (!window.confirm('Stop the agent? Progress from this session cannot be recovered.')) return
     try {
       await stopAgent(sessionId)
     } catch {
@@ -151,6 +157,24 @@ export default function ControlPanel({
 
   return (
     <div className="left-panel">
+      {/* First-visit welcome card */}
+      {showWelcome && (
+        <div className="panel-section" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--accent)', borderRadius: 8, padding: 14, marginBottom: 10 }}>
+          <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>👋 Welcome to CUA Workbench</h3>
+          <p style={{ margin: '0 0 8px', fontSize: 12, lineHeight: 1.5, color: 'var(--text-secondary)' }}>
+            This app lets an AI agent control a browser or desktop inside a secure sandbox. To get started:
+          </p>
+          <ol style={{ margin: '0 0 10px', paddingLeft: 18, fontSize: 12, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
+            <li>Choose a provider and paste your API key</li>
+            <li>Type a task (e.g. "Search Google for the weather")</li>
+            <li>Click <strong>Start Agent</strong> and watch it work</li>
+          </ol>
+          <button
+            onClick={() => { localStorage.setItem('cua_welcomed', '1'); setShowWelcome(false) }}
+            style={{ fontSize: 12, padding: '5px 14px', borderRadius: 6, border: 'none', background: 'var(--accent)', color: '#fff', cursor: 'pointer' }}
+          >Got it</button>
+        </div>
+      )}
       {/* API Config */}
       <div className="panel-section">
         <h3>API Configuration</h3>
@@ -169,41 +193,29 @@ export default function ControlPanel({
             disabled={agentRunning}
             style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'ui' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'ui' ? '#fff' : 'var(--text-primary)' }}
           >
-            Enter key
+            Enter manually
           </button>
           <button
             role="radio"
-            aria-checked={keySource === 'dotenv'}
-            className={`key-src-btn ${keySource === 'dotenv' ? 'active' : ''}`}
-            onClick={() => setKeySource('dotenv')}
-            disabled={agentRunning || keyStatuses[provider]?.source !== 'dotenv'}
-            style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'dotenv' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'dotenv' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.source === 'dotenv' ? 1 : 0.6 }}
-            title={keyStatuses[provider]?.source === 'dotenv' ? `Found (${keyStatuses[provider]?.masked_key})` : 'No key in .env file'}
+            aria-checked={keySource !== 'ui'}
+            className={`key-src-btn ${keySource !== 'ui' ? 'active' : ''}`}
+            onClick={() => { const src = keyStatuses[provider]?.source; if (src) setKeySource(src) }}
+            disabled={agentRunning || !keyStatuses[provider]?.available}
+            style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource !== 'ui' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource !== 'ui' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.available ? 1 : 0.6 }}
+            title={keyStatuses[provider]?.available ? `Key found (${keyStatuses[provider]?.masked_key})` : 'No saved key found for this provider'}
           >
-            From .env file {keyStatuses[provider]?.source === 'dotenv' ? '✓' : ''}
-          </button>
-          <button
-            role="radio"
-            aria-checked={keySource === 'env'}
-            className={`key-src-btn ${keySource === 'env' ? 'active' : ''}`}
-            onClick={() => setKeySource('env')}
-            disabled={agentRunning || keyStatuses[provider]?.source !== 'env'}
-            style={{ flex: 1, padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: keySource === 'env' ? 'var(--accent)' : 'var(--bg-secondary)', color: keySource === 'env' ? '#fff' : 'var(--text-primary)', opacity: keyStatuses[provider]?.source === 'env' ? 1 : 0.6 }}
-            title={keyStatuses[provider]?.source === 'env' ? `Found (${keyStatuses[provider]?.masked_key})` : 'No environment variable set'}
-          >
-            Environment variable {keyStatuses[provider]?.source === 'env' ? '✓' : ''}
+            Saved key {keyStatuses[provider]?.available ? '✓' : ''}
           </button>
         </div>
 
         {keySource !== 'ui' && keyStatuses[provider]?.available && (
           <div style={{ fontSize: 11, color: 'var(--success, #4caf50)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
             🔑 <span>{keyStatuses[provider]?.masked_key}</span>
-            <span style={{ color: 'var(--text-secondary)' }}>({keySource === 'env' ? 'system variable' : '.env file'})</span>
           </div>
         )}
         {keySource !== 'ui' && !keyStatuses[provider]?.available && (
           <div style={{ fontSize: 11, color: 'var(--error, #f44336)', marginBottom: 6 }}>
-            ⚠️ No key found — {provider === 'google' ? 'set GOOGLE_API_KEY' : 'set ANTHROPIC_API_KEY'}
+            ⚠️ No saved key found for this provider.
           </div>
         )}
 
@@ -233,7 +245,7 @@ export default function ControlPanel({
           )}
         </select>
         {!backendReachable && (
-          <p style={{ color: 'var(--warning)', fontSize: 11, margin: '4px 0 0' }}>Cannot reach backend — start it with <code style={{ fontSize: 11, background: 'var(--bg-tertiary)', padding: '1px 4px', borderRadius: 3 }}>python -m backend.main</code></p>
+          <p style={{ color: 'var(--warning)', fontSize: 11, margin: '4px 0 0' }}>Cannot reach the server — run <code style={{ fontSize: 11, background: 'var(--bg-tertiary)', padding: '1px 4px', borderRadius: 3 }}>start.bat</code> (Windows) or <code style={{ fontSize: 11, background: 'var(--bg-tertiary)', padding: '1px 4px', borderRadius: 3 }}>./start.sh</code> (Mac/Linux) to start it.</p>
         )}
         {backendReachable && modelsLoaded && models.length === 0 && (
           <p style={{ color: 'var(--error)', fontSize: 11, margin: '4px 0 0' }}>No models available for this provider.</p>
@@ -370,6 +382,46 @@ export default function ControlPanel({
             </button>
           )}
         </div>
+
+        {/* Session result card */}
+        {sessionResult && !agentRunning && (
+          <div style={{ background: 'var(--bg-tertiary)', border: `1px solid ${sessionResult.status === 'error' ? 'var(--error, #f44336)' : 'var(--success, #34d399)'}`, borderRadius: 6, padding: '10px 12px', marginTop: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <strong style={{ fontSize: 13, color: sessionResult.status === 'error' ? 'var(--error, #f44336)' : 'var(--success, #34d399)' }}>
+                {sessionResult.status === 'error' ? '❌ Task failed' : '✅ Task completed'}
+              </strong>
+              <button onClick={() => setSessionResult(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1 }} aria-label="Dismiss result" title="Dismiss">✕</button>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '6px 0 0' }}>
+              {sessionResult.steps} step{sessionResult.steps !== 1 ? 's' : ''}
+              {estimateCost(model, sessionResult.steps) && ` · ~$${estimateCost(model, sessionResult.steps)}`}
+            </p>
+            {steps.length > 0 && (
+              <button onClick={handleExportSession} style={{ marginTop: 8, padding: '5px 10px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} title="Export session as JSON">
+                📦 Export Session
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Safety confirmation dialog */}
+        {safetyPrompt && agentRunning && (
+          <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--warning, #fbbf24)', borderRadius: 6, padding: '10px 12px', marginTop: 8 }}>
+            <strong style={{ fontSize: 13, color: 'var(--warning, #fbbf24)', display: 'block', marginBottom: 6 }}>⚠️ Action requires approval</strong>
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 8px', lineHeight: 1.5 }}>{safetyPrompt.explanation}</p>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                onClick={async () => { await confirmSafety(safetyPrompt.sessionId, true); clearSafetyPrompt() }}
+                style={{ padding: '5px 12px', fontSize: 12, borderRadius: 4, border: '1px solid var(--success, #34d399)', cursor: 'pointer', background: 'var(--success, #34d399)', color: '#000', fontWeight: 600 }}
+              >Allow</button>
+              <button
+                onClick={async () => { await confirmSafety(safetyPrompt.sessionId, false); clearSafetyPrompt() }}
+                style={{ padding: '5px 12px', fontSize: 12, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+              >Deny</button>
+            </div>
+            <p style={{ fontSize: 10, color: 'var(--text-secondary)', margin: '6px 0 0' }}>The action will be automatically denied if not approved within 30 seconds.</p>
+          </div>
+        )}
       </div>
 
       {/* Action History */}

@@ -53,12 +53,12 @@ REM Wait briefly for backend
 timeout /t 3 /nobreak >nul
 
 REM ── Launch frontend ─────────────────────────────────────────────────────────
-echo [CUA] Starting frontend on http://localhost:5173 ...
+echo [CUA] Starting frontend on http://localhost:3000 ...
 start "cua-frontend" /min cmd /c "cd frontend && npm run dev"
 
 echo.
 echo [CUA] CUA Workbench is running!
-echo [CUA]   Frontend: http://localhost:5173
+echo [CUA]   Frontend: http://localhost:3000
 echo [CUA]   Backend:  http://localhost:8000
 echo [CUA]   Stop:     start.bat --stop
 echo.
