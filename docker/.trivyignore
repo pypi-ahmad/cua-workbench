@@ -1,0 +1,15 @@
+# Trivy misconfig findings intentionally accepted for this image.
+#
+# DS002 — "Image user should not be 'root'"
+#   The container runs Xvfb, x11vnc, XFCE, and Chromium services that
+#   require root (or complex capability grants that are harder to audit).
+#   Capabilities are already dropped in docker-compose.yml (cap_drop: ALL
+#   + minimal cap_add) and no-new-privileges is set.  Adding a non-root
+#   USER is tracked as a future hardening item.
+DS002
+
+# DS014 — "RUN using 'wget' or 'curl' with pipe"
+#   NodeSource provides no alternative install mechanism for their APT
+#   repository setup script.  The script is fetched over HTTPS with TLS
+#   certificate verification (-fsSL).
+DS014
