@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import re
+import tempfile
 
 from backend.config import config
 
@@ -13,6 +14,9 @@ logger = logging.getLogger(__name__)
 
 # Only allow safe characters in container/image names
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:/-]*$")
+
+# Track tempfiles used for secret bind mounts so stop_container can shred them.
+_tracked_secret_files: set[str] = set()
 
 
 def _validate_name(name: str, label: str = "name") -> None:
@@ -99,9 +103,25 @@ async def start_container(name: str | None = None) -> bool:
         "--shm-size=2g",
     ]
 
-    # B-31: Pass VNC password into the container if configured
+    # B-31: Pass VNC password into the container as a bind-mounted file.
+    # Previously this was injected via -e VNC_PASSWORD=..., which leaks to
+    # ``docker inspect``, /proc/<pid>/environ, and orchestration logs.
+    # Instead, write the secret to a 0600 temp file on the host and bind it
+    # read-only at /run/secrets/vnc_password; the entrypoint reads it from
+    # that path and then shreds the source file.
+    vnc_secret_path: str | None = None
     if config.vnc_password:
-        args.extend(["-e", f"VNC_PASSWORD={config.vnc_password}"])
+        fd, vnc_secret_path = tempfile.mkstemp(prefix="cua-vnc-", suffix=".secret")
+        try:
+            os.write(fd, config.vnc_password.encode("utf-8"))
+        finally:
+            os.close(fd)
+        os.chmod(vnc_secret_path, 0o600)
+        _tracked_secret_files.add(vnc_secret_path)
+        args.extend([
+            "-v", f"{vnc_secret_path}:/run/secrets/vnc_password:ro",
+            "-e", "VNC_PASSWORD_FILE=/run/secrets/vnc_password",
+        ])
 
     args.append(config.container_image)
     logger.info("Starting container: %s", container)
@@ -141,15 +161,26 @@ async def _wait_for_service(container: str) -> bool:
 
 
 async def stop_container(name: str | None = None) -> bool:
-    """Force-remove the CUA Docker container."""
+    """Force-remove the CUA Docker container + shred any bound secrets."""
     container = name or config.container_name
     _validate_name(container, "container_name")
     logger.info("Stopping container: %s", container)
     rc, _, err = await _run(["docker", "rm", "-f", container])
-    if rc != 0:
+    success = rc == 0
+    if not success:
         logger.error("Failed to stop container: %s", err)
-        return False
-    return True
+
+    # Shred tracked secret tempfiles regardless of docker rm success so we
+    # don't leave plaintext credentials on disk between runs.
+    for path in list(_tracked_secret_files):
+        try:
+            if os.path.exists(path):
+                os.unlink(path)
+        except OSError as oe:
+            logger.warning("Failed to remove secret tempfile %s: %s", path, oe)
+        _tracked_secret_files.discard(path)
+
+    return success
 
 
 async def get_container_status(name: str | None = None) -> dict:

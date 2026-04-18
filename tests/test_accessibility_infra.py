@@ -256,26 +256,23 @@ class TestCommandAllowlists:
         f = pathlib.Path(__file__).resolve().parent.parent / "backend" / "engines" / "accessibility_engine.py"
         return f.read_text(encoding="utf-8")
 
+    # Only apps actually installed by docker/Dockerfile (see H-3 image
+    # minimization) may appear here.  Desktop apps that were dropped
+    # (mousepad, thunar, firefox, gnome-control-center, gnome-calculator)
+    # have been deliberately removed from _ALLOWED_COMMANDS so the LLM
+    # cannot invoke non-existent binaries.
     @pytest.mark.parametrize("cmd", [
-        "gnome-control-center",
         "xfce4-settings-manager",
         "xfce4-settings-editor",
-        "thunar",
-        "mousepad",
-        "firefox",
         "google-chrome",
-        "gnome-calculator",
     ])
     def test_agent_service_allows_desktop_apps(self, cmd):
         content = self._read_agent_service()
         assert f'"{cmd}"' in content, f"{cmd} not in agent_service _ALLOWED_COMMANDS"
 
     @pytest.mark.parametrize("cmd", [
-        "gnome-control-center",
         "xfce4-settings-manager",
         "xfce4-settings-editor",
-        "thunar",
-        "mousepad",
     ])
     def test_accessibility_engine_allows_desktop_apps(self, cmd):
         content = self._read_accessibility_engine()

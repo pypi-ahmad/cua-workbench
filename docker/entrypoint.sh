@@ -120,13 +120,27 @@ fi
 # ─────────────────────────────────────────────
 # 4. x11vnc
 # ─────────────────────────────────────────────
+# VNC password resolution (file-based > env > none).  File-based secret
+# avoids leaking to `docker inspect`, /proc/<pid>/environ, and orchestrator
+# logs.  The backend writes the secret at /run/secrets/vnc_password and
+# we read it here, clearing the inherited env immediately.
+VNC_PASSWORD_VALUE=""
+if [ -n "${VNC_PASSWORD_FILE:-}" ] && [ -r "${VNC_PASSWORD_FILE}" ]; then
+    VNC_PASSWORD_VALUE=$(tr -d '\n' < "${VNC_PASSWORD_FILE}")
+elif [ -n "${VNC_PASSWORD:-}" ]; then
+    VNC_PASSWORD_VALUE="${VNC_PASSWORD}"
+fi
+unset VNC_PASSWORD
+unset VNC_PASSWORD_FILE
+
 echo "[VNC] Starting x11vnc..."
-if [ -n "${VNC_PASSWORD:-}" ]; then
+if [ -n "${VNC_PASSWORD_VALUE}" ]; then
     mkdir -p /root/.vnc
-    x11vnc -storepasswd "$VNC_PASSWORD" /root/.vnc/passwd
+    x11vnc -storepasswd "${VNC_PASSWORD_VALUE}" /root/.vnc/passwd
+    VNC_PASSWORD_VALUE=""
     x11vnc -display :99 -forever -rfbauth /root/.vnc/passwd -shared -rfbport 5900 -bg -o /var/log/x11vnc.log
 else
-    echo "[VNC] WARNING: No VNC_PASSWORD set — VNC access is unauthenticated"
+    echo "[VNC] WARNING: No VNC password set — VNC access is unauthenticated"
     x11vnc -display :99 -forever -nopw -shared -rfbport 5900 -bg -o /var/log/x11vnc.log
 fi
 
@@ -157,12 +171,13 @@ fi
 # 6. Playwright MCP server (a11y-tree browser control)
 # ─────────────────────────────────────────────
 # All MCP config is driven by native env vars set in docker-compose.yml:
-#   PLAYWRIGHT_MCP_PORT=8931          — activates HTTP/SSE transport
-#   PLAYWRIGHT_MCP_HOST=0.0.0.0      — listen on all interfaces
-#   PLAYWRIGHT_MCP_ALLOWED_HOSTS=*   — disable Host-header check (Docker NAT fix)
-#   PLAYWRIGHT_MCP_BROWSER=chromium  — use Playwright-bundled Chromium
-#   PLAYWRIGHT_MCP_NO_SANDBOX=true   — required when running as root in Docker
-#   PLAYWRIGHT_MCP_HEADLESS=true     — avoid competing for X11 with agent_service
+#   PLAYWRIGHT_MCP_PORT=8931                       — activates HTTP/SSE transport
+#   PLAYWRIGHT_MCP_HOST=0.0.0.0                    — listen on all interfaces
+#   PLAYWRIGHT_MCP_ALLOWED_HOSTS=localhost,127.0.0.1 — DNS-rebind defense (loopback only)
+#   PLAYWRIGHT_MCP_BROWSER=chromium                — use Playwright-bundled Chromium
+#   PLAYWRIGHT_MCP_NO_SANDBOX=true                 — required while container runs as root
+#                                                    (drop once a non-root USER is added)
+#   PLAYWRIGHT_MCP_HEADLESS=true                   — avoid competing for X11 with agent_service
 MCP_PORT=${PLAYWRIGHT_MCP_PORT:-8931}
 MCP_LOG="/var/log/playwright-mcp.log"
 echo "[MCP] Starting Playwright MCP server on port ${MCP_PORT} (HTTP transport, env-var config)..."
@@ -172,7 +187,7 @@ if command -v playwright-mcp >/dev/null 2>&1; then
     MCP_PID=$!
 else
     # Fallback to npx with explicit package (-y to never prompt)
-    npx -y @playwright/mcp@latest 2>"${MCP_LOG}" &
+    npx -y @playwright/mcp@0.0.70 2>"${MCP_LOG}" &
     MCP_PID=$!
 fi
 
@@ -211,7 +226,7 @@ if [ "$MCP_READY" = "false" ]; then
     if ! kill -0 $MCP_PID 2>/dev/null; then
         echo "[MCP] ERROR: MCP server process (PID $MCP_PID) died"
         echo "[MCP] Attempting restart..."
-        npx @playwright/mcp@latest 2>"${MCP_LOG}" &
+        npx @playwright/mcp@0.0.70 2>"${MCP_LOG}" &
         MCP_PID=$!
         sleep 3
         if kill -0 $MCP_PID 2>/dev/null; then

@@ -983,7 +983,7 @@ class ClaudeCUClient:
     def __init__(
         self,
         api_key: str,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "claude-sonnet-4-6",
         system_prompt: Optional[str] = None,
         tool_version: Optional[str] = None,
         beta_flag: Optional[str] = None,
@@ -1316,7 +1316,7 @@ class ComputerUseEngine:
         elif provider == Provider.CLAUDE:
             self._client = ClaudeCUClient(
                 api_key=api_key,
-                model=model or "claude-sonnet-4-20250514",
+                model=model or "claude-sonnet-4-6",
                 system_prompt=system_instruction,
             )
         else:

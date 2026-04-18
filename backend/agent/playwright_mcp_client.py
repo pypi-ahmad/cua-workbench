@@ -77,6 +77,67 @@ _mcp_server_key: Optional[str] = None
 # Timeout for Docker MCP session initialization (connect + initialize + list_tools)
 _DOCKER_MCP_INIT_TIMEOUT: float = 15.0
 
+# ── Disallowed MCP tools (security denylist) ──────────────────────────────────
+# Tools filtered out of discovery and rejected at the call boundary.
+#
+# ``browser_run_code`` allows the LLM to run arbitrary Playwright / Node code
+# in the MCP server process.  The server evaluates the code inside a Node
+# ``vm`` context which is NOT a security boundary — standard sandbox-escape
+# techniques (e.g. ``page.constructor.constructor('return process')()``)
+# reach Node's ``child_process`` and give full RCE.  Per upstream guidance
+# (``microsoft/playwright-mcp`` security policy): *"Neither Playwright MCP
+# nor the underlying Browser can serve as a security boundary."*  With
+# execution_target=local this is direct RCE on the operator's host via any
+# prompt-injection on a visited page.  We therefore refuse to expose it.
+_DISALLOWED_MCP_TOOLS: frozenset[str] = frozenset({"browser_run_code"})
+
+
+# ── browser_evaluate JS payload denylist (defense-in-depth) ───────────────────
+# ``browser_evaluate`` runs LLM-supplied JS in the page context.  Prompt
+# injection on a visited page can cause the model to emit a script that
+# exfiltrates auth state.  We refuse the most common exfil primitives
+# server-side; the model will see a structured error and is expected to
+# fall back to legitimate tools (browser_get_text / browser_snapshot).
+# This is NOT a sandbox — a determined attacker can string-build around
+# any single substring — but it raises the bar meaningfully and gives a
+# detection signal.  The upstream MCP server has no such filter today.
+_EVALUATE_JS_DENY_PATTERNS: tuple[str, ...] = (
+    "document.cookie",
+    "localStorage",
+    "sessionStorage",
+    "indexedDB",
+    "navigator.credentials",
+    "navigator.serviceWorker",
+    "fetch(",
+    "XMLHttpRequest",
+    "new WebSocket",
+    "navigator.sendBeacon",
+    "import(",
+)
+
+
+def _is_evaluate_js_safe(code: str) -> tuple[bool, str]:
+    """Return (allowed, reason).  Pattern check is case-insensitive."""
+    if not code:
+        return True, ""
+    lower = code.lower()
+    for pat in _EVALUATE_JS_DENY_PATTERNS:
+        if pat.lower() in lower:
+            return False, f"browser_evaluate payload contains disallowed token: {pat!r}"
+    return True, ""
+
+
+def _filter_discovered_tools(tools: list[dict]) -> list[dict]:
+    """Drop denylisted tools from a discovered-tools list."""
+    filtered = [t for t in tools if t.get("name") not in _DISALLOWED_MCP_TOOLS]
+    dropped = [t.get("name") for t in tools if t.get("name") in _DISALLOWED_MCP_TOOLS]
+    if dropped:
+        logger.warning(
+            "Filtered disallowed MCP tools from discovery: %s", ", ".join(dropped)
+        )
+    return filtered
+
+
 # ── Discovered tools (from MCP server via tools/list) ─────────────────────────
 # Populated during session initialization.  Each entry:
 #   {"name": str, "description": str, "inputSchema": dict}
@@ -253,14 +314,14 @@ async def _ensure_mcp_initialized() -> ClientSession:
             # Discover tools from the server (MCP tools/list)
             global _discovered_tools
             tools_result = await session.list_tools()
-            _discovered_tools = [
+            _discovered_tools = _filter_discovered_tools([
                 {
                     "name": t.name,
                     "description": getattr(t, "description", "") or "",
                     "inputSchema": getattr(t, "inputSchema", {}) or {},
                 }
                 for t in tools_result.tools
-            ]
+            ])
             tool_names = [t["name"] for t in _discovered_tools]
             logger.info(
                 "MCP STDIO session established — %d tools discovered: %s",
@@ -369,7 +430,42 @@ async def _mcp_call(tool_name: str, arguments: dict) -> dict:
     • ``target=local``  → STDIO transport via ``_mcp_call_stdio()``
 
     Returns ``{"success": bool, "message": str}``.
+
+    Denylisted tools (see ``_DISALLOWED_MCP_TOOLS``) are refused here as
+    defense-in-depth — even if an LLM bypasses discovery and requests a
+    denied tool name directly, the call never reaches the MCP server.
     """
+    if tool_name in _DISALLOWED_MCP_TOOLS:
+        logger.warning(
+            "Refused disallowed MCP tool call: %s (denylist=%s)",
+            tool_name,
+            sorted(_DISALLOWED_MCP_TOOLS),
+        )
+        return {
+            "success": False,
+            "message": (
+                f"Tool '{tool_name}' is disabled for security reasons. "
+                f"Use semantic tools (browser_click, browser_type, browser_snapshot) instead."
+            ),
+        }
+    # Defense-in-depth: when the LLM provides ``browser_evaluate`` args
+    # directly (the "direct passthrough" path bypasses _build_mcp_args),
+    # apply the JS denylist here too.
+    if tool_name == "browser_evaluate":
+        candidate = ""
+        if isinstance(arguments, dict):
+            candidate = str(arguments.get("function") or arguments.get("expression") or "")
+        ok, reason = _is_evaluate_js_safe(candidate)
+        if not ok:
+            logger.warning("Refused browser_evaluate at _mcp_call boundary: %s", reason)
+            return {
+                "success": False,
+                "message": (
+                    f"{reason}.  Use browser_get_text / browser_snapshot to read "
+                    "page content instead — the agent must not access cookies, "
+                    "storage, or make outbound requests via evaluate."
+                ),
+            }
     if _mcp_target == "docker":
         return await _docker_mcp_call(tool_name, arguments)
     return await _mcp_call_stdio(tool_name, arguments)
@@ -696,6 +792,10 @@ async def _build_mcp_args(
     # ── Evaluate JS ──────────────────────────────────────────────────
     if tool_name == "browser_evaluate":
         fn = text or target or ""
+        ok, reason = _is_evaluate_js_safe(fn)
+        if not ok:
+            logger.warning("Refusing browser_evaluate: %s", reason)
+            return {"_error": reason}
         if not fn.strip().startswith("("):
             fn = f"() => ({fn})"
         args["function"] = fn
@@ -743,9 +843,12 @@ async def _build_mcp_args(
         return args
 
     # ── Run code ─────────────────────────────────────────────────────
+    # browser_run_code is denylisted (see ``_DISALLOWED_MCP_TOOLS``).
+    # Kept here only to surface a clear error if an LLM forces the name
+    # through the legacy flat-args path.  The call will still be refused
+    # at ``_mcp_call``.
     if tool_name == "browser_run_code":
-        args["code"] = text or ""
-        return args
+        return {"_error": "browser_run_code is disabled for security reasons"}
 
     # ── Generic pass-through (snapshot, tabs, navigate_back, close …)
     # For tools with no special parameter mapping the MCP server
@@ -854,14 +957,14 @@ async def _ensure_docker_mcp_initialized() -> ClientSession:
 
             # Store discovered tools — server is the source of truth
             global _discovered_tools
-            _discovered_tools = [
+            _discovered_tools = _filter_discovered_tools([
                 {
                     "name": t.name,
                     "description": getattr(t, "description", "") or "",
                     "inputSchema": getattr(t, "inputSchema", {}) or {},
                 }
                 for t in tools_result.tools
-            ]
+            ])
             tool_names = [t["name"] for t in _discovered_tools]
             logger.info(
                 "Docker MCP HTTP session established — %d tools discovered: %s",

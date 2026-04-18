@@ -31,7 +31,6 @@
         ],
         "execution": [
           "browser_evaluate",
-          "browser_run_code",
           "browser_wait_for"
         ],
         "session": [
@@ -62,7 +61,6 @@
         "browser_network_requests",
         "browser_press_key",
         "browser_resize",
-        "browser_run_code",
         "browser_select_option",
         "browser_snapshot",
         "browser_tabs",

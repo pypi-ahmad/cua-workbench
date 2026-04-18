@@ -57,23 +57,27 @@ def _structured_error(
 
 def validate_unified_action(action: UnifiedAction) -> Dict[str, Any] | None:
     """Pre-dispatch validation for coordinates, text, and required fields."""
-    
+
     # 1. Validate coordinates
     if action.coordinates:
         if any(c < 0 for c in action.coordinates):
             return {
-                "success": False, 
-                "message": f"Coordinates must be positive integers: {action.coordinates}", 
+                "success": False,
+                "message": f"Coordinates must be positive integers: {action.coordinates}",
                 "error_type": "validation"
             }
-        
-        # Screen bounds check (1440x900 hardcoded per prompt)
+
+        # Screen bounds check — use the actually-configured screen size
+        # (set via SCREEN_WIDTH / SCREEN_HEIGHT env vars).  Previously
+        # hard-coded to 1440x900, which silently rejected every click
+        # beyond that on non-default resolutions.
         if len(action.coordinates) >= 2:
             x, y = action.coordinates[0], action.coordinates[1]
-            if x > 1440 or y > 900:
+            max_x, max_y = config.screen_width, config.screen_height
+            if x > max_x or y > max_y:
                 return {
-                    "success": False, 
-                    "message": f"Coordinates out of bounds (1440x900): ({x}, {y})", 
+                    "success": False,
+                    "message": f"Coordinates out of bounds ({max_x}x{max_y}): ({x}, {y})",
                     "error_type": "validation"
                 }
 

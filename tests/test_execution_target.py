@@ -174,7 +174,11 @@ class TestCULocalGuard:
         })
         assert resp.status_code == 400
         data = resp.json()
-        assert "Local computer_use is not supported" in data["error"]
+        # Error message uses user-facing wording.  Assert on the invariant
+        # tokens ("Computer Use" / "Docker") rather than an exact string.
+        err = data["error"].lower()
+        assert "computer use" in err or "computer_use" in err
+        assert "docker" in err
 
     def test_cu_docker_not_blocked(self):
         """POST /api/agent/start with engine=computer_use, execution_target=docker

@@ -41,8 +41,8 @@ That makes the repository useful for engineering evaluation, prompt iteration, r
 | Backend | FastAPI, Uvicorn, Pydantic 2, HTTPX, websockets |
 | Model providers | Google GenAI SDK, Anthropic SDK |
 | Sandbox | Docker, Ubuntu 24.04, XFCE, Xvfb, x11vnc, noVNC |
-| Browser tooling | Playwright MCP, Chromium |
-| Media / image processing | Pillow, OpenCV, NumPy |
+| Browser tooling | Playwright MCP (pinned to `@playwright/mcp@0.0.70`), Chromium / Google Chrome |
+| Image processing | Pillow, NumPy |
 
 ## Project Structure
 
@@ -169,7 +169,7 @@ The backend resolves keys in this order:
 | `PLAYWRIGHT_MCP_PATH` | `/mcp` | Playwright MCP path |
 | `PLAYWRIGHT_MCP_AUTOSTART` | `0` | Boolean-like autostart flag |
 | `PLAYWRIGHT_MCP_COMMAND` | `npx` | Local MCP command |
-| `PLAYWRIGHT_MCP_ARGS` | `-y @playwright/mcp@latest` | Local MCP arguments |
+| `PLAYWRIGHT_MCP_ARGS` | `-y @playwright/mcp@0.0.70` | Local MCP arguments (pinned for build reproducibility) |
 | `PLAYWRIGHT_MCP_DOCKER_TRANSPORT` | `http` | Docker transport mode |
 | `SCREEN_WIDTH` | `1440` | Virtual screen width |
 | `SCREEN_HEIGHT` | `900` | Virtual screen height |
@@ -177,7 +177,9 @@ The backend resolves keys in this order:
 | `STEP_TIMEOUT` | `30.0` | Per-step timeout |
 | `GEMINI_RETRY_ATTEMPTS` | `3` | Retry count used by provider clients |
 | `DEBUG` | `0` | Enables backend debug mode |
-| `VNC_PASSWORD` | empty | Empty means VNC is open to local machine users |
+| `VNC_PASSWORD` | empty | Plaintext VNC password (overridden by `VNC_PASSWORD_FILE` if set inside the container) |
+
+The sandbox container also accepts `VNC_PASSWORD_FILE` (a path to a secret file the entrypoint reads and then unsets) as a safer alternative to passing `VNC_PASSWORD` through the environment.
 
 ### Important configuration note
 
@@ -311,8 +313,9 @@ The backend exposes implemented endpoints for:
 - agent-service mode and health
 - screenshot retrieval
 - session start, stop, status, history, and safety confirmation
+- short-lived WebSocket auth token issuance
 - optional WebRTC negotiation
-- noVNC proxying
+- noVNC websocket and static-asset proxying
 
 Core endpoints include:
 
@@ -338,24 +341,28 @@ Core endpoints include:
 | `GET` | `/api/agent/status/{session_id}` |
 | `GET` | `/api/agent/history/{session_id}` |
 | `POST` | `/api/agent/safety-confirm` |
+| `POST` | `/api/session/ws-token` |
 | `POST` | `/webrtc/offer` |
+| `WebSocket` | `/ws` |
+| `WebSocket` | `/vnc/websockify` |
+| `GET` | `/vnc/{path:path}` |
 
-The realtime stream is exposed over `WebSocket /ws`.
+The realtime stream is exposed over `WebSocket /ws`. Both `/ws` and `/vnc/websockify` require a same-origin `Origin` header AND a single-use token obtained from `POST /api/session/ws-token` and passed as `?token=<value>`. After connecting, clients should send a `subscribe` message with their `session_id` so the broadcast layer scopes events to that session only.
 
 ## Testing
 
 The repository contains pytest-based tests under `tests/` and `tests/stress/`.
 
-`pytest` is not pinned in `requirements.txt`, so install it explicitly first:
+Development dependencies (pytest, pytest-asyncio, pytest-cov, httpx) live in `requirements-dev.txt`:
 
 ```bash
-python -m pip install pytest
+python -m pip install -r requirements-dev.txt
 ```
 
-Run the main suite:
+Run the main suite (excluding the stress tier and any `integration`-marked tests, which require a running Docker container and real provider credentials):
 
 ```bash
-pytest tests -v --ignore=tests/stress
+pytest tests --ignore=tests/stress -q -m "not integration"
 ```
 
 Run the stress scenarios separately:
@@ -375,22 +382,22 @@ What is clearly implemented today:
 - local Docker image build through `docker compose build`
 - local sandbox startup through `docker compose up -d --build`
 - frontend production build through `npm run build`
+- GitHub Actions CI pipeline at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) covering: backend pytest (fast suite), frontend build, `pip-audit -r requirements.txt --strict`, `npm audit --omit=dev --audit-level=high`, and Trivy (Dockerfile config scan + filesystem secret scan)
 
-What is not documented here as supported because the repo does not define it clearly:
+What is not documented here as supported because the repo does not define it:
 
 - a production deployment topology
 - infrastructure-as-code for cloud deployment
-- CI/CD pipelines
-- packaged releases
+- packaged releases or published container images
 
 ## Limitations and Notes
 
 - Session state is in memory only; restarting the backend clears active sessions.
 - `computer_use` rejects `execution_target=local` by design; it requires the Docker sandbox.
-- The Docker sandbox is local-first; all published ports are bound to `127.0.0.1` in `docker-compose.yml`.
+- The Docker sandbox is local-first; all published ports are bound to `127.0.0.1` in `docker-compose.yml`, the container runs with `cap_drop: ALL` plus a minimal capability add-list, `no-new-privileges:true`, and `pids_limit: 512`. The Chrome DevTools Protocol port (9223) is intentionally not published.
 - WebRTC support is optional and requires `aiortc` and `av` installed separately.
-- VNC is not password-protected by default; set `VNC_PASSWORD` if you expose the app beyond localhost.
-- `pytest` is not in `requirements.txt`; install it explicitly before running tests.
+- VNC is unauthenticated by default; set `VNC_PASSWORD` (or mount a secret at `VNC_PASSWORD_FILE`) before exposing the app beyond localhost.
+- Test dependencies live in `requirements-dev.txt`; install it before running `pytest`.
 
 ## Contributing
 

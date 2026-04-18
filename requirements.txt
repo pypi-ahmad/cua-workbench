@@ -3,14 +3,18 @@ uvicorn[standard]>=0.32.0
 websockets>=13.0
 pydantic>=2.10.0
 google-genai>=1.0.0
-anthropic>=0.40.0
+# Bumped minimum so the current Computer Use tool version
+# (computer_20251124 + beta header computer-use-2025-11-24) is supported.
+anthropic>=0.45.0
 httpx>=0.27.0
 Pillow>=11.0.0
-opencv-python-headless>=4.10.0
 numpy>=2.0.0
 python-multipart>=0.0.12
 python-dotenv>=1.0.0
 mcp>=1.0.0
-cryptography==42.0.8
+# Bumped from 42.0.8 (May 2024) to pick up the 44.x security fixes.
+# This is pulled in transitively by anthropic/mcp; previously pinning
+# old-42 blocked SDK upgrades and shipped known CVEs.
+cryptography>=44.0.0
 # aiortc and av removed — WebRTC/video streaming is optional.
 # Install separately if needed:  pip install aiortc av

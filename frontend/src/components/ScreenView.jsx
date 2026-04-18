@@ -1,12 +1,32 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
-export default function ScreenView({ screenshot, containerRunning, agentServiceUp }) {
+export default function ScreenView({ screenshot, screenshotFormat = 'png', containerRunning, agentServiceUp }) {
   // Default to VNC (interactive) when container is running
   const [useVnc, setUseVnc] = useState(true)
+  const [vncUrl, setVncUrl] = useState(null)
 
-  // Route noVNC through the backend reverse proxy (same origin) so the
-  // browser never needs direct access to Docker-mapped port 6080.
-  const vncUrl = `/vnc/vnc.html?autoconnect=true&resize=scale&path=vnc/websockify`
+  // Route noVNC through the backend reverse proxy (same origin).  The
+  // ws-token must be appended to ``path=`` so noVNC's internal WebSocket
+  // passes the ``/ws`` auth gate.  Tokens are 30-second single-use, so
+  // we re-fetch each time the iframe is (re)mounted.
+  useEffect(() => {
+    if (!containerRunning || !useVnc) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/session/ws-token', { method: 'POST' })
+        if (!res.ok) throw new Error(`ws-token ${res.status}`)
+        const data = await res.json()
+        if (cancelled || !data.token) return
+        const path = `vnc/websockify?token=${encodeURIComponent(data.token)}`
+        setVncUrl(`/vnc/vnc.html?autoconnect=true&resize=scale&path=${encodeURIComponent(path)}`)
+      } catch {
+        // Fall back to screenshot view on token failure
+        setUseVnc(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [containerRunning, useVnc])
 
   // Loading state: container running but agent service not yet ready
   if (containerRunning && !agentServiceUp && !screenshot) {
@@ -22,13 +42,14 @@ export default function ScreenView({ screenshot, containerRunning, agentServiceU
   }
 
   // When container is running and VNC mode enabled, show interactive desktop
-  if (containerRunning && useVnc) {
+  if (containerRunning && useVnc && vncUrl) {
     return (
       <div className="screen-container" style={{ position: 'relative' }}>
         <iframe
           src={vncUrl}
           title="Live Desktop (noVNC)"
           style={{ width: '100%', height: '100%', border: 'none' }}
+          sandbox="allow-scripts allow-same-origin allow-forms"
           allow="clipboard-read; clipboard-write"
           onError={() => {
             console.warn("VNC iframe failed to load, falling back to screenshot")
@@ -48,7 +69,7 @@ export default function ScreenView({ screenshot, containerRunning, agentServiceU
         {/* Screenshot layer */}
         {screenshot && (
             <img
-            src={`data:image/png;base64,${screenshot}`}
+            src={`data:image/${screenshotFormat};base64,${screenshot}`}
             alt="Agent screen capture"
             draggable={false}
             style={{

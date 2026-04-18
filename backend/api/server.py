@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 import time
 import uuid
+from contextlib import asynccontextmanager
 from typing import Dict, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -40,7 +42,68 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="CUA — Computer Using Agent", version="1.0.0")
+
+# ── Lifespan (replaces deprecated @app.on_event("startup"|"shutdown")) ────────
+#
+# The lifespan async-context-manager is the FastAPI 0.112+ / Starlette
+# idiomatic replacement for on_event.  Keeping the two phases in one
+# function makes resource ownership (reaper task, shared httpx client,
+# WebRTC connections) obvious and symmetrical.
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info(
+        "CUA backend starting — model=%s, agent_service=%s, mode=%s",
+        config.gemini_model, config.agent_service_url, config.agent_mode,
+    )
+
+    # Tool-parity check (best-effort)
+    try:
+        validate_tool_parity()
+    except Exception as e:
+        logger.warning("Tool parity check failed: %s", e)
+
+    # Shared httpx client — reused across providers, proxies, and docker
+    # manager calls to preserve connection pooling and TLS session reuse.
+    app.state.http = httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0, connect=5.0),
+        limits=httpx.Limits(max_keepalive_connections=20, max_connections=40),
+    )
+
+    # Idle-session reaper
+    reaper = asyncio.create_task(_reap_idle_sessions())
+
+    try:
+        yield
+    finally:
+        # Cancel in-flight agent tasks
+        reaper.cancel()
+        for sid in list(_active_tasks.keys()):
+            task = _active_tasks.get(sid)
+            if task and not task.done():
+                task.cancel()
+        _active_tasks.clear()
+        _active_loops.clear()
+
+        # Close shared httpx client
+        try:
+            await app.state.http.aclose()
+        except Exception as e:
+            logger.debug("http client close error: %s", e)
+
+        # WebRTC cleanup (optional dep)
+        try:
+            from backend.streaming.webrtc_server import manager
+            await manager.cleanup()
+        except ImportError as e:
+            logger.debug("WebRTC cleanup skipped (import unavailable): %s", e)
+        except Exception as e:
+            logger.warning("WebRTC cleanup error: %s", e)
+
+        logger.info("CUA backend shut down")
+
+
+app = FastAPI(title="CUA — Computer Using Agent", version="1.0.0", lifespan=lifespan)
 
 
 # ── B-28: Request-ID middleware ───────────────────────────────────────────────
@@ -60,6 +123,25 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(RequestIDMiddleware)
+
+
+class NoStoreKeysMiddleware(BaseHTTPMiddleware):
+    """Force no-store cache semantics on key-handling endpoints.
+
+    /api/keys/status returns masked-but-still-sensitive provider info, and
+    /api/keys/validate echoes validity for a user-supplied key. Neither
+    response should ever sit in a shared cache or browser disk cache.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/api/keys/"):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Pragma"] = "no-cache"
+        return response
+
+
+app.add_middleware(NoStoreKeysMiddleware)
 
 
 # CORS: restrict to local dev origins by default
@@ -123,7 +205,102 @@ class _RateLimiter:
         return True
 
 
-_agent_start_limiter = _RateLimiter(max_calls=10, window_seconds=60.0)
+class _PerKeyRateLimiter:
+    """Sliding-window limiter keyed by an arbitrary string (e.g. client IP).
+
+    A single global limiter (the previous design) lets one chatty browser
+    tab DoS every other tab on the same loopback.  Per-key partitioning
+    contains the blast radius.  Stale keys (no call within *window*) are
+    evicted opportunistically on every ``allow()`` call so the dict can
+    not grow unboundedly under churn.
+    """
+
+    def __init__(self, max_calls: int, window_seconds: float):
+        self._max = max_calls
+        self._window = window_seconds
+        self._buckets: dict[str, list[float]] = {}
+
+    def allow(self, key: str) -> bool:
+        now = time.monotonic()
+        cutoff = now - self._window
+        # Evict any bucket whose newest call is older than the window.
+        for k, calls in list(self._buckets.items()):
+            if not calls or calls[-1] < cutoff:
+                self._buckets.pop(k, None)
+        bucket = self._buckets.setdefault(key, [])
+        bucket[:] = [t for t in bucket if t >= cutoff]
+        if len(bucket) >= self._max:
+            return False
+        bucket.append(now)
+        return True
+
+
+# 10 agent starts / minute / IP — generous for a local operator, blocks
+# stuck retry loops from exhausting global capacity for other tabs.
+_agent_start_limiter = _PerKeyRateLimiter(max_calls=10, window_seconds=60.0)
+
+# Key-validation talks to the user's Anthropic/Google account.  Stricter
+# limit prevents a misbehaving tab (or hostile loopback caller) from
+# burning the operator's third-party quota.
+_key_validate_limiter = _PerKeyRateLimiter(max_calls=5, window_seconds=60.0)
+
+
+def _client_key(request: Request) -> str:
+    """Best-effort partition key for rate limiting.
+
+    Falls back to ``"unknown"`` when ``request.client`` is unavailable
+    (e.g. some ASGI test fixtures).  Loopback is acceptable as a single
+    bucket — local-use tool, not a public API.
+    """
+    return request.client.host if request.client else "unknown"
+
+
+# ── WebSocket auth (short-lived tokens bound to issuance time) ────────────────
+#
+# Browsers cannot set Authorization headers on WebSocket upgrade requests,
+# so we issue a one-shot query-param token via REST and validate it on
+# WS accept.  Tokens are 30-second TTL random 256-bit values.  They are
+# not cryptographically bound to a session (local-use tool); the goal is
+# to ensure the WS caller has same-origin HTTP access.
+
+_WS_TOKEN_TTL_SECONDS: float = 30.0
+_ws_tokens: Dict[str, float] = {}   # token → issuance monotonic timestamp
+
+
+def _issue_ws_token() -> str:
+    """Mint a short-lived WebSocket auth token."""
+    token = secrets.token_urlsafe(32)
+    now = time.monotonic()
+    _ws_tokens[token] = now
+    # Opportunistic eviction of expired tokens to keep the dict small.
+    cutoff = now - _WS_TOKEN_TTL_SECONDS
+    for t, ts in list(_ws_tokens.items()):
+        if ts < cutoff:
+            _ws_tokens.pop(t, None)
+    return token
+
+
+def _consume_ws_token(token: str | None) -> bool:
+    """Validate and consume a WS token (one-shot)."""
+    if not token:
+        return False
+    issued = _ws_tokens.pop(token, None)
+    if issued is None:
+        return False
+    if time.monotonic() - issued > _WS_TOKEN_TTL_SECONDS:
+        return False
+    return True
+
+
+def _is_allowed_ws_origin(origin: str | None) -> bool:
+    """Return True when *origin* matches one of the allowed dev origins.
+
+    An empty/missing Origin header is accepted only for non-browser clients
+    (curl, tests).  Browsers always send Origin on WS upgrades.
+    """
+    if origin is None or origin == "":
+        return True
+    return origin in _ALLOWED_ORIGINS
 
 
 def _is_valid_uuid(value: str) -> bool:
@@ -135,65 +312,40 @@ def _is_valid_uuid(value: str) -> bool:
         return False
 
 
-@app.on_event("startup")
-async def on_startup():
-    """Run tool parity check and log configuration on startup."""
-    logger.info("CUA backend starting — model=%s, agent_service=%s, mode=%s",
-                config.gemini_model, config.agent_service_url, config.agent_mode)
-
-    # Validate tool parity on startup
-    try:
-        validate_tool_parity()
-    except Exception as e:
-        logger.warning("Tool parity check failed: %s", e)
-
-    # B-19: Start idle-session reaper
-    asyncio.create_task(_reap_idle_sessions())
-
-
 async def _reap_idle_sessions() -> None:
-    """Background task: stop sessions idle for more than the timeout."""
-    while True:
-        await asyncio.sleep(60)  # check every minute
-        now = time.monotonic()
-        for sid in list(_session_last_activity.keys()):
-            if sid not in _active_loops:
-                _session_last_activity.pop(sid, None)
-                continue
-            elapsed = now - _session_last_activity.get(sid, now)
-            if elapsed > _SESSION_IDLE_TIMEOUT:
-                logger.info("AUDIT session_timeout — session_id=%s idle=%.0fs", sid, elapsed)
-                await _stop_agent(sid)
-                _session_last_activity.pop(sid, None)
+    """Background task: stop sessions idle for more than the timeout.
 
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    """Cancel running agents and clean up WebRTC connections."""
-    # Cancel all running agent tasks
-    for sid in list(_active_tasks.keys()):
-        task = _active_tasks.get(sid)
-        if task and not task.done():
-            task.cancel()
-    _active_tasks.clear()
-    _active_loops.clear()
-
-    # Cleanup WebRTC connections
+    Owned by the lifespan context manager (see module-level ``lifespan``).
+    """
     try:
-        from backend.streaming.webrtc_server import manager
-        await manager.cleanup()
-    except ImportError as e:
-        logger.debug("WebRTC cleanup skipped (import unavailable): %s", e)
-    except Exception as e:
-        logger.warning("WebRTC cleanup error: %s", e)
-
-    logger.info("CUA backend shut down")
+        while True:
+            await asyncio.sleep(60)  # check every minute
+            now = time.monotonic()
+            for sid in list(_session_last_activity.keys()):
+                if sid not in _active_loops:
+                    _session_last_activity.pop(sid, None)
+                    continue
+                elapsed = now - _session_last_activity.get(sid, now)
+                if elapsed > _SESSION_IDLE_TIMEOUT:
+                    logger.info("AUDIT session_timeout — session_id=%s idle=%.0fs", sid, elapsed)
+                    await _stop_agent(sid)
+                    _session_last_activity.pop(sid, None)
+    except asyncio.CancelledError:
+        # Normal shutdown path from lifespan
+        return
 
 # ── In-memory state ──────────────────────────────────────────────────────────
 
 _active_loops: dict[str, AgentLoop] = {}
 _active_tasks: dict[str, asyncio.Task] = {}
-_ws_clients: list[WebSocket] = []
+
+# Each WS client tracks which session_ids it wants to receive events for.
+# An empty set means the client has not yet subscribed to any session;
+# such clients receive ONLY global events (session_id is None) and are
+# excluded from per-session fan-out (steps, logs, screenshots, finish,
+# safety).  Scoping cuts broadcast fan-out for multi-tab scenarios and
+# prevents tab B from seeing tab A's live screenshot stream.
+_ws_clients: dict[WebSocket, set[str]] = {}
 
 # B-19: Session idle timeout tracking  (last-activity timestamp per session)
 _SESSION_IDLE_TIMEOUT = 30 * 60  # 30 minutes
@@ -225,17 +377,41 @@ def _error_response(
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-async def _broadcast(event: str, data: dict) -> None:
-    """Send a JSON message to all connected WebSocket clients."""
-    msg = json.dumps({"event": event, **data})
+async def _broadcast(event: str, data: dict, *, session_id: str | None = None) -> None:
+    """Send a JSON message to subscribed WebSocket clients.
+
+    Delivery rules:
+      * ``session_id is None`` — global event (e.g. server-wide
+        notifications).  Delivered to every connected client.
+      * ``session_id`` set — scoped event.  Delivered ONLY to clients
+        whose subscription set contains that session_id.  Clients that
+        have not yet sent a ``subscribe`` message do not receive
+        scoped events; previously the empty subscription set fell
+        through to a fan-out which leaked another tab's session
+        screenshots / steps to unrelated viewers.
+
+    Disconnected peers are pruned.  Serialization errors are logged
+    but do not count as a disconnect — fixes H-12 / H-13 where every
+    exception was silently dropping the client.
+    """
+    try:
+        msg = json.dumps({"event": event, **data})
+    except (TypeError, ValueError) as e:
+        logger.warning("broadcast: failed to serialize event %r: %s", event, e)
+        return
+
     stale: list[WebSocket] = []
-    for ws in _ws_clients:
+    for ws, subscriptions in list(_ws_clients.items()):
+        if session_id is not None and session_id not in subscriptions:
+            continue
         try:
             await ws.send_text(msg)
-        except Exception:
+        except (WebSocketDisconnect, RuntimeError, ConnectionError):
             stale.append(ws)
+        except Exception as e:
+            logger.debug("broadcast send error: %s", e)
     for ws in stale:
-        _ws_clients.remove(ws)
+        _ws_clients.pop(ws, None)
 
 
 # ── REST Endpoints ────────────────────────────────────────────────────────────
@@ -354,6 +530,18 @@ async def api_build_image():
     return {"success": success}
 
 
+@app.post("/api/session/ws-token")
+async def api_issue_ws_token():
+    """Mint a short-lived WebSocket authentication token (30s TTL, single-use).
+
+    Browsers cannot set custom headers on WebSocket upgrades, so the
+    frontend calls this endpoint over authenticated HTTP (CORS-gated) and
+    then opens ``/ws?token=<token>``.  The token is validated and consumed
+    on WS accept.
+    """
+    return {"token": _issue_ws_token(), "ttl_seconds": int(_WS_TOKEN_TTL_SECONDS)}
+
+
 @app.get("/api/keys/status")
 async def api_keys_status():
     """Return availability and source of API keys for all providers.
@@ -380,49 +568,52 @@ class ValidateKeyRequest(BaseModel):
 
 
 @app.post("/api/keys/validate")
-async def api_validate_key(req: ValidateKeyRequest):
+async def api_validate_key(req: ValidateKeyRequest, request: Request):
     """Validate an API key by making a minimal test call to the provider.
 
     Returns ``{"valid": true}`` or ``{"valid": false, "error": "..."}``
     with a 5-second timeout.
     """
+    # Per-IP throttle: each validation call hits the user's third-party
+    # account.  Cap to 5/min/IP so a stuck retry loop or hostile loopback
+    # caller can't burn the operator's quota.
+    if not _key_validate_limiter.allow(_client_key(request)):
+        return {"valid": None, "error": "Too many validation attempts — wait a minute and retry."}
     if req.provider not in _VALID_PROVIDERS:
         return {"valid": False, "error": f"Unknown provider: {req.provider}"}
     if not req.api_key or len(req.api_key) < 8:
         return {"valid": False, "error": "Key too short"}
 
+    # Validate via the provider's ``/models`` endpoint.  These are
+    # authenticated GETs with no token cost and a clean 401/403 on a bad
+    # key — unlike firing a cheap chat completion and interpreting a 400
+    # as "key works", which silently approved invalid keys when the model
+    # ID we hard-coded happened to be deprecated.
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             if req.provider == "google":
-                # Test Google key by listing models
                 resp = await client.get(
                     "https://generativelanguage.googleapis.com/v1beta/models",
                     params={"key": req.api_key},
                 )
                 if resp.status_code == 200:
                     return {"valid": True}
-                return {"valid": False, "error": "Invalid Google API key"}
+                if resp.status_code in (401, 403, 400):
+                    return {"valid": False, "error": "Invalid Google API key"}
+                return {"valid": None, "error": f"Unexpected status {resp.status_code}"}
             elif req.provider == "anthropic":
-                # Test Anthropic key with a minimal request
-                resp = await client.post(
-                    "https://api.anthropic.com/v1/messages",
+                resp = await client.get(
+                    "https://api.anthropic.com/v1/models",
                     headers={
                         "x-api-key": req.api_key,
                         "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
-                    },
-                    json={
-                        "model": "claude-sonnet-4-20250514",
-                        "max_tokens": 1,
-                        "messages": [{"role": "user", "content": "hi"}],
                     },
                 )
-                # 200 or 400 (invalid request but key is valid) means key works
-                if resp.status_code in (200, 400):
+                if resp.status_code == 200:
                     return {"valid": True}
-                if resp.status_code == 401:
+                if resp.status_code in (401, 403):
                     return {"valid": False, "error": "Invalid Anthropic API key"}
-                return {"valid": True}  # Other status codes likely mean key is ok
+                return {"valid": None, "error": f"Unexpected status {resp.status_code}"}
     except httpx.TimeoutException:
         return {"valid": None, "error": "Validation timed out — could not verify key"}
     except Exception as e:
@@ -599,7 +790,7 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     rid = getattr(request.state, "request_id", None)
 
     # ── Rate limit ────────────────────────────────────────────────────
-    if not _agent_start_limiter.allow():
+    if not _agent_start_limiter.allow(_client_key(request)):
         return _error_response(429, "Too many sessions started — wait a minute and try again.", request_id=rid)
 
     # ── Validate inputs ───────────────────────────────────────────────
@@ -650,6 +841,46 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     if not container_ok:
         return _error_response(500, "Failed to start Docker container", request_id=rid)
 
+    # Broadcast callbacks are scoped by the loop's session_id so multi-tab
+    # clients only see events for the session(s) they subscribed to.
+    def _scoped_log(entry):
+        asyncio.ensure_future(
+            _broadcast(
+                "log",
+                {"log": entry.model_dump(), "session_id": loop.session_id},
+                session_id=loop.session_id,
+            )
+        )
+
+    def _scoped_step(step):
+        _touch_session(loop.session_id)
+        asyncio.ensure_future(
+            _broadcast(
+                "step",
+                {
+                    "step": step.model_dump(exclude={"screenshot_b64", "raw_model_response"}),
+                    "session_id": loop.session_id,
+                },
+                session_id=loop.session_id,
+            )
+        )
+
+    def _scoped_screenshot(b64):
+        asyncio.ensure_future(
+            _broadcast(
+                "screenshot",
+                {"screenshot": b64, "session_id": loop.session_id},
+                session_id=loop.session_id,
+            )
+        )
+
+    async def _scoped_safety(sid, explanation):
+        await _broadcast(
+            "safety_confirmation",
+            {"session_id": sid, "explanation": explanation},
+            session_id=sid,
+        )
+
     loop = AgentLoop(
         task=req.task,
         api_key=resolved_key,
@@ -659,24 +890,10 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
         engine=req.engine,
         provider=req.provider,
         execution_target=execution_target,
-        on_log=lambda entry: asyncio.ensure_future(
-            _broadcast("log", {"log": entry.model_dump()})
-        ),
-        on_step=lambda step: (
-            _touch_session(loop.session_id),  # B-19: reset idle timer
-            asyncio.ensure_future(
-                _broadcast("step", {
-                    "step": step.model_dump(exclude={"screenshot_b64", "raw_model_response"}),
-                })
-            ),
-        )[-1],
-        on_screenshot=lambda b64: asyncio.ensure_future(
-            _broadcast("screenshot", {"screenshot": b64})
-        ),
-        on_safety_broadcast=lambda sid, explanation: _broadcast(
-            "safety_confirmation",
-            {"session_id": sid, "explanation": explanation},
-        ),
+        on_log=_scoped_log,
+        on_step=_scoped_step,
+        on_screenshot=_scoped_screenshot,
+        on_safety_broadcast=_scoped_safety,
         safety_events=_safety_events,
         safety_decisions=_safety_decisions,
     )
@@ -685,13 +902,17 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     _touch_session(loop.session_id)  # B-19: start idle timer
 
     async def _run_and_notify():
-        """Run the agent loop then broadcast a finish event to all WS clients."""
+        """Run the agent loop then broadcast a finish event to subscribed clients."""
         session = await loop.run()
-        await _broadcast("agent_finished", {
-            "session_id": loop.session_id,
-            "status": session.status.value,
-            "steps": len(session.steps),
-        })
+        await _broadcast(
+            "agent_finished",
+            {
+                "session_id": loop.session_id,
+                "status": session.status.value,
+                "steps": len(session.steps),
+            },
+            session_id=loop.session_id,
+        )
         # Cleanup bookkeeping so status endpoint reflects completion
         _active_tasks.pop(loop.session_id, None)
         _active_loops.pop(loop.session_id, None)
@@ -829,7 +1050,20 @@ _NOVNC_WS   = "ws://127.0.0.1:6080"
 
 @app.websocket("/vnc/websockify")
 async def vnc_ws_proxy(ws: WebSocket):
-    """Proxy the noVNC WebSocket to the container's websockify."""
+    """Proxy the noVNC WebSocket to the container's websockify.
+
+    Origin-checked and token-gated identically to ``/ws`` — the noVNC
+    stream carries full desktop contents and must never be readable by
+    a foreign-origin page.
+    """
+    if not _is_allowed_ws_origin(ws.headers.get("origin")):
+        logger.warning("VNC WS rejected: bad origin %r", ws.headers.get("origin"))
+        await ws.close(code=1008)
+        return
+    if not _consume_ws_token(ws.query_params.get("token")):
+        logger.warning("VNC WS rejected: missing/invalid token")
+        await ws.close(code=4401)
+        return
     await ws.accept()
     try:
         import websockets
@@ -883,9 +1117,21 @@ async def vnc_http_proxy(path: str):
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    """Accept a WebSocket connection for real-time event streaming."""
+    """Accept a WebSocket connection for real-time event streaming.
+
+    Requires a same-origin Origin header AND a single-use token from
+    ``POST /api/session/ws-token`` passed as ``?token=<value>``.
+    """
+    if not _is_allowed_ws_origin(ws.headers.get("origin")):
+        logger.warning("/ws rejected: bad origin %r", ws.headers.get("origin"))
+        await ws.close(code=1008)
+        return
+    if not _consume_ws_token(ws.query_params.get("token")):
+        logger.warning("/ws rejected: missing/invalid token")
+        await ws.close(code=4401)
+        return
     await ws.accept()
-    _ws_clients.append(ws)
+    _ws_clients[ws] = set()  # empty = no scoped events until subscribe
     logger.info("WebSocket client connected (%d total)", len(_ws_clients))
 
     streaming_task: asyncio.Task | None = None
@@ -896,8 +1142,20 @@ async def websocket_endpoint(ws: WebSocket):
             data = await ws.receive_text()
             try:
                 msg = json.loads(data)
-                if msg.get("type") == "ping":
+                mtype = msg.get("type")
+                if mtype == "ping":
                     await ws.send_text(json.dumps({"event": "pong"}))
+                elif mtype == "subscribe":
+                    # Replace this client's subscription set with a
+                    # specific session_id list.  Once a client subscribes,
+                    # it only receives events scoped to those sessions.
+                    sid = msg.get("session_id")
+                    if isinstance(sid, str) and _is_valid_uuid(sid):
+                        _ws_clients[ws].add(sid)
+                elif mtype == "unsubscribe":
+                    sid = msg.get("session_id")
+                    if isinstance(sid, str):
+                        _ws_clients[ws].discard(sid)
             except json.JSONDecodeError:
                 pass
 
@@ -906,8 +1164,7 @@ async def websocket_endpoint(ws: WebSocket):
     except Exception as e:
         logger.warning("WebSocket error: %s", e)
     finally:
-        if ws in _ws_clients:
-            _ws_clients.remove(ws)
+        _ws_clients.pop(ws, None)
         if streaming_task:
             streaming_task.cancel()
 
@@ -918,24 +1175,78 @@ async def _stream_screenshots(ws: WebSocket):
     Uses 'desktop' mode (scrot) so the full X11 display is visible,
     including the browser window, desktop background, and taskbar.
     Skips capture attempts when the container is not running to avoid
-    spamming warnings.
+    spamming warnings.  Exits after N consecutive failures so a zombie
+    task can't silently retry forever (H-13).
+
+    Re-encodes the PNG capture as JPEG-q70 before broadcast — for a
+    typical 1440x900 desktop screenshot this drops payload size from
+    ~1-2 MB to ~150-300 KB (5-8x), cutting both WS bandwidth and
+    frontend decode cost.  The LLM still receives lossless PNG via the
+    separate ``capture_screenshot`` path; this only affects the live
+    user-facing stream.
     """
     from backend.utils.docker_manager import is_container_running
+
+    consecutive_failures = 0
+    MAX_CONSECUTIVE_FAILURES = 10
 
     while True:
         try:
             await asyncio.sleep(config.ws_screenshot_interval)
-            # Only attempt capture when the container is actually running
             if not await is_container_running():
                 continue
-            b64 = await capture_screenshot(mode="desktop")
+            # Only stream to clients that have actively subscribed to a
+            # session.  Without this gate, every connected tab — even
+            # ones not viewing a session — would receive the live
+            # desktop frames, which is both a privacy leak across tabs
+            # and wasted bandwidth.
+            if not _ws_clients.get(ws):
+                continue
+            b64_png = await capture_screenshot(mode="desktop")
+            payload, fmt = _encode_for_stream(b64_png)
             await ws.send_text(json.dumps({
                 "event": "screenshot_stream",
-                "screenshot": b64,
+                "screenshot": payload,
+                "format": fmt,
             }))
+            consecutive_failures = 0
         except asyncio.CancelledError:
             break
         except WebSocketDisconnect:
             break
-        except Exception:
+        except Exception as exc:
+            consecutive_failures += 1
+            logger.debug(
+                "screenshot stream failure %d/%d: %s",
+                consecutive_failures, MAX_CONSECUTIVE_FAILURES, exc,
+            )
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                logger.warning(
+                    "screenshot stream aborting after %d consecutive failures",
+                    consecutive_failures,
+                )
+                break
             await asyncio.sleep(2)
+
+
+def _encode_for_stream(b64_png: str) -> tuple[str, str]:
+    """Re-encode a base64 PNG screenshot as JPEG-q70 for WS streaming.
+
+    Returns (base64_payload, format).  Falls back to PNG passthrough on
+    any decode/encode error so a corrupt frame can't kill the stream.
+    """
+    try:
+        import base64 as _b64
+        from io import BytesIO
+        from PIL import Image
+
+        png_bytes = _b64.b64decode(b64_png)
+        with Image.open(BytesIO(png_bytes)) as im:
+            if im.mode != "RGB":
+                im = im.convert("RGB")
+            buf = BytesIO()
+            im.save(buf, format="JPEG", quality=70, optimize=True)
+            return _b64.b64encode(buf.getvalue()).decode("ascii"), "jpeg"
+    except Exception as e:
+        logger.debug("JPEG re-encode failed, sending PNG passthrough: %s", e)
+        return b64_png, "png"

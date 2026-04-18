@@ -18,7 +18,9 @@ Internal improvements over the predecessor:
   • **TTL cache** — window list, screen context, and tree snapshots cached for 2 s
 
 Requirements (Linux / Docker):
-  - at-spi2-core, libatspi2.0-dev, gir1.2-atspi-2.0, python3-gi, dbus-x11
+  - at-spi2-core, gir1.2-atspi-2.0, python3-gi, dbus-x11
+    (libatspi2.0-0 runtime lib is pulled in transitively by at-spi2-core;
+    libatspi2.0-dev headers are NOT required at runtime)
   - gsettings set org.gnome.desktop.interface toolkit-accessibility true
   - export NO_AT_BRIDGE=0
   - D-Bus session bus running
@@ -2964,10 +2966,31 @@ async def _h_get_text(text: str, target: str) -> dict:
 
 
 async def _h_open_url(text: str, target: str) -> dict:
-    """Open URL via platform-appropriate command."""
+    """Open URL via platform-appropriate command.
+
+    Validates the URL scheme (http/https only) and passes the argument
+    to the OS handler without invoking a shell.  Previously the Windows
+    path used ``subprocess.run(["start", url], shell=True)`` which is a
+    command-injection primitive — a URL like
+    ``"https://x & calc.exe & rem"`` would execute arbitrary commands
+    via ``cmd.exe``.
+    """
     if not text:
         return {"success": False, "message": "URL required"}
     url = text if text.startswith(("http://", "https://")) else f"https://{text}"
+
+    # Scheme/character validation — reject anything cmd.exe or xdg-open
+    # would interpret as a separator or pipe.
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+    except Exception:
+        return {"success": False, "message": f"open_url: invalid URL: {url!r}"}
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return {"success": False, "message": f"open_url: only http/https allowed, got {parsed.scheme!r}"}
+    if any(bad in url for bad in ("\n", "\r", "\x00", "&", "|", ";", "`")):
+        return {"success": False, "message": "open_url: URL contains shell metacharacters"}
+
     system = platform.system()
     try:
         if system == "Linux":
@@ -2975,9 +2998,9 @@ async def _h_open_url(text: str, target: str) -> dict:
                 lambda: subprocess.run(["xdg-open", url], timeout=10, check=True)
             )
         elif system == "Windows":
-            await asyncio.to_thread(
-                lambda: subprocess.run(["start", url], shell=True, timeout=10, check=True)
-            )
+            # os.startfile invokes ShellExecuteW directly — no cmd.exe, no shell parsing.
+            import os as _os
+            await asyncio.to_thread(lambda: _os.startfile(url))  # type: ignore[attr-defined]
         elif system == "Darwin":
             await asyncio.to_thread(
                 lambda: subprocess.run(["open", url], timeout=10, check=True)
@@ -3054,32 +3077,32 @@ async def _h_run_command(text: str, target: str) -> dict:
     """Execute a structured command (no shell parsing)."""
     if not text:
         return {"success": False, "message": "Command required"}
-    # Strict allowlist of permitted executables
+    # Strict allowlist of permitted executables.  Each entry MUST map
+    # to a binary actually present in docker/Dockerfile.  Listing
+    # binaries that are not installed (e.g. gnome-* apps, mousepad,
+    # firefox, xterm, xfce4-taskmanager, pip) just expands the prompt
+    # surface for the LLM with commands that always fail.
     _ALLOWED_COMMANDS = frozenset({
         "ls", "cat", "head", "tail", "grep", "find", "wc", "echo",
         "pwd", "whoami", "id", "date", "env", "printenv",
         "which", "file", "stat", "df", "du", "free",
         "uname", "hostname", "uptime",
-        "python3", "python", "pip", "pip3", "node", "npm", "npx",
+        "python3", "node", "npm", "npx",
         "curl", "wget",
         "xdg-open", "xdotool", "xclip", "scrot", "wmctrl",
-        "xfce4-terminal", "xterm",
-        # Desktop apps (accessibility tasks frequently need to open these)
-        "gnome-control-center", "gnome-settings", "gnome-calculator",
-        "gnome-text-editor", "gedit", "gnome-system-monitor",
+        "xfce4-terminal",
+        # Desktop apps actually installed in the image
         "xfce4-settings-manager", "xfce4-settings-editor",
-        "xfce4-taskmanager", "thunar", "mousepad",
-        "firefox", "google-chrome",
+        "thunar",
+        "google-chrome", "google-chrome-stable",
     })
     # GUI apps should be launched fire-and-forget (Popen) — subprocess.run
     # would block until they exit, causing a 30 s timeout.
     _GUI_COMMANDS = frozenset({
-        "xfce4-terminal", "xterm", "gnome-terminal",
-        "gnome-control-center", "gnome-settings", "gnome-calculator",
-        "gnome-text-editor", "gedit", "gnome-system-monitor",
+        "xfce4-terminal",
         "xfce4-settings-manager", "xfce4-settings-editor",
-        "xfce4-taskmanager", "thunar", "mousepad",
-        "firefox", "google-chrome",
+        "thunar",
+        "google-chrome", "google-chrome-stable",
         "xdg-open",
     })
     try:

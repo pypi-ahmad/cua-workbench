@@ -525,7 +525,7 @@ The backend resolves keys in this priority order: UI input → `.env` file → s
 | `PLAYWRIGHT_MCP_PATH` | `/mcp` | HTTP endpoint path for Playwright MCP |
 | `PLAYWRIGHT_MCP_AUTOSTART` | `0` | Set to `1` to auto-start the MCP server |
 | `PLAYWRIGHT_MCP_COMMAND` | `npx` | Command used for local MCP startup |
-| `PLAYWRIGHT_MCP_ARGS` | `-y @playwright/mcp@latest` | Arguments for local MCP startup |
+| `PLAYWRIGHT_MCP_ARGS` | `-y @playwright/mcp@0.0.70` | Arguments for local MCP startup. Pinned to a known-good MCP version; override only when intentionally upgrading. |
 | `PLAYWRIGHT_MCP_DOCKER_TRANSPORT` | `http` | Transport mode: `http` (Streamable HTTP) or `stdio` |
 | `AGENT_MODE` | `browser` | Backend config default for agent mode |
 | `SCREEN_WIDTH` | `1440` | Sandbox screen width |
@@ -533,7 +533,7 @@ The backend resolves keys in this priority order: UI input → `.env` file → s
 | `MAX_STEPS` | `50` | Default step budget |
 | `STEP_TIMEOUT` | `30.0` | Per-step timeout in seconds |
 | `GEMINI_RETRY_ATTEMPTS` | `3` | Retry count for Gemini API calls |
-| `VNC_PASSWORD` | (empty) | Set a password for the noVNC desktop. Empty means the desktop is accessible without a password. |
+| `VNC_PASSWORD` | (empty) | Sets a password for the noVNC desktop. When non-empty, the backend writes the value to a 0600 host temp file and bind-mounts it read-only into the container at `/run/secrets/vnc_password` (env var `VNC_PASSWORD_FILE` is set inside the container). The password is **not** passed via `docker run -e`, so it does not appear in `docker inspect` or container env dumps. Empty means the desktop is accessible without a password. |
 | `DEBUG` | `0` | Set to `1` for verbose backend logging and Uvicorn auto-reload |
 
 ### Model allowlist
@@ -584,6 +584,7 @@ All endpoints are served by `backend/api/server.py` (FastAPI). The frontend prox
 | `POST` | `/api/container/start` | Start the Docker sandbox |
 | `POST` | `/api/container/stop` | Stop all sessions and the Docker sandbox |
 | `POST` | `/api/container/build` | Trigger Docker image build |
+| `POST` | `/api/session/ws-token` | Mint a single-use, 30-second WebSocket auth token (returns `{token, ttl_seconds}`) |
 | `GET` | `/api/container/logs` | Fetch recent container logs (last N lines, max 500) |
 | `GET` | `/api/agent-service/health` | Check agent service readiness |
 | `POST` | `/api/agent-service/mode` | Switch agent service between browser and desktop mode |
@@ -594,27 +595,47 @@ All endpoints are served by `backend/api/server.py` (FastAPI). The frontend prox
 | `GET` | `/api/agent/history/{session_id}` | Step history (no screenshots) |
 | `POST` | `/api/agent/safety-confirm` | Submit Allow or Deny for a safety confirmation prompt |
 | `POST` | `/webrtc/offer` | WebRTC SDP negotiation (requires optional `aiortc` package) |
-| `GET` | `/vnc/{path}` | Reverse proxy to noVNC inside the container |
+| `GET` | `/vnc/{path:path}` | Reverse proxy for noVNC static assets served by the container's websockify HTTP server |
 
-### WebSocket
+### WebSockets
 
+| Path | Purpose |
+|---|---|
+| `/ws` | Real-time event stream (logs, steps, screenshots, safety prompts, finish) |
+| `/vnc/websockify` | Reverse proxy for the noVNC WebSocket inside the container |
+
+#### Authentication and origin
+
+Both WebSocket endpoints require:
+
+1. An `Origin` header that matches one of the allowed local dev origins (the same set used by CORS), and
+2. A single-use token passed as `?token=<value>`. Tokens are minted by `POST /api/session/ws-token`, expire after 30 seconds, and are consumed on accept. Browsers cannot set custom headers on WS upgrades, so the frontend fetches a fresh token over HTTP and appends it to the WS URL. For `/vnc/websockify`, the token is appended to noVNC's internal `path=` query parameter so the upgrade carries it.
+
+Missing/invalid origin closes with code `1008`; missing/invalid token closes with `4401`.
+
+#### Client → server messages on `/ws`
+
+The frontend sends `ping` every 15 seconds and uses `subscribe`/`unsubscribe` to scope event delivery:
+
+```json
+{"type": "ping"}
+{"type": "subscribe",   "session_id": "<uuid>"}
+{"type": "unsubscribe", "session_id": "<uuid>"}
 ```
-/ws
-```
 
-The frontend connects to `/ws` at startup and sends a `ping` every 15 seconds.
+A newly-accepted client has an empty subscription set and receives **only** unscoped/global events. Per-session events (`step`, `log`, `screenshot`, `screenshot_stream`, `agent_finished`, `safety_confirmation`) are delivered only to clients that have subscribed to that session's id. This prevents one tab from seeing another tab's live frames.
 
-**Inbound events from server to client:**
+#### Server → client events on `/ws`
 
 | Event type | Payload | Notes |
 |---|---|---|
-| `screenshot` | `{ screenshot: "<base64>" }` | Periodic screen capture |
-| `screenshot_stream` | `{ screenshot: "<base64>" }` | Same structure; different source path |
-| `log` | `{ log: { timestamp, level, message } }` | Agent and backend log messages |
-| `step` | `{ step: { step_number, action, timestamp, error? } }` | One completed action |
-| `agent_finished` | `{ status, steps, session_id }` | Session end notification |
-| `safety_confirmation` | `{ session_id, explanation }` | Requires user Allow/Deny response |
-| `pong` | `{}` | Heartbeat response |
+| `screenshot` | `{ screenshot: "<base64-png>", session_id }` | Captured during step execution and broadcast to subscribers |
+| `screenshot_stream` | `{ screenshot: "<base64>", format: "jpeg"\|"png" }` | Per-client live desktop stream (~every 1.5s); JPEG-q70 to reduce bandwidth |
+| `log` | `{ log: { timestamp, level, message }, session_id }` | Agent and backend log messages |
+| `step` | `{ step: { step_number, action, timestamp, error? }, session_id }` | One completed action (raw model response and screenshot are stripped) |
+| `agent_finished` | `{ session_id, status, steps }` | Session end notification |
+| `safety_confirmation` | `{ session_id, explanation }` | Requires user Allow/Deny via `POST /api/agent/safety-confirm` |
+| `pong` | `{}` | Response to `ping` |
 
 ---
 
@@ -734,5 +755,5 @@ Not every field in `backend/config.py` has a corresponding environment variable.
 
 ### VNC is not password-protected by default
 
-Unless `VNC_PASSWORD` is set, the noVNC desktop is accessible to anyone who can reach `localhost:6080` or the proxied `/vnc/` path. For local-only use this is generally fine; be aware if you expose the app externally.
+All container ports (5900, 6080, 8931, 9222, 9223) are bound to `127.0.0.1` only, and the backend's `/vnc/websockify` proxy requires both a same-origin `Origin` header and a single-use ws-token. Setting `VNC_PASSWORD` adds a noVNC password layer on top (delivered to the container via a bind-mounted secret file, not via env vars). For local-only use this is generally fine; if you expose the host beyond localhost, set `VNC_PASSWORD` and review the CORS allow-list in `backend/api/server.py`.
 

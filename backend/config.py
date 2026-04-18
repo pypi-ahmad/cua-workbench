@@ -42,7 +42,7 @@ class Config:
     playwright_mcp_path: str = "/mcp"
     playwright_mcp_autostart: bool = False
     playwright_mcp_command: str = "npx"
-    playwright_mcp_args: str = "-y @playwright/mcp@latest"
+    playwright_mcp_args: str = "-y @playwright/mcp@0.0.70"
     playwright_mcp_docker_transport: str = "http"  # "http" (Streamable HTTP) or "stdio"
 
     # Screenshot
@@ -52,8 +52,12 @@ class Config:
 
     # Agent
     max_steps: int = 50
-    action_delay_ms: int = 500
-    screenshot_interval_sec: float = 1.0
+    # Default post-action delay.  Previously 500 ms → a 50-step session
+    # burned 25 s on mandatory sleeps.  Most actions (click, type) settle
+    # in well under 100 ms; navigate has its own wait_for logic.  Keep a
+    # small debounce so coordinate-based clicks don't race X11 event
+    # delivery, but stop over-sleeping.
+    action_delay_ms: int = 100
     gemini_retry_attempts: int = 3
     gemini_retry_delay: float = 2.0
     step_timeout: float = 30.0

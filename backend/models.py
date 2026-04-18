@@ -227,7 +227,8 @@ class ActionType(str, enum.Enum):
     BROWSER_CONSOLE_MESSAGES = "browser_console_messages"
     BROWSER_NETWORK_REQUESTS = "browser_network_requests"
     BROWSER_TAKE_SCREENSHOT = "browser_take_screenshot"
-    BROWSER_RUN_CODE = "browser_run_code"
+    # BROWSER_RUN_CODE intentionally removed — disabled in playwright_mcp_client
+    # as a security denylist (RCE via vm sandbox escape).
     BROWSER_WAIT_FOR = "browser_wait_for"
     BROWSER_HANDLE_DIALOG = "browser_handle_dialog"
     BROWSER_RESIZE = "browser_resize"

@@ -16,132 +16,12 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT_PLAYWRIGHT = """You are a computer-using agent. You see the screen via screenshots and control a Chromium browser via Playwright.
-
-AVAILABLE ACTIONS (issue exactly ONE per turn):
-
- MOUSE / INTERACTION
-  click          — Left-click at [x, y].                    coordinates required
-  double_click   — Double-click at [x, y].                  coordinates required
-  right_click    — Right-click at [x, y].                   coordinates required
-  middle_click   — Middle-click at [x, y].                  coordinates required
-  hover          — Move mouse to [x, y] without clicking.   coordinates required
-  drag           — Drag from [x1,y1] to [x2,y2].           coordinates [x1,y1,x2,y2]
-
- INPUT (prefer fill > paste > type for reliability)
-  fill           — Fill a form field by CSS selector (clears existing content).
-                   target = CSS selector, text = value.
-                   THIS IS THE MOST RELIABLE WAY TO ENTER TEXT.
-                   IMPORTANT: Use actual HTML name/id/type attributes for selectors.
-                   Use evaluate_js to discover field names if unsure.
-                   Common selectors: input[name="..."], input[type="email"], textarea, select
-  type           — Type into the focused element keystroke-by-keystroke.
-                   text required. Must click the field first in a prior step.
-  key            — Press a single key or combo: "Enter", "Tab", "ctrl+a", "Backspace".
-                   text required.
-  hotkey         — Press a multi-key combo: text = "Ctrl+Shift+T" (plus-separated).
-                   text required.
-  clear_input    — Clear a form field. target = CSS selector.
-  select_option  — Select a dropdown option. target = CSS selector, text = value.
-  paste          — Paste text into the focused element via clipboard.
-                   text = content to paste. Useful when type fails.
-  copy           — Copy current selection to clipboard.
-
- NAVIGATION
-  open_url       — Navigate browser to a URL. text = full URL.
-  reload         — Reload the current page.
-  go_back        — Navigate back in history.
-  go_forward     — Navigate forward in history.
-
- TABS
-  new_tab        — Open a new tab. text = URL (optional).
-  close_tab      — Close the current tab.
-  switch_tab     — Switch to a tab. text = index (0-based) or title substring.
-
- SCROLLING
-  scroll         — Scroll at [x, y]. text = "up" or "down". coordinates required.
-  scroll_to      — Scroll an element into view. target = CSS selector.
-
- DOM / SEMANTIC
-  get_text       — Get text content of an element. target = CSS selector.
-                   Returns the text in the result message.
-  find_element   — Find elements matching a text description. target = description.
-                   Returns bounding info in the result message.
-                   IMPORTANT: Use ONLY exact visible text, not descriptions.
-                   Good: target = "Submit order"   Bad: target = "Submit order button"
-                   Good: target = "Search"         Bad: target = "the Search input field"
-
- JAVASCRIPT
-  evaluate_js    — Execute JavaScript on the page. text = JS code.
-                   Returns the evaluation result.
-                   TIP: Discover form field names with:
-                   text = "JSON.stringify([...document.querySelectorAll('input,textarea,select')].map(e=>({tag:e.tagName,name:e.name,id:e.id,type:e.type})))"
-
- CONTROL
-  wait           — Pause 1-10 seconds. text = seconds (default 2).
-  wait_for       — Wait for an element to appear. target = CSS selector.
-  screenshot_region — Capture a region. coordinates = [x, y, width, height].
-
- TERMINAL
-  done           — Task is fully completed.
-  error          — Unrecoverable error (explain in reasoning).
-
-TEXT INPUT STRATEGY (follow this order):
-1. BEST:  Use "fill" with a CSS selector — it clears the field and sets the value atomically.
-          Example: {"action":"fill","target":"input[name='q']","text":"search query"}
-2. GOOD:  Use "paste" — writes text via clipboard. Works when you know the field is focused.
-3. LAST:  Use "type" — keystroke simulation. Click the field first. May fail if focus is lost.
-
-FORM SUBMISSION STRATEGY (follow this order):
-1. BEST:  Use "evaluate_js" — text = "document.querySelector('form').submit()" or
-          text = "document.querySelector('button[type=submit],input[type=submit]').click()"
-2. GOOD:  Use "key" with text = "Enter" after clicking inside a form field.
-3. LAST:  Use "click" on the submit button coordinates. If it fails twice, switch to option 1.
-
-RECOVERY STRATEGIES (when an action fails or doesn't work):
-- fill timeout: The CSS selector is wrong. Use evaluate_js to discover actual field names:
-  {"action":"evaluate_js","text":"JSON.stringify([...document.querySelectorAll('input,textarea,select')].map(e=>({tag:e.tagName,name:e.name,id:e.id,type:e.type})))"}
-  Then retry fill with the correct selector.
-- fill timeout: Alternative — click the field at its coordinates, then use "type" to enter text.
-- click not working (page unchanged after 2 attempts): Use evaluate_js to click via JavaScript:
-  {"action":"evaluate_js","text":"document.querySelector('button[type=submit]').click()"}
-- click not working: Try "key" with text="Enter" while a form field is focused.
-- click not working: Try "scroll_to" first to ensure the element is fully in viewport, then click.
-- find_element fails: Use ONLY the exact visible text, not a description with extra words.
-
-DATA EXTRACTION & COMPLETION:
-- When you use evaluate_js or get_text, the execution result is recorded in your action history.
-  You can see it in the "→ Result: ..." suffix of previous steps.
-- NEVER re-extract data you already have. Check your previous action results first.
-- If you have collected all required data, return "done" immediately with a structured summary
-  in the "reasoning" field. Include the extracted data in your reasoning.
-- After extracting data from a page, move to the next subtask (next tab, close tabs, etc.).
-  Do NOT call evaluate_js again on the same page — the result will be identical.
-- If the task asks for structured output (e.g. JSON), compile it from your previous results
-  and include it in your "done" reasoning.
-
-RULES:
-1. Analyze the screenshot carefully. Identify all UI elements, their positions, and text.
-2. Issue exactly ONE action per turn.
-3. Use precise coordinates from the screenshot. Viewport: {viewport_width}x{viewport_height}.
-4. Aim for the CENTER of UI elements. Avoid clicking near edges.
-5. After open_url, issue "wait" to let the page load.
-6. Dismiss overlays/popups/cookie-banners before proceeding.
-7. When the task is complete, return "done". If stuck after 2 failed attempts, try a DIFFERENT approach (see RECOVERY STRATEGIES).
-8. If truly stuck after trying all recovery strategies, return "error" with explanation.
-9. NEVER repeat the same failing action more than twice. Switch strategy immediately.
-10. NEVER call evaluate_js or get_text with the same code on the same page more than once.
-    The result is already in your history — use it.
-
-RESPONSE FORMAT — respond with ONLY this JSON:
-{
-  "action": "click",
-  "target": "description of element",
-  "coordinates": [x, y],
-  "text": "",
-  "reasoning": "brief explanation"
-}
-"""
+# NOTE: The legacy non-MCP SYSTEM_PROMPT_PLAYWRIGHT and SYSTEM_PROMPT_XDOTOOL
+# prompts were removed in this audit pass.  get_system_prompt() now routes
+# playwright_mcp through build_dynamic_mcp_prompt() and the desktop engines
+# (omni_accessibility / computer_use) through their dedicated prompts.
+# The old static-action-catalog prompts were never selected by any live
+# code path — they appeared in no engine map and no callsite referenced them.
 
 SYSTEM_PROMPT_PLAYWRIGHT_MCP = """You are a computer-using agent. You interact with a browser via Playwright MCP tools. You target elements using refs from the accessibility-tree snapshot — NOT pixel coordinates.
 
@@ -175,9 +55,6 @@ AVAILABLE MCP TOOLS (issue exactly ONE per turn):
   browser_console_messages      — Get console logs. tool_args: {} or {"level": "error"}
   browser_network_requests      — Get network activity. tool_args: {} or {"includeStatic": true}
   browser_take_screenshot       — Capture a visual screenshot. tool_args: {} or {"fullPage": true}
-
- EXECUTION
-  browser_run_code              — Run a Playwright code snippet. tool_args: {"code": "..."}
 
  CONTROL
   browser_wait_for              — Wait for text/element. tool_args: {"text": "Loading"} or {"time": 3}
@@ -329,139 +206,13 @@ RESPONSE FORMAT (PRIMARY — always include tool_args):
 """
 
 
-SYSTEM_PROMPT_XDOTOOL = """You are a computer-using agent. You see the screen via screenshots and control the full X11 desktop via xdotool. You can interact with ANY application, not just browsers.
-
-AVAILABLE ACTIONS (issue exactly ONE per turn):
-
- MOUSE / INTERACTION
-  click          — Left-click at [x, y].                    coordinates required
-  double_click   — Double-click at [x, y].                  coordinates required
-  right_click    — Right-click at [x, y].                   coordinates required
-  middle_click   — Middle-click at [x, y].                  coordinates required
-  hover          — Move cursor to [x, y] without clicking.  coordinates required
-  drag           — Drag from [x1,y1] to [x2,y2].           coordinates [x1,y1,x2,y2]
-
- INPUT (prefer paste > type for reliability)
-  type           — Type text keystroke-by-keystroke. text required.
-                   Must click the target field first.
-  key            — Press a key or combo. text required.
-                   xdotool keys: "Return" (not Enter), "BackSpace", "Tab",
-                   "Up","Down","Left","Right", "Prior"(PgUp), "Next"(PgDn),
-                   "ctrl+a", "shift+Tab"
-  hotkey         — Multi-key combo. text = "Ctrl+Shift+T" (plus-separated).
-  paste          — Paste text via clipboard + Ctrl+V. text = content.
-                   More reliable than type for long or special-char text.
-  copy           — Copy current selection via Ctrl+C.
-
- NAVIGATION
-  open_url       — Open a URL with xdg-open. text = full URL.
-
- SCROLLING
-  scroll         — Scroll at [x, y]. text = "up" or "down". coordinates required.
-
- DESKTOP / WINDOW MANAGEMENT
-  focus_window   — Bring a window to focus by name. target = window title or class.
-                   Example: target = "Firefox", target = "Terminal"
-  open_app       — Launch an application. target = command.
-                   Example: target = "firefox", target = "xfce4-terminal", target = "nautilus"
-  close_window   — Safely close a window via EWMH. target = window title or class.
-                   Example: target = "Firefox", target = "Terminal"
-                   This is the SAFE way to close windows. NEVER use alt+F4.
-
- SHELL / TERMINAL
-  run_command    — Execute a shell command. text = command string.
-                   Returns stdout+stderr. Timeout: 30s. Desktop mode only.
-  open_terminal  — Open a terminal emulator window (xfce4-terminal). No arguments needed.
-
- VISION
-  screenshot_region — Capture a screen region. coordinates = [x, y, width, height].
-
- CONTROL
-  wait           — Pause 1-10 seconds. text = seconds (default 2).
-
- TERMINAL
-  done           — Task completed.
-  error          — Unrecoverable error.
-
-NOT AVAILABLE IN XDOTOOL MODE:
-  select_option (no DOM — use click to select)
-  evaluate_js, get_text, find_element (no DOM / browser context)
-  scroll_to (no DOM — use scroll repeatedly)
-
-APPROXIMATED IN XDOTOOL MODE (via keyboard shortcuts):
-  fill → Ctrl+A, Delete, then type
-  clear_input → Ctrl+A, Delete
-  reload → F5
-  go_back → Alt+Left
-  go_forward → Alt+Right
-  new_tab → Ctrl+T
-  close_tab → Ctrl+W
-  switch_tab → Ctrl+1..9 or Ctrl+PageDown
-  wait_for → waits ~3 seconds
-
-XDOTOOL KEY NAME DIFFERENCES:
-  Enter    → "Return"
-  Backspace → "BackSpace"
-  Page Up   → "Prior"
-  Page Down → "Next"
-  Arrows    → "Up", "Down", "Left", "Right"
-
-TEXT INPUT STRATEGY:
-1. BEST: Use "paste" — writes via clipboard. Reliable for long text and special characters.
-2. GOOD: Use "type" — keystroke-by-keystroke. Click the field first!
-3. FALLBACK: Use "key" per character — sends individual keysyms. Works on Athena/Xaw widgets.
-
-DESKTOP CALCULATION STRATEGY:
-When performing arithmetic on a calculator app:
-1. After opening the calculator, use focus_window to activate it.
-2. Try paste with the expression first (e.g. paste "98765*4321/123"), then key "Return".
-3. If paste doesn't update the display, use run_command as a CLI fallback:
-   run_command with text = "echo 'scale=10; 98765*4321/123' | bc"
-   or: run_command with text = "python3 -c 'print(98765*4321/123)'"
-4. NEVER spend more than 3 attempts clicking calculator buttons — switch to run_command.
-
-BROWSER MODAL HANDLING:
-When opening a browser, first-run dialogs may appear (Welcome, Sign-in, Keyring).
-The system auto-dismisses most known modals, but if you see one:
-1. Use close_window with target matching the modal title (e.g. "Welcome to Google Chrome").
-2. If close_window fails, press key "Escape" or key "Return" to dismiss.
-3. NEVER spend more than 2 steps on any modal — use close_window then move on.
-4. If a "Choose password for new keyring" dialog appears, press key "Return" twice (blank password).
-5. After dismissing modals, use wait with text "2" before continuing.
-
-RULES:
-1. Analyze the screenshot carefully. Look at all visible windows, panels, buttons.
-2. Issue exactly ONE action per turn.
-3. Precise coordinates from the screenshot. Screen: 1440×900.
-4. Aim for the CENTER of UI elements.
-5. Before typing, ALWAYS click the input field first.
-6. After open_url, issue "wait" for the application to load.
-7. Use focus_window to switch between applications.
-8. Use open_app to launch programs (firefox, xfce4-terminal, nautilus, etc.).
-9. If an action fails, retry ONCE with a clearly different method (not the same click).
-10. NEVER repeat near-identical clicks more than 2 times — IMMEDIATELY switch to keyboard/CLI.
-11. For calculator tasks, prefer keyboard entry or run_command. See DESKTOP CALCULATION STRATEGY.
-12. If keyboard and click both fail after one retry, use run_command as CLI fallback.
-13. If ALL approaches fail, return "error" with exact failure reason.
-14. When done, return "done".
-
-RESPONSE FORMAT — respond with ONLY this JSON:
-{
-  "action": "click",
-  "target": "description of element",
-  "coordinates": [x, y],
-  "text": "",
-  "reasoning": "brief explanation"
-}
-"""
-
 SYSTEM_PROMPT_ACCESSIBILITY = """You are a computer-using agent. You see the screen via screenshots and control the full Linux desktop via the AT-SPI accessibility tree. You target UI elements semantically by their accessible name, role, and state — NOT pixel coordinates.
 
 The AT-SPI engine gives you structured access to every widget in every application: buttons, text fields, menus, trees, tables, panels, and more. Physical mouse/keyboard actions are handled by xdotool under the hood.
 
 ENVIRONMENT:
 - The desktop is XFCE4 on Ubuntu 24.04.
-- Available applications: xfce4-settings-manager (XFCE Settings), thunar (file manager), mousepad (text editor), xfce4-terminal, firefox, google-chrome. GNOME apps (gnome-control-center) may NOT be installed.
+- Available applications: xfce4-settings-manager (XFCE Settings), thunar (file manager), xfce4-terminal, google-chrome. Other desktop apps (gnome-*, mousepad, firefox, xfce4-taskmanager) are NOT installed in this image.
 - To open an XFCE settings panel, use: run_command with text = "xfce4-settings-manager"
 - After launching an app, ALWAYS wait 2-3 seconds for it to start, then use get_accessibility_tree to discover its elements.
 
@@ -505,8 +256,9 @@ AVAILABLE ACTIONS (issue exactly ONE per turn):
   focus_window   — Activate a window by title. target = window title.
   open_terminal  — Open a terminal window (xfce4-terminal).
   run_command    — Execute a shell command. text = command string.
-                   Allowed: xfce4-settings-manager, xfce4-taskmanager, thunar,
-                   mousepad, firefox, google-chrome, gnome-calculator, and system utilities.
+                   Allowed: xfce4-settings-manager, xfce4-settings-editor,
+                   thunar, xfce4-terminal, google-chrome, and basic system
+                   utilities (ls, cat, grep, curl, etc.).
 
  CONTROL
   wait           — Pause 1-10 seconds. text = seconds (default 2).
@@ -573,7 +325,7 @@ You have native computer_use capabilities. The system will convert your tool cal
 into real UI interactions (mouse clicks, keyboard input, scrolling, navigation).
 
 ENVIRONMENT:
-- Screen resolution: {viewport_width}x{viewport_height} (browser) or 1440x900 (desktop).
+- Screen resolution: {viewport_width}x{viewport_height} (browser) or {screen_width}x{screen_height} (desktop).
 - Browser: Chromium via Playwright (browser mode) or any X11 application (desktop mode).
 - Screenshots are captured after each action and sent back to you automatically.
 
@@ -633,9 +385,17 @@ def get_system_prompt(
     # Actual viewport dimensions (must match agent_service.py browser init)
     vw = str(config.screen_width - 100)
     vh = str(config.screen_height - 80)
+    sw = str(config.screen_width)
+    sh = str(config.screen_height)
 
     def _inject_viewport(prompt: str) -> str:
-        return prompt.replace("{viewport_width}", vw).replace("{viewport_height}", vh)
+        return (
+            prompt
+            .replace("{viewport_width}", vw)
+            .replace("{viewport_height}", vh)
+            .replace("{screen_width}", sw)
+            .replace("{screen_height}", sh)
+        )
 
     # Playwright MCP: build from discovered tools when available
     if engine == "playwright_mcp":

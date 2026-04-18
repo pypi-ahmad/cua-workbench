@@ -11,7 +11,11 @@ import './Workbench.css'
 // No hardcoded fallback — models come exclusively from GET /api/models.
 
 export default function Workbench() {
-  const { connected, lastScreenshot, logs, steps, agentFinished, safetyPrompt, clearLogs, clearSteps, clearFinished, clearSafetyPrompt } = useWebSocket()
+  const {
+    connected, lastScreenshot, lastScreenshotFormat, logs, steps, agentFinished, safetyPrompt,
+    clearLogs, clearSteps, clearFinished, clearSafetyPrompt,
+    subscribeSession, unsubscribeSession,
+  } = useWebSocket()
 
   // B-27: shared config hook replaces duplicated model/engine/key state
   const {
@@ -55,14 +59,17 @@ export default function Workbench() {
     try { const s = localStorage.getItem('cua_session'); return s ? JSON.parse(s) : null } catch { return null }
   })
 
-  // Persist recoverable config to localStorage
+  // Persist recoverable config to localStorage.  API keys are intentionally
+  // NOT persisted — localStorage is XSS-reachable (see OWASP React guidance);
+  // keys must come from the UI field at session start or from the backend's
+  // .env / env-var resolution.
   const configInitialised = useRef(false)
   useEffect(() => {
     // Skip the very first render so we don't overwrite stored state before the user decides to restore
     if (!configInitialised.current) { configInitialised.current = true; return }
-    const payload = { provider, model, runMode, engine, task, maxSteps, executionTarget, keySource, apiKey, ts: Date.now() }
+    const payload = { provider, model, runMode, engine, task, maxSteps, executionTarget, keySource, ts: Date.now() }
     localStorage.setItem('cua_session', JSON.stringify(payload))
-  }, [provider, model, runMode, engine, task, maxSteps, executionTarget, keySource, apiKey])
+  }, [provider, model, runMode, engine, task, maxSteps, executionTarget, keySource])
 
   const handleRestore = () => {
     if (!restorePrompt) return
@@ -75,7 +82,9 @@ export default function Workbench() {
     if (s.maxSteps) setMaxSteps(s.maxSteps)
     if (s.executionTarget) setExecutionTarget(s.executionTarget)
     if (s.keySource) setKeySource(s.keySource)
-    if (s.apiKey) setApiKey(s.apiKey)
+    // Deliberately ignore any legacy `apiKey` field — keys are no longer
+    // persisted client-side (XSS reachable).  If a stale payload has one,
+    // drop it silently so the user is forced to re-enter or use .env.
     setRestorePrompt(null)
   }
 
@@ -105,10 +114,11 @@ export default function Workbench() {
     if (agentFinished && agentRunning) {
       setSessionResult({ status: agentFinished.status, steps: agentFinished.steps })
       setAgentRunning(false)
+      if (sessionId) unsubscribeSession(sessionId)
       setSessionId(null)
       clearFinished()
     }
-  }, [agentFinished, agentRunning, clearFinished])
+  }, [agentFinished, agentRunning, clearFinished, sessionId, unsubscribeSession])
 
   // Auto-scroll timeline
   useEffect(() => {
@@ -182,6 +192,9 @@ export default function Workbench() {
       if (res.error) return setError(res.error)
       setSessionId(res.session_id)
       setAgentRunning(true)
+      // Scope the WS stream to this session only — other tabs opened to
+      // a different workbench session won't see our events.
+      subscribeSession(res.session_id)
     } catch (e) {
       setError(`Failed to start: ${e.message}`)
     }
@@ -525,7 +538,7 @@ export default function Workbench() {
 
         {/* Center: Live Screen */}
         <main className="wb-screen-area">
-          <ScreenView screenshot={lastScreenshot} containerRunning={containerRunning} agentServiceUp={agentServiceUp} />
+          <ScreenView screenshot={lastScreenshot} screenshotFormat={lastScreenshotFormat} containerRunning={containerRunning} agentServiceUp={agentServiceUp} />
 
           {/* Progress bar */}
           {agentRunning && steps.length > 0 && (
