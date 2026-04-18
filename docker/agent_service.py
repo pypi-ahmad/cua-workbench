@@ -93,28 +93,30 @@ _BLOCKED_CMD_PATTERNS = (
 # Allowed directories for file upload operations
 _UPLOAD_ALLOWED_PREFIXES = ("/tmp", "/app", "/home")
 
-# Strict allowlist of commands permitted in run_command
+# Strict allowlist of commands permitted in run_command.  Entries MUST
+# match what the image actually installs (see docker/Dockerfile).  Listing
+# binaries that are not installed yields misleading "Command not allowed"
+# errors to the LLM and expands the attack surface of the prompt.
 _ALLOWED_COMMANDS = frozenset({
-    "ls", "cat", "head", "tail", "grep", "find", "wc", "echo",
+    # Basic inspection utilities
+    "ls", "cat", "head", "tail", "grep", "wc", "echo",
     "pwd", "whoami", "id", "date", "env", "printenv",
-    "which", "file", "stat", "df", "du", "free",
+    "which", "stat", "df", "du", "free",
     "uname", "hostname", "uptime",
-    "python3", "python", "pip", "pip3", "node", "npm", "npx",
-    "curl", "wget",
+    # Python + Node runtimes (bundled).  No bare ``python`` symlink is
+    # installed in the image, so ``python3`` is the only Python entry.
+    "python3", "node", "npm", "npx",
+    # Browser launch + HTTP probe
+    "curl",
+    # Desktop automation primitives
     "xdg-open", "xdotool", "xclip", "scrot", "wmctrl",
-    "xfce4-terminal", "xterm",
-    # Desktop apps accessible via accessibility / run_command
-    "gnome-control-center", "gnome-settings", "gnome-calculator",
-    "gnome-text-editor", "gedit", "gnome-system-monitor",
+    "xfce4-terminal",
+    # XFCE settings panels (the only desktop UI installed in the image).
+    # ``xfce4-taskmanager`` is NOT in the xfce4 metapackage and not
+    # installed separately, so it is intentionally omitted.
     "xfce4-settings-manager", "xfce4-settings-editor",
-    "xfce4-taskmanager", "thunar", "mousepad",
-    "firefox", "google-chrome",
-    # Browsers added via Dockerfile
-    "brave-browser", "microsoft-edge", "microsoft-edge-stable",
-    # Desktop apps added via Dockerfile
-    "vlc", "libreoffice", "soffice",
-    "evince", "gnome-terminal", "flameshot", "xournalpp",
-    "htop",
+    # Browsers present in the image
+    "google-chrome", "google-chrome-stable",
 })
 
 # Ensure DISPLAY is set for all subprocesses (Critical Desktop Fix)
@@ -138,6 +140,18 @@ def _init_browser():
     logger.info("Initializing Playwright...")
     _playwright = sync_playwright().start()
 
+    # CDP (port 9223) is OFF by default. When enabled it gives any
+    # in-container process full DevTools control of Chromium (cookie
+    # exfil, arbitrary navigation/JS). docker-compose deliberately does
+    # not publish 9223 to the host, but a compromised in-container
+    # process — or LLM-driven evaluate_js fetching 127.0.0.1:9223 — would
+    # still reach it. Opt in via AGENT_ENABLE_CDP=1 only when needed.
+    _cdp_args = (
+        ["--remote-debugging-port=9223"]
+        if os.environ.get("AGENT_ENABLE_CDP") == "1"
+        else []
+    )
+
     _browser = _playwright.chromium.launch(
         headless=False,  # Visible on Xvfb
         args=[
@@ -151,7 +165,7 @@ def _init_browser():
             "--disable-backgrounding-occluded-windows",
             "--disable-renderer-backgrounding",
             "--force-device-scale-factor=1",
-            "--remote-debugging-port=9223",
+            *_cdp_args,
         ],
     )
 
@@ -377,7 +391,11 @@ def _pw_select_option(selector: str, value: str) -> dict:
 def _pw_paste(text: str) -> dict:
     """Clipboard-based paste (reliable fallback for typing)."""
     page = _get_page()
-    page.evaluate(f"navigator.clipboard.writeText({json.dumps(text)})")
+    # Pass *text* as a structured argument — never string-interpolate LLM
+    # output into a JS source snippet.  ``page.evaluate(fn, arg)`` sends
+    # the argument over CDP as JSON, so there is no JS-parse surface for
+    # the LLM to attack.
+    page.evaluate("(t) => navigator.clipboard.writeText(t)", text)
     page.keyboard.press("Control+v")
     time.sleep(0.1)
     return {"success": True, "message": f"Pasted: {text[:50]}"}
@@ -459,7 +477,11 @@ def _pw_switch_tab(identifier: str) -> dict:
 def _pw_scroll_to(selector: str) -> dict:
     """Scroll the element matching *selector* into view."""
     page = _get_page()
-    page.evaluate(f"document.querySelector({json.dumps(selector)})?.scrollIntoView({{behavior:'smooth',block:'center'}})")
+    page.evaluate(
+        "(sel) => document.querySelector(sel)"
+        "?.scrollIntoView({behavior:'smooth', block:'center'})",
+        selector,
+    )
     return {"success": True, "message": f"Scrolled to: {selector}"}
 
 
@@ -483,7 +505,33 @@ def _pw_find_element(description: str) -> dict:
 
 
 def _pw_evaluate_js(script: str) -> dict:
-    """Evaluate arbitrary JavaScript in the page context."""
+    """Evaluate arbitrary JavaScript in the page context.
+
+    Defense-in-depth denylist: refuse common exfiltration primitives
+    (cookies, storage, outbound network, dynamic import) before invoking
+    Playwright.  Mirrors the check in
+    ``backend/agent/playwright_mcp_client._is_evaluate_js_safe``.  This
+    is not a sandbox — a determined attacker can string-build around it
+    — but it raises the bar against accidental prompt-injection
+    exfil and produces a clear log signal.
+    """
+    if script:
+        lower = script.lower()
+        for pat in (
+            "document.cookie", "localstorage", "sessionstorage", "indexeddb",
+            "navigator.credentials", "navigator.serviceworker",
+            "fetch(", "xmlhttprequest", "new websocket",
+            "navigator.sendbeacon", "import(",
+        ):
+            if pat in lower:
+                logger.warning("Refused evaluate_js (denylist hit: %s)", pat)
+                return {
+                    "success": False,
+                    "message": (
+                        f"evaluate_js refused: payload contains disallowed token {pat!r}. "
+                        "Use get_text / find_element to read page content."
+                    ),
+                }
     page = _get_page()
     result = page.evaluate(script)
     return {"success": True, "message": f"JS result: {str(result)[:500]}"}
@@ -546,8 +594,15 @@ def _pw_set_viewport(width: int, height: int) -> dict:
 def _pw_zoom(level: float) -> dict:
     """Set zoom level (e.g. 1.0, 1.5, 0.8). Playwright uses CSS zoom or scale."""
     page = _get_page()
-    page.evaluate(f"document.body.style.zoom = '{level}'")
-    return {"success": True, "message": f"Zoom set to {level}"}
+    # Coerce + bound the level so LLM-supplied "1.5; alert(1)" can never
+    # reach the JS runtime.  structured arg also eliminates injection.
+    try:
+        lvl = float(level)
+    except (TypeError, ValueError):
+        return {"success": False, "message": f"Invalid zoom level: {level!r}"}
+    lvl = max(0.1, min(lvl, 10.0))
+    page.evaluate("(z) => { document.body.style.zoom = String(z); }", lvl)
+    return {"success": True, "message": f"Zoom set to {lvl}"}
 
 
 def _pw_block_resource(resource_type: str) -> dict:

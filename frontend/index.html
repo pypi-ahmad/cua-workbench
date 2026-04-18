@@ -3,6 +3,31 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Content Security Policy.
+      'unsafe-inline' is temporarily needed for style because the React
+      codebase uses inline `style=` props extensively; migrate those to
+      CSS classes and drop the directive to fully harden.  Scripts are
+      limited to same-origin (no CDN).  connect-src allows the API + WS
+      on the same origin only.  frame-src permits the noVNC iframe which
+      is served from same origin via the /vnc reverse proxy.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self';
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' data: blob:;
+               media-src 'self' blob:;
+               connect-src 'self' ws: wss:;
+               frame-src 'self';
+               object-src 'none';
+               base-uri 'self';
+               form-action 'self';
+               frame-ancestors 'none'"
+    />
+    <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+    <meta name="referrer" content="no-referrer" />
     <title>CUA — Computer Using Agent</title>
   </head>
   <body>

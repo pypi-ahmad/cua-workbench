@@ -338,14 +338,6 @@ class TestOpenUrlDelegation(unittest.TestCase):
         mock_shared.assert_called_once_with("https://example.com")
         self.assertTrue(result["success"])
 
-    @patch("docker.agent_service._open_url_in_browser")
-    def test_ydo_open_url_delegates(self, mock_shared):
-        mock_shared.return_value = {"success": True, "message": "ok"}
-        from docker.agent_service import _ydo_open_url
-        result = _ydo_open_url("https://example.com")
-        mock_shared.assert_called_once_with("https://example.com")
-        self.assertTrue(result["success"])
-
 
 if __name__ == "__main__":
     unittest.main()

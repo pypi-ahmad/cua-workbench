@@ -10,19 +10,34 @@ ENV LIBGL_ALWAYS_SOFTWARE=1
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PYTHONPATH=/app
 
-# GUI/runtime dependencies + build prerequisites + utilities + desktop apps
-# (single layer to minimise image size)
+# Runtime dependencies only — every entry here must be justified.
+#
+# KEPT (each is used by the code):
+#   xfce4, xfce4-terminal                  → desktop for agent to control
+#   dbus-x11, at-spi2-core, gir1.2-*, python3-gi  → accessibility engine
+#   x11vnc, xvfb, websockify, novnc         → visible-desktop streaming
+#   x11-utils, scrot, wmctrl, xclip, xdotool → agent_service primitives
+#   fonts-*                                  → render sites/apps correctly
+#   python3, python3-venv                    → agent runtime
+#   curl, ca-certificates                    → node install + probes
+#   xdg-utils                                → default-browser registration
+#
+# REMOVED (unused surface — total ~1 GB):
+#   ffmpeg, socat, gnupg, wget, file, unzip, p7zip-full, jq, git,
+#   net-tools, iputils-ping, dnsutils, flameshot, xournalpp, htop, lsof,
+#   strace, vlc, libreoffice*, evince, gedit, gnome-terminal, python3-pip
+#   (pip lives inside /opt/venv), python3-gi-cairo (not imported),
+#   libatspi2.0-dev (the -dev headers are build-only; the runtime lib
+#   libatspi2.0-0 is pulled in transitively by at-spi2-core).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xfce4 \
     xfce4-terminal \
-    xfce4-goodies \
     dbus-x11 \
     x11vnc \
     xvfb \
     x11-utils \
     websockify \
     novnc \
-    ffmpeg \
     scrot \
     wmctrl \
     xclip \
@@ -31,42 +46,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-core \
     fonts-dejavu-core \
     at-spi2-core \
-    libatspi2.0-dev \
     gir1.2-atspi-2.0 \
     gir1.2-gtk-3.0 \
     python3-gi \
-    python3-gi-cairo \
     python3 \
-    python3-pip \
     python3-venv \
-    wget \
     curl \
-    gnupg \
     ca-certificates \
-    socat \
-    # misc utilities
-    flameshot \
-    xournalpp \
-    htop \
-    lsof \
-    strace \
-    # desktop apps & tools
-    vlc \
-    libreoffice \
-    libreoffice-gtk3 \
-    evince \
-    gedit \
-    gnome-terminal \
-    file \
-    unzip \
-    p7zip-full \
-    jq \
-    git \
-    net-tools \
-    iputils-ping \
-    dnsutils \
     xdg-utils \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # Install Node.js LTS 20 (required for Playwright MCP via npx)
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
@@ -75,11 +63,17 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 RUN node -v && npm -v && npx -v
 
-# Pre-install Playwright MCP server globally (avoids npx download at runtime)
-RUN npm install -g @playwright/mcp@latest
+# Pre-install Playwright MCP server globally (avoids npx download at runtime).
+# Pinned for build reproducibility — bumping this version is a deliberate
+# act so MCP tool-name / input-schema changes are caught in PR review.
+RUN npm install -g @playwright/mcp@0.0.70
 
-# Create application venv and install Python dependencies
-RUN python3 -m venv /opt/venv \
+# Create application venv and install Python dependencies.
+# --system-site-packages is REQUIRED so the venv can import python3-gi /
+# Atspi (installed at the distro level) for the accessibility engine.
+# Without this, AT-SPI health checks fail with "ModuleNotFoundError: gi"
+# and the a11y engine silently degrades.
+RUN python3 -m venv --system-site-packages /opt/venv \
  && /opt/venv/bin/pip install --no-cache-dir --upgrade pip
 
 COPY requirements.txt /tmp/requirements.txt

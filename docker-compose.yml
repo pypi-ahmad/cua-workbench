@@ -15,25 +15,52 @@ services:
       # ── Playwright MCP server (native env-var config) ──
       - PLAYWRIGHT_MCP_PORT=${PLAYWRIGHT_MCP_PORT:-8931}
       - PLAYWRIGHT_MCP_HOST=0.0.0.0
-      - PLAYWRIGHT_MCP_ALLOWED_HOSTS=*
+      # Restrict accepted Host headers to loopback names. Setting this to
+      # "*" disables Playwright MCP's DNS-rebinding defense and lets a
+      # malicious page CSRF/rebind to localhost:8931/mcp and drive the
+      # browser. Backend always connects with PLAYWRIGHT_MCP_HOST=localhost
+      # (see backend/config.py), so localhost,127.0.0.1 covers all callers.
+      - PLAYWRIGHT_MCP_ALLOWED_HOSTS=localhost,127.0.0.1
       - PLAYWRIGHT_MCP_BROWSER=chromium
       - PLAYWRIGHT_MCP_NO_SANDBOX=true
       # - PLAYWRIGHT_MCP_HEADLESS=true   # omitted → headed mode (visible via VNC)
       - VNC_PASSWORD=${VNC_PASSWORD:-}
     ports:
+      # 5900 (VNC) / 6080 (noVNC web) are proxied by the backend; bind to
+      # loopback as a second layer of defense.
       - "127.0.0.1:5900:5900"
       - "127.0.0.1:6080:6080"
       - "127.0.0.1:8931:8931"
       - "127.0.0.1:9222:9222"
-      - "127.0.0.1:9223:9223"
+      # 9223 (Chrome DevTools Protocol) is deliberately NOT published.
+      # Publishing it gives any local process full control of the
+      # container's Chromium (cookie/localStorage exfil, arbitrary JS).
+      # Code paths that need CDP connect via the container's internal
+      # network; the backend uses the agent-service API instead.
     shm_size: "2gb"
     init: true
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    # Drop every Linux capability except those Chromium genuinely needs
+    # for its user-namespace sandbox + xvfb.  This eliminates CAP_SYS_ADMIN,
+    # CAP_NET_ADMIN, etc. from the default Docker grant.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - SYS_CHROOT
+      - KILL
     deploy:
       resources:
         limits:
           memory: 4g
           cpus: "2"
+    # Cap PID count to defeat fork-bomb-style DoS (Chromium normally
+    # uses ~150 procs; 512 is generous headroom).  Without this, a
+    # compromised renderer can fork until host PID exhaustion.
+    pids_limit: 512
 
