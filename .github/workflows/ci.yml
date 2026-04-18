@@ -121,7 +121,7 @@ jobs:
       # the docker/ directory so noise from frontend/node_modules in
       # PR builds doesn't drown out real findings.
       - name: Trivy config scan (Dockerfile)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
           scan-type: config
           scan-ref: docker
@@ -134,7 +134,7 @@ jobs:
       # which Trivy already covers under `vuln` mode (we run pip-audit
       # / npm audit separately for that).
       - name: Trivy filesystem secret scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
           scan-type: fs
           scan-ref: .
