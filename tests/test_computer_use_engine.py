@@ -407,7 +407,30 @@ class TestComputerUseEngine:
 
     def test_unsupported_provider(self):
         with pytest.raises(ValueError, match="Unsupported provider"):
-            ComputerUseEngine(provider="openai", api_key="fake")
+            ComputerUseEngine(provider="bogus", api_key="fake")
+
+    def test_openai_browser_builds_playwright_executor(self):
+        page = AsyncMock()
+        with patch("backend.agent.openai_client.OpenAICUClient"):
+            engine = ComputerUseEngine(
+                provider=Provider.OPENAI,
+                api_key="fake-key",
+                environment=Environment.BROWSER,
+            )
+        executor = engine._build_executor(page=page)
+        assert isinstance(executor, PlaywrightExecutor)
+        assert executor._normalize is False  # OpenAI = real pixels
+
+    def test_openai_desktop_builds_desktop_executor(self):
+        with patch("backend.agent.openai_client.OpenAICUClient"):
+            engine = ComputerUseEngine(
+                provider=Provider.OPENAI,
+                api_key="fake-key",
+                environment=Environment.DESKTOP,
+            )
+        executor = engine._build_executor(page=None)
+        assert isinstance(executor, DesktopExecutor)
+        assert executor._normalize is False  # OpenAI = real pixels
 
     def test_custom_model(self):
         engine = ComputerUseEngine(
@@ -461,6 +484,39 @@ class TestDataClasses:
         assert r.turn == 1
         assert len(r.actions) == 1
         assert r.screenshot_b64 == "base64data"
+
+
+class TestOpenAIActionMapping(unittest.IsolatedAsyncioTestCase):
+    """ComputerUseEngine maps OpenAI computer actions to executor actions."""
+
+    async def test_openai_click_maps_to_click_at(self):
+        engine = ComputerUseEngine.__new__(ComputerUseEngine)
+        executor = AsyncMock()
+        executor.execute = AsyncMock(return_value=CUActionResult(name="click_at"))
+
+        result = await engine._execute_openai_action(
+            {"type": "click", "x": 100, "y": 200},
+            executor,
+        )
+
+        executor.execute.assert_awaited_once_with("click_at", {"x": 100, "y": 200})
+        assert result.name == "click_at"
+
+    async def test_openai_keypress_maps_to_key_combination(self):
+        engine = ComputerUseEngine.__new__(ComputerUseEngine)
+        executor = AsyncMock()
+        executor.execute = AsyncMock(return_value=CUActionResult(name="key_combination"))
+
+        result = await engine._execute_openai_action(
+            {"type": "keypress", "keys": ["CTRL", "L"]},
+            executor,
+        )
+
+        executor.execute.assert_awaited_once_with(
+            "key_combination",
+            {"keys": "Control+L"},
+        )
+        assert result.name == "key_combination"
 
 
 # ── Integration: Engine registration ──────────────────────────────────────────

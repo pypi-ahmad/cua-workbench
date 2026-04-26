@@ -1,4 +1,4 @@
-"""Unified Computer Use engine — native CU protocol for Gemini & Claude.
+"""Unified Computer Use engine — native CU protocol for Gemini, Claude, and OpenAI.
 
 Replaces ad-hoc text-parsing of model responses with the structured
 ``computer_use`` tool protocol that both Gemini 3 Flash and Claude 4.6
@@ -11,6 +11,7 @@ Architecture
     ComputerUseEngine
     ├── GeminiCUClient   (google-genai  types.Tool(computer_use=...))
     ├── ClaudeCUClient   (anthropic     tool metadata from allowed_models.json)
+    ├── OpenAICUClient   (openai        Responses API computer tool)
     └── Executors
         ├── PlaywrightExecutor  (browser actions via Playwright page)
         └── DesktopExecutor     (desktop via agent_service HTTP API → xdotool + scrot)
@@ -58,6 +59,7 @@ DEFAULT_TURN_LIMIT = 25
 class Provider(str, Enum):
     GEMINI = "gemini"
     CLAUDE = "claude"
+    OPENAI = "openai"
 
 
 class Environment(str, Enum):
@@ -1311,6 +1313,7 @@ class ComputerUseEngine:
         agent_service_url: str = "http://127.0.0.1:9222",
         tool_version: Optional[str] = None,
         beta_flag: Optional[List[str]] = None,
+        openai_base_url: Optional[str] = None,
     ):
         self.provider = provider
         self.environment = environment
@@ -1318,6 +1321,7 @@ class ComputerUseEngine:
         self.screen_height = screen_height
         self._container_name = container_name
         self._agent_service_url = agent_service_url
+        self._system_instruction = system_instruction or ""
 
         if provider == Provider.GEMINI:
             self._client: Any = GeminiCUClient(
@@ -1334,6 +1338,14 @@ class ComputerUseEngine:
                 system_prompt=system_instruction,
                 tool_version=tool_version,
                 beta_flag=beta_flag,
+            )
+        elif provider == Provider.OPENAI:
+            from backend.agent.openai_client import OpenAICUClient
+
+            self._client = OpenAICUClient(
+                api_key=api_key,
+                base_url=openai_base_url,
+                model=model or "gpt-5.4",
             )
         else:
             raise ValueError(f"Unsupported provider: {provider}")
@@ -1360,6 +1372,343 @@ class ComputerUseEngine:
             container_name=self._container_name,
         )
 
+    @staticmethod
+    def _apply_safety(
+        result: CUActionResult,
+        safety: Optional[Dict[str, Any]] = None,
+    ) -> CUActionResult:
+        """Copy safety metadata onto an executed action result."""
+        if safety:
+            result.safety_decision = safety.get("safety_decision")
+            result.safety_explanation = safety.get("safety_explanation")
+        return result
+
+    @staticmethod
+    def _normalize_openai_key(key: str) -> str:
+        """Normalize OpenAI computer-action key names for local executors."""
+        mapping = {
+            "ALT": "Alt",
+            "ARROWDOWN": "ArrowDown",
+            "ARROWLEFT": "ArrowLeft",
+            "ARROWRIGHT": "ArrowRight",
+            "ARROWUP": "ArrowUp",
+            "BACKSPACE": "Backspace",
+            "CMD": "Meta",
+            "COMMAND": "Meta",
+            "CONTROL": "Control",
+            "CTRL": "Control",
+            "DELETE": "Delete",
+            "ENTER": "Enter",
+            "ESC": "Escape",
+            "ESCAPE": "Escape",
+            "META": "Meta",
+            "RETURN": "Enter",
+            "SHIFT": "Shift",
+            "SPACE": "Space",
+            "SUPER": "Meta",
+            "TAB": "Tab",
+            "WIN": "Meta",
+        }
+        stripped = key.strip()
+        return mapping.get(stripped.upper(), stripped)
+
+    @staticmethod
+    def _openai_safety_explanation(action: Dict[str, Any]) -> Optional[str]:
+        """Extract model-supplied safety text from an OpenAI action when present."""
+        reasons: List[str] = []
+        for checks_field in ("pending_safety_checks", "safety_checks"):
+            raw_checks = action.get(checks_field)
+            checks = raw_checks if isinstance(raw_checks, list) else [raw_checks]
+            for check in checks:
+                if not isinstance(check, dict):
+                    continue
+                for key in ("message", "explanation", "reason", "code"):
+                    value = check.get(key)
+                    if isinstance(value, str) and value:
+                        reasons.append(value)
+                        break
+        if not reasons:
+            return None
+        return "; ".join(reasons)
+
+    async def _confirm_openai_action(
+        self,
+        action: Dict[str, Any],
+        on_safety: Optional[Callable[[str], Awaitable[bool]]],
+        on_log: Optional[Callable[[str, str], None]],
+    ) -> tuple[bool, Dict[str, Any]]:
+        """Route explicit OpenAI safety checks through the existing callback."""
+        explanation = self._openai_safety_explanation(action)
+        if not explanation:
+            return True, {}
+
+        confirmed = await on_safety(explanation) if on_safety else False
+        if not confirmed and on_log:
+            on_log("warning", f"Safety denied for OpenAI action {action.get('type', 'unknown')}")
+        return confirmed, {
+            "safety_decision": SafetyDecision.REQUIRE_CONFIRMATION,
+            "safety_explanation": explanation,
+        }
+
+    async def _execute_openai_action(
+        self,
+        action: Dict[str, Any],
+        executor: ActionExecutor,
+        *,
+        safety: Optional[Dict[str, Any]] = None,
+    ) -> CUActionResult:
+        """Map OpenAI ``computer_call.actions[]`` items to executor actions."""
+        action_type = str(action.get("type", "")).strip().lower()
+
+        def _xy() -> tuple[int, int]:
+            return int(action.get("x", 0) or 0), int(action.get("y", 0) or 0)
+
+        if action_type == "screenshot":
+            return CUActionResult(name="screenshot", **(safety or {}))
+
+        if action_type == "click":
+            x, y = _xy()
+            button = str(action.get("button", "left")).lower()
+            if button == "left":
+                return self._apply_safety(
+                    await executor.execute("click_at", {"x": x, "y": y}),
+                    safety,
+                )
+            if button == "right":
+                return self._apply_safety(
+                    await executor.execute("right_click", {"x": x, "y": y}),
+                    safety,
+                )
+            return CUActionResult(
+                name="click",
+                success=False,
+                error=f"Unsupported OpenAI click button: {button}",
+                **(safety or {}),
+            )
+
+        if action_type == "double_click":
+            x, y = _xy()
+            button = str(action.get("button", "left")).lower()
+            if button != "left":
+                return CUActionResult(
+                    name="double_click",
+                    success=False,
+                    error=f"Unsupported OpenAI double_click button: {button}",
+                    **(safety or {}),
+                )
+            return self._apply_safety(
+                await executor.execute("double_click", {"x": x, "y": y}),
+                safety,
+            )
+
+        if action_type == "move":
+            x, y = _xy()
+            return self._apply_safety(
+                await executor.execute("hover_at", {"x": x, "y": y}),
+                safety,
+            )
+
+        if action_type == "scroll":
+            x, y = _xy()
+            scroll_x = int(action.get("scrollX", 0) or 0)
+            scroll_y = int(action.get("scrollY", 0) or 0)
+            if abs(scroll_y) >= abs(scroll_x):
+                direction = "down" if scroll_y >= 0 else "up"
+                magnitude = abs(scroll_y) or 800
+            else:
+                direction = "right" if scroll_x >= 0 else "left"
+                magnitude = abs(scroll_x) or 800
+            return self._apply_safety(
+                await executor.execute(
+                    "scroll_at",
+                    {"x": x, "y": y, "direction": direction, "magnitude": magnitude},
+                ),
+                safety,
+            )
+
+        if action_type == "keypress":
+            raw_keys = action.get("keys") or []
+            if not isinstance(raw_keys, list) or not raw_keys:
+                return CUActionResult(
+                    name="keypress",
+                    success=False,
+                    error="OpenAI keypress action missing keys",
+                    **(safety or {}),
+                )
+            keys = "+".join(self._normalize_openai_key(str(key)) for key in raw_keys)
+            return self._apply_safety(
+                await executor.execute("key_combination", {"keys": keys}),
+                safety,
+            )
+
+        if action_type == "type":
+            text = str(action.get("text", ""))
+            page = getattr(executor, "page", None)
+            if page is not None:
+                try:
+                    await page.keyboard.type(text)
+                    return CUActionResult(name="type", extra={"text": text}, **(safety or {}))
+                except Exception as exc:
+                    return CUActionResult(
+                        name="type",
+                        success=False,
+                        error=str(exc),
+                        **(safety or {}),
+                    )
+            result = await executor.execute(
+                "type_at_cursor",
+                {"text": text, "press_enter": False},
+            )
+            return CUActionResult(
+                name="type",
+                success=result.success,
+                error=result.error,
+                safety_decision=(safety or {}).get("safety_decision"),
+                safety_explanation=(safety or {}).get("safety_explanation"),
+                extra={"text": text},
+            )
+
+        if action_type == "wait":
+            return self._apply_safety(await executor.execute("wait_5_seconds", {}), safety)
+
+        if action_type == "drag":
+            raw_path = action.get("path") or []
+            points: List[Tuple[int, int]] = []
+            if isinstance(raw_path, list):
+                for point in raw_path:
+                    if isinstance(point, dict) and "x" in point and "y" in point:
+                        points.append((int(point["x"]), int(point["y"])))
+                    elif isinstance(point, list) and len(point) >= 2:
+                        points.append((int(point[0]), int(point[1])))
+            if len(points) < 2:
+                return CUActionResult(
+                    name="drag",
+                    success=False,
+                    error="OpenAI drag action requires at least two path points",
+                    **(safety or {}),
+                )
+            start_x, start_y = points[0]
+            end_x, end_y = points[-1]
+            return self._apply_safety(
+                await executor.execute(
+                    "drag_and_drop",
+                    {
+                        "x": start_x,
+                        "y": start_y,
+                        "destination_x": end_x,
+                        "destination_y": end_y,
+                    },
+                ),
+                safety,
+            )
+
+        return CUActionResult(
+            name=action_type or "unknown",
+            success=False,
+            error=f"Unsupported OpenAI computer action: {action_type or 'unknown'}",
+            **(safety or {}),
+        )
+
+    async def _run_openai_loop(
+        self,
+        goal: str,
+        executor: ActionExecutor,
+        *,
+        turn_limit: int = DEFAULT_TURN_LIMIT,
+        on_safety: Optional[Callable[[str], Awaitable[bool]]] = None,
+        on_turn: Optional[Callable[[CUTurnRecord], None]] = None,
+        on_log: Optional[Callable[[str, str], None]] = None,
+    ) -> str:
+        """Run the full OpenAI Responses API computer-use loop."""
+        screenshot_bytes = await executor.capture_screenshot()
+        screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
+
+        turn_result = await self._client.query(
+            task=goal,
+            screenshot_b64=screenshot_b64,
+            action_history=[],
+            step_number=1,
+            system_prompt=self._system_instruction,
+        )
+        final_text = ""
+
+        for turn in range(turn_limit):
+            if on_log:
+                on_log("info", f"OpenAI CU turn {turn + 1}/{turn_limit}")
+
+            if not turn_result.computer_actions:
+                final_text = turn_result.message_text
+                if on_turn:
+                    on_turn(
+                        CUTurnRecord(
+                            turn=turn + 1,
+                            model_text=turn_result.message_text,
+                            actions=[],
+                            screenshot_b64=screenshot_b64 or None,
+                        )
+                    )
+                break
+
+            results: List[CUActionResult] = []
+            terminated = False
+
+            for raw_action in turn_result.computer_actions:
+                confirmed, safety = await self._confirm_openai_action(
+                    raw_action,
+                    on_safety,
+                    on_log,
+                )
+                if not confirmed:
+                    results.append(
+                        CUActionResult(
+                            name=str(raw_action.get("type", "unknown")),
+                            success=False,
+                            error="Safety confirmation denied",
+                            **safety,
+                        )
+                    )
+                    terminated = True
+                    break
+                results.append(
+                    await self._execute_openai_action(raw_action, executor, safety=safety)
+                )
+
+            screenshot_bytes = await executor.capture_screenshot()
+            screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
+            if on_turn:
+                on_turn(
+                    CUTurnRecord(
+                        turn=turn + 1,
+                        model_text=turn_result.message_text,
+                        actions=results,
+                        screenshot_b64=screenshot_b64 or None,
+                    )
+                )
+
+            if terminated:
+                final_text = "Agent terminated: safety confirmation denied."
+                break
+
+            if not turn_result.call_id:
+                final_text = turn_result.message_text or "OpenAI computer_call missing call_id"
+                break
+
+            turn_result = await self._client.query(
+                computer_call_outputs=[
+                    {
+                        "type": "computer_call_output",
+                        "call_id": turn_result.call_id,
+                        "output": {
+                            "type": "computer_screenshot",
+                            "image_url": f"data:image/png;base64,{screenshot_b64}",
+                            "detail": "original",
+                        },
+                    }
+                ]
+            )
+
+        return final_text
+
     async def execute_task(
         self,
         goal: str,
@@ -1385,6 +1734,15 @@ class ComputerUseEngine:
         """
         executor = self._build_executor(page)
         try:
+            if self.provider == Provider.OPENAI:
+                return await self._run_openai_loop(
+                    goal=goal,
+                    executor=executor,
+                    turn_limit=turn_limit,
+                    on_safety=on_safety,
+                    on_turn=on_turn,
+                    on_log=on_log,
+                )
             return await self._client.run_loop(
                 goal=goal,
                 executor=executor,
