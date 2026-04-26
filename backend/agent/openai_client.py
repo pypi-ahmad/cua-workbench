@@ -253,6 +253,35 @@ def _computer_action_to_agent_action(action: dict[str, Any], reasoning: str = ""
     )
 
 
+def turn_to_legacy_result(turn: OpenAITurnResult) -> tuple[AgentAction, str]:
+    """Adapt an OpenAI CU turn into the legacy ``query_model`` return shape."""
+    if len(turn.computer_actions) > 1:
+        return AgentAction(
+            action=ActionType.ERROR,
+            reasoning=(
+                "OpenAI returned a multi-action computer_call.actions[] batch. "
+                "Use the computer_use engine so the batch can be preserved and executed in order."
+            ),
+        ), turn.raw_output
+
+    if len(turn.computer_actions) == 1:
+        return _computer_action_to_agent_action(
+            turn.computer_actions[0],
+            reasoning=turn.message_text,
+        ), turn.raw_output
+
+    if turn.phase == "final_answer" or turn.message_text:
+        return AgentAction(
+            action=ActionType.DONE,
+            reasoning=turn.message_text or "OpenAI completed without a computer_call.",
+        ), turn.raw_output
+
+    return AgentAction(
+        action=ActionType.ERROR,
+        reasoning="OpenAI returned neither a computer_call nor a final assistant message.",
+    ), turn.raw_output
+
+
 class OpenAICUClient:
     """Stateful wrapper over the OpenAI Responses API ``computer`` tool."""
 
@@ -356,29 +385,4 @@ async def query_openai(
         system_prompt=system_prompt,
         snapshot_text=snapshot_text,
     )
-
-    if len(turn.computer_actions) > 1:
-        return AgentAction(
-            action=ActionType.ERROR,
-            reasoning=(
-                "OpenAI returned a multi-action computer_call.actions[] batch. "
-                "Use the computer_use engine so the batch can be preserved and executed in order."
-            ),
-        ), turn.raw_output
-
-    if len(turn.computer_actions) == 1:
-        return _computer_action_to_agent_action(
-            turn.computer_actions[0],
-            reasoning=turn.message_text,
-        ), turn.raw_output
-
-    if turn.phase == "final_answer" or turn.message_text:
-        return AgentAction(
-            action=ActionType.DONE,
-            reasoning=turn.message_text or "OpenAI completed without a computer_call.",
-        ), turn.raw_output
-
-    return AgentAction(
-        action=ActionType.ERROR,
-        reasoning="OpenAI returned neither a computer_call nor a final assistant message.",
-    ), turn.raw_output
+    return turn_to_legacy_result(turn)
