@@ -55,6 +55,12 @@ class TestCIWorkflow(unittest.TestCase):
         self.assertIn("--ignore=tests/stress", steps)
         self.assertIn('-m "not integration"', steps)
 
+    def test_backend_install_uses_constraints_file(self):
+        job = self.jobs.get("backend")
+        self.assertIsNotNone(job, "backend test job missing")
+        steps = " ".join(s.get("run", "") for s in job["steps"] if "run" in s)
+        self.assertIn("-c constraints.txt", steps)
+
     def test_frontend_build_job_present(self):
         job = self.jobs.get("frontend")
         self.assertIsNotNone(job, "frontend build job missing")
