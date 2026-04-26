@@ -152,8 +152,18 @@ RUN useradd -m -u 1000 -s /bin/bash cua \
 
 USER cua
 
-# Health check — agent_service /health endpoint
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:9222/health || exit 1
+# ── HEALTHCHECK (I-021) ──────────────────────────────────────────────────────
+# Image-level health probe so external orchestrators (compose
+# `condition: service_healthy`, K8s liveness/readiness probes,
+# `docker run --health-*` overrides) get a standalone signal without
+# the host having to reimplement curl-on-9222.
+#
+# Targets the unauthenticated /health endpoint added in I-002 (the
+# only path that bypasses _require_auth).  --start-period=20s allows
+# Xvfb + Playwright + agent_service to settle on slow hosts before
+# the first probe fires.  -fsS makes curl exit non-zero on HTTP 4xx/5xx
+# while staying silent on success.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:9222/health || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]

@@ -173,6 +173,31 @@ class TestDockerfileHardening(unittest.TestCase):
         self.assertGreater(idx_entrypoint, idx_user,
                            "ENTRYPOINT must come after USER cua")
 
+    # ── HEALTHCHECK (I-021) ──────────────────────────────────────────────
+
+    def test_healthcheck_present(self):
+        """Image must declare a HEALTHCHECK so orchestrators get a signal."""
+        self.assertRegex(
+            self.text,
+            r"(?s)HEALTHCHECK\s+.*?CMD\s+",
+            "Dockerfile has no HEALTHCHECK directive",
+        )
+
+    def test_healthcheck_targets_health_endpoint(self):
+        """HEALTHCHECK must probe the unauthenticated /health endpoint."""
+        # Locate the HEALTHCHECK directive plus the line containing CMD.
+        match = re.search(
+            r"(?s)HEALTHCHECK\s+.*?CMD\s+[^\n]+",
+            self.text,
+        )
+        self.assertIsNotNone(match, "HEALTHCHECK directive not found")
+        block = match.group(0)
+        self.assertIn("/health", block)
+        self.assertIn("9222", block)
+        # Must hit loopback, not localhost (DNS-resolution-free probe)
+        self.assertIn("127.0.0.1", block,
+                      "HEALTHCHECK should target 127.0.0.1, not localhost")
+
 
 class TestDockerManagerHardening(unittest.TestCase):
     """backend/utils/docker_manager.py must not publish CDP port either.
