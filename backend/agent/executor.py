@@ -17,6 +17,7 @@ from backend.models import ActionType, AgentAction, StructuredError
 from backend.tools.unified_schema import UnifiedAction, normalize_action
 from backend.tools.router import validate_engine, InvalidEngineError
 from backend.engine_capabilities import EngineCapabilities
+from backend.utils.agent_auth import get_auth_headers
 
 logger = logging.getLogger(__name__)
 
@@ -317,7 +318,7 @@ async def _send_with_retry(payload: dict, retries: int = 2) -> dict:
 
     for attempt in range(retries + 1):
         try:
-            resp = await client.post(url, json=payload)
+            resp = await client.post(url, json=payload, headers=get_auth_headers())
             
             try:
                 data = resp.json()
@@ -361,7 +362,7 @@ async def check_accessibility_health_remote() -> dict:
     url = f"{config.agent_service_url}/health/a11y"
     try:
         client = _get_client()
-        resp = await client.get(url, timeout=10.0)
+        resp = await client.get(url, timeout=10.0, headers=get_auth_headers())
         return resp.json()
     except Exception as exc:
         return {"healthy": False, "bindings": False, "error": str(exc)}

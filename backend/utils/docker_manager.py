@@ -9,6 +9,7 @@ import re
 import tempfile
 
 from backend.config import config
+from backend.utils import agent_auth
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,10 @@ _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:/-]*$")
 
 # Track tempfiles used for secret bind mounts so stop_container can shred them.
 _tracked_secret_files: set[str] = set()
+
+# Per-container path of the host-side copy of the agent_service bearer token.
+# Populated by ``start_container`` after a successful ``docker cp``.
+_agent_service_token_files: dict[str, str] = {}
 
 
 def _validate_name(name: str, label: str = "name") -> None:
@@ -142,9 +147,17 @@ async def _wait_for_service(container: str) -> bool:
         try:
             import httpx
             async with httpx.AsyncClient(timeout=3.0) as client:
+                # /health is intentionally unauthenticated (I-002).
                 resp = await client.get(f"{config.agent_service_url}/health")
                 if resp.status_code == 200:
                     logger.info("Container %s is ready (agent service up)", container)
+                    if not await _extract_agent_service_token(container):
+                        logger.error(
+                            "agent_service token extraction failed for %s — "
+                            "host-side calls will be rejected by the bearer-"
+                            "token check (see I-002).", container,
+                        )
+                        return False
                     return True
         except Exception:
             pass
@@ -157,6 +170,47 @@ async def _wait_for_service(container: str) -> bool:
 
     logger.error("Container failed to become ready")
     return False
+
+
+async def _extract_agent_service_token(container: str) -> bool:
+    """Copy ``/run/secrets/agent_service_token`` out to a host tempfile.
+
+    The token is generated inside the container by ``entrypoint.sh``
+    (see I-002).  We ``docker cp`` it to a 0600 tempfile on the host
+    and register the path with ``agent_auth`` so every host-side
+    httpx caller can attach ``Authorization: Bearer <token>``.
+
+    Tracks the path in ``_tracked_secret_files`` so the existing
+    cleanup path in ``stop_container`` shreds the plaintext after the
+    container is gone.
+    """
+    fd, host_path = tempfile.mkstemp(prefix="cua-agent-token-", suffix=".secret")
+    os.close(fd)
+    rc, _, err = await _run([
+        "docker", "cp",
+        f"{container}:/run/secrets/agent_service_token",
+        host_path,
+    ])
+    if rc != 0:
+        logger.error("docker cp of agent_service token failed: %s", err.strip())
+        try:
+            os.unlink(host_path)
+        except OSError:
+            pass
+        return False
+    try:
+        os.chmod(host_path, 0o600)
+    except OSError as oe:
+        logger.warning("chmod 0600 on agent token tempfile failed: %s", oe)
+    _tracked_secret_files.add(host_path)
+    _agent_service_token_files[container] = host_path
+    try:
+        agent_auth.set_token_path(host_path)
+    except OSError as oe:
+        logger.error("agent_auth.set_token_path(%s) failed: %s", host_path, oe)
+        return False
+    logger.info("agent_service bearer token registered (%s)", host_path)
+    return True
 
 
 async def stop_container(name: str | None = None) -> bool:
@@ -178,6 +232,9 @@ async def stop_container(name: str | None = None) -> bool:
         except OSError as oe:
             logger.warning("Failed to remove secret tempfile %s: %s", path, oe)
         _tracked_secret_files.discard(path)
+
+    _agent_service_token_files.pop(container, None)
+    agent_auth.clear_token()
 
     return success
 
