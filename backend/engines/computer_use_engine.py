@@ -93,6 +93,7 @@ class CUTurnRecord:
     model_text: str
     actions: List[CUActionResult]
     screenshot_b64: Optional[str] = None
+    safety_blocked: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -841,13 +842,33 @@ class GeminiCUClient:
                     break
 
             candidate = response.candidates[0]
+            # Gemini's safety filter can return a candidate with content=None
+            # (e.g. finish_reason=SAFETY). Accessing .parts on None raises
+            # AttributeError; emit a structured event and stop the loop.
+            if candidate.content is None:
+                finish_reason = getattr(candidate, "finish_reason", None)
+                if on_log:
+                    on_log(
+                        "warning",
+                        f"Gemini returned candidate with no content (finish_reason={finish_reason}); treating as safety_blocked",
+                    )
+                if on_turn:
+                    on_turn(
+                        CUTurnRecord(
+                            turn=turn + 1,
+                            model_text="",
+                            actions=[],
+                            safety_blocked=True,
+                        )
+                    )
+                final_text = f"safety_blocked: {finish_reason}"
+                break
             contents.append(candidate.content)
 
             # Extract function calls and text
-            function_calls = [
-                p.function_call for p in candidate.content.parts if p.function_call
-            ]
-            text_parts = [p.text for p in candidate.content.parts if p.text]
+            parts = candidate.content.parts or []
+            function_calls = [p.function_call for p in parts if p.function_call]
+            text_parts = [p.text for p in parts if p.text]
             turn_text = " ".join(text_parts)
 
             # No function calls → model is done

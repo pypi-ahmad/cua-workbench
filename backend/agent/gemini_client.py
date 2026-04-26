@@ -100,15 +100,25 @@ def _build_contents(
             )
         ))
     else:
-        parts.append(types.Part.from_text(
-            text=f"Task: {task}\n\nCurrent step: {step_number}\n\nHere is the current screenshot. Decide the next action to complete the task."
-        ))
+        if screenshot_b64 is None:
+            # Neither snapshot_text nor screenshot was provided. Treat as a
+            # text-only turn rather than crashing on b64decode(None).
+            parts.append(types.Part.from_text(
+                text=(
+                    f"Task: {task}\n\nCurrent step: {step_number}\n\n"
+                    "(no screenshot or accessibility snapshot available this turn)"
+                )
+            ))
+        else:
+            parts.append(types.Part.from_text(
+                text=f"Task: {task}\n\nCurrent step: {step_number}\n\nHere is the current screenshot. Decide the next action to complete the task."
+            ))
 
-        # Screenshot as inline image
-        image_bytes = base64.b64decode(screenshot_b64)
-        parts.append(
-            types.Part.from_bytes(data=image_bytes, mime_type="image/png")
-        )
+            # Screenshot as inline image
+            image_bytes = base64.b64decode(screenshot_b64)
+            parts.append(
+                types.Part.from_bytes(data=image_bytes, mime_type="image/png")
+            )
 
     return [types.Content(role="user", parts=parts)]
 
