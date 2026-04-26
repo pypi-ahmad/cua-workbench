@@ -7,6 +7,46 @@ from backend.tools.action_aliases import resolve_action
 
 logger = logging.getLogger(__name__)
 
+
+# ── Read-only action set (F-031 / I-023) ─────────────────────────────────────
+# Actions that observe state without mutating the page, app, or filesystem.
+# The MAX_DUPLICATE_RESULTS detector exempts these up to a hard cap so that
+# legitimate paginated reads or repeat snapshots don't abort the loop.
+READ_ONLY_ACTIONS: frozenset[str] = frozenset({
+    # Browser observation
+    "get_text",
+    "get_html",
+    "get_attribute",
+    "get_bounding_box",
+    "get_visible_elements",
+    "get_snapshot",
+    "get_accessibility_tree",
+    "find_element",
+    "find_elements",
+    "wait_for",
+    # Vision
+    "screenshot",
+    "screenshot_full",
+    "screenshot_viewport",
+    "screenshot_region",
+    "screenshot_element",
+    # Window introspection
+    "get_focused_window",
+    "get_window_tree",
+    "search_window",
+    "list_applications",
+    "list_windows",
+    # Storage / network read-only
+    "storage_state",
+})
+
+
+def is_read_only_action(action: str | ActionType) -> bool:
+    """Return True if the given action only observes state."""
+    val = action.value if isinstance(action, ActionType) else str(action)
+    return val in READ_ONLY_ACTIONS
+
+
 class UnifiedAction(BaseModel):
     """Normalised action passed through the validation and routing pipeline."""
 
