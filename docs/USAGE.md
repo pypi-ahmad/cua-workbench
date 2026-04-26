@@ -528,9 +528,13 @@ The backend resolves keys in this priority order: UI input → `.env` file → s
 | `PLAYWRIGHT_MCP_ARGS` | `-y @playwright/mcp@0.0.70` | Arguments for local MCP startup. Pinned to a known-good MCP version; override only when intentionally upgrading. |
 | `PLAYWRIGHT_MCP_DOCKER_TRANSPORT` | `http` | Transport mode: `http` (Streamable HTTP) or `stdio` |
 | `AGENT_MODE` | `browser` | Backend config default for agent mode |
+| `HOST` | `127.0.0.1` | Backend bind host |
+| `PORT` | `8000` | Backend bind port |
 | `SCREEN_WIDTH` | `1440` | Sandbox screen width |
 | `SCREEN_HEIGHT` | `900` | Sandbox screen height |
+| `SCREENSHOT_FORMAT` | `png` | Screenshot encoding format |
 | `MAX_STEPS` | `50` | Default step budget |
+| `ACTION_DELAY_MS` | `100` | Post-action debounce delay in milliseconds |
 | `STEP_TIMEOUT` | `30.0` | Per-step timeout in seconds |
 | `GEMINI_RETRY_ATTEMPTS` | `3` | Retry count for Gemini API calls |
 | `VNC_PASSWORD` | (empty) | Sets a password for the noVNC desktop. When non-empty, the backend writes the value to a 0600 host temp file and bind-mounts it read-only into the container at `/run/secrets/vnc_password` (env var `VNC_PASSWORD_FILE` is set inside the container). The password is **not** passed via `docker run -e`, so it does not appear in `docker inspect` or container env dumps. Empty means the desktop is accessible without a password. |

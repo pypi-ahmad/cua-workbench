@@ -171,9 +171,13 @@ The backend resolves keys in this order:
 | `PLAYWRIGHT_MCP_COMMAND` | `npx` | Local MCP command |
 | `PLAYWRIGHT_MCP_ARGS` | `-y @playwright/mcp@0.0.70` | Local MCP arguments (pinned for build reproducibility) |
 | `PLAYWRIGHT_MCP_DOCKER_TRANSPORT` | `http` | Docker transport mode |
+| `HOST` | `127.0.0.1` | Backend bind host |
+| `PORT` | `8000` | Backend bind port |
 | `SCREEN_WIDTH` | `1440` | Virtual screen width |
 | `SCREEN_HEIGHT` | `900` | Virtual screen height |
+| `SCREENSHOT_FORMAT` | `png` | Screenshot encoding format |
 | `MAX_STEPS` | `50` | Default step budget |
+| `ACTION_DELAY_MS` | `100` | Post-action debounce delay in milliseconds |
 | `STEP_TIMEOUT` | `30.0` | Per-step timeout |
 | `GEMINI_RETRY_ATTEMPTS` | `3` | Retry count used by provider clients |
 | `DEBUG` | `0` | Enables backend debug mode |
