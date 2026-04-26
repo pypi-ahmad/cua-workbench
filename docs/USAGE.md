@@ -713,7 +713,7 @@ The Container log tab fetches on demand. Click **Refresh** to load the current c
 
 ### WebRTC not working
 
-The `/webrtc/offer` endpoint depends on `aiortc` and `av`, which are not installed by default. Install them:
+The `/webrtc/offer` endpoint depends on `aiortc` and `av`, which are not installed by default. When they are missing, the backend returns HTTP 501 with an install hint instead of failing at import time. Install them with:
 
 ```bash
 pip install aiortc av

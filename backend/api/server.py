@@ -44,6 +44,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+_WEBRTC_INSTALL_HINT = "Install optional dependencies: pip install aiortc av"
+try:
+    from backend.streaming.webrtc_server import manager as _webrtc_manager
+except ImportError as exc:
+    _webrtc_manager = None
+    _webrtc_import_error = exc
+else:
+    _webrtc_import_error = None
+
 
 # ── Lifespan (replaces deprecated @app.on_event("startup"|"shutdown")) ────────
 #
@@ -58,6 +67,10 @@ async def lifespan(app: FastAPI):
         "CUA backend starting — model=%s, agent_service=%s, mode=%s",
         config.gemini_model, config.agent_service_url, config.agent_mode,
     )
+    if _webrtc_manager is None:
+        logger.info("WebRTC streaming unavailable: %s", _WEBRTC_INSTALL_HINT)
+    else:
+        logger.info("WebRTC streaming available")
 
     # Tool-parity check (best-effort)
     try:
@@ -94,13 +107,13 @@ async def lifespan(app: FastAPI):
             logger.debug("http client close error: %s", e)
 
         # WebRTC cleanup (optional dep)
-        try:
-            from backend.streaming.webrtc_server import manager
-            await manager.cleanup()
-        except ImportError as e:
-            logger.debug("WebRTC cleanup skipped (import unavailable): %s", e)
-        except Exception as e:
-            logger.warning("WebRTC cleanup error: %s", e)
+        if _webrtc_manager is None:
+            logger.debug("WebRTC cleanup skipped (import unavailable): %s", _webrtc_import_error)
+        else:
+            try:
+                await _webrtc_manager.cleanup()
+            except Exception as e:
+                logger.warning("WebRTC cleanup error: %s", e)
 
         logger.info("CUA backend shut down")
 
@@ -492,11 +505,17 @@ class WebRTCOffer(BaseModel):
     type: str
 
 @app.post("/webrtc/offer")
-async def webrtc_offer(offer: WebRTCOffer):
+async def webrtc_offer(offer: WebRTCOffer, request: Request):
     """Accept a WebRTC SDP offer and return the SDP answer."""
-    from backend.streaming.webrtc_server import manager
+    rid = getattr(request.state, "request_id", None)
+    if _webrtc_manager is None:
+        return _error_response(
+            501,
+            f"WebRTC support is not installed. {_WEBRTC_INSTALL_HINT}",
+            request_id=rid,
+        )
     try:
-        answer = await manager.handle_offer(offer.sdp, offer.type)
+        answer = await _webrtc_manager.handle_offer(offer.sdp, offer.type)
         return answer
     except Exception as e:
         logger.error("WebRTC offer failed: %s", e)
