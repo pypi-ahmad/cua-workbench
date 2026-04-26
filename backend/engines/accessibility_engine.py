@@ -43,6 +43,7 @@ import shutil
 import subprocess
 import threading
 import time
+from collections import OrderedDict
 from difflib import SequenceMatcher
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
@@ -505,8 +506,8 @@ class LinuxATSPIProvider(AccessibilityProvider):
     def __init__(self) -> None:
         self._gi_available: bool | None = None
         self._Atspi: Any = None
-        # Element cache: id → Atspi.Accessible
-        self._element_cache: dict[int, Any] = {}
+        # Element cache: id → Atspi.Accessible (LRU via OrderedDict; F-040)
+        self._element_cache: "OrderedDict[int, Any]" = OrderedDict()
         self._element_counter: int = 0
         self._cache_lock = threading.Lock()
         # TTL caches
@@ -540,15 +541,16 @@ class LinuxATSPIProvider(AccessibilityProvider):
             self._element_counter += 1
             eid = self._element_counter
             self._element_cache[eid] = accessible
-            if len(self._element_cache) > 5000:
-                oldest = sorted(self._element_cache.keys())[:1000]
-                for k in oldest:
-                    self._element_cache.pop(k, None)
+            self._element_cache.move_to_end(eid)
+            while len(self._element_cache) > 5000:
+                self._element_cache.popitem(last=False)
         return eid
 
     def get_cached(self, element_id: int) -> Any:
         with self._cache_lock:
             obj = self._element_cache.get(element_id)
+            if obj is not None:
+                self._element_cache.move_to_end(element_id)
         if obj is None:
             raise ValueError(f"Element id {element_id} not found in cache (expired or invalid)")
         return obj
@@ -1169,7 +1171,7 @@ class WindowsUIAProvider(AccessibilityProvider):
     """
 
     def __init__(self) -> None:
-        self._element_cache: dict[int, dict] = {}
+        self._element_cache: "OrderedDict[int, dict]" = OrderedDict()
         self._element_counter: int = 0
         self._cache_lock = threading.Lock()
         self._window_cache = TTLCache(ttl_seconds=2.0)
@@ -1204,15 +1206,16 @@ class WindowsUIAProvider(AccessibilityProvider):
             self._element_counter += 1
             eid = self._element_counter
             self._element_cache[eid] = element_data
-            if len(self._element_cache) > 5000:
-                oldest = sorted(self._element_cache.keys())[:1000]
-                for k in oldest:
-                    self._element_cache.pop(k, None)
+            self._element_cache.move_to_end(eid)
+            while len(self._element_cache) > 5000:
+                self._element_cache.popitem(last=False)
         return eid
 
     def get_cached(self, element_id: int) -> Any:
         with self._cache_lock:
             obj = self._element_cache.get(element_id)
+            if obj is not None:
+                self._element_cache.move_to_end(element_id)
         if obj is None:
             raise ValueError(f"Element id {element_id} not found in cache")
         return obj
@@ -1702,7 +1705,7 @@ class MacAccessibilityProvider(AccessibilityProvider):
     """
 
     def __init__(self) -> None:
-        self._element_cache: dict[int, dict] = {}
+        self._element_cache: "OrderedDict[int, dict]" = OrderedDict()
         self._element_counter: int = 0
         self._cache_lock = threading.Lock()
         self._window_cache = TTLCache(ttl_seconds=2.0)
@@ -1732,15 +1735,16 @@ class MacAccessibilityProvider(AccessibilityProvider):
             self._element_counter += 1
             eid = self._element_counter
             self._element_cache[eid] = data
-            if len(self._element_cache) > 5000:
-                oldest = sorted(self._element_cache.keys())[:1000]
-                for k in oldest:
-                    self._element_cache.pop(k, None)
+            self._element_cache.move_to_end(eid)
+            while len(self._element_cache) > 5000:
+                self._element_cache.popitem(last=False)
         return eid
 
     def get_cached(self, element_id: int) -> Any:
         with self._cache_lock:
             obj = self._element_cache.get(element_id)
+            if obj is not None:
+                self._element_cache.move_to_end(element_id)
         if obj is None:
             raise ValueError(f"Element id {element_id} not found in cache")
         return obj
