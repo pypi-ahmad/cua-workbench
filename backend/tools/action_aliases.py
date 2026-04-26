@@ -148,7 +148,9 @@ ACTION_ALIASES: dict[str, str] = {
     "move_window": "window_move",
     "resize_window": "window_resize",
     "find_window": "search_window",
-    "activate_window": "window_activate",
+    # NOTE: "activate_window" is intentionally aliased to "focus_window"
+    # earlier in this dict; do not re-add a second mapping here. The
+    # WINDOW_ACTIVATE enum has no handler; FOCUS_WINDOW is canonical.
     "focus_cursor": "focus_mouse",
     # Keys
     "key_down": "keydown",
