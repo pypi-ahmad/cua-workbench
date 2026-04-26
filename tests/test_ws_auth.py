@@ -24,27 +24,53 @@ from starlette.websockets import WebSocketDisconnect
 from backend.api import server as srv
 
 
+TESTCLIENT_OWNER = "testclient"
+SESSION_A = "11111111-1111-1111-1111-111111111111"
+SESSION_B = "22222222-2222-2222-2222-222222222222"
+
+
+def _seed_owned_session(session_id: str, *, owner: str = TESTCLIENT_OWNER) -> None:
+    srv._active_loops[session_id] = object()
+    srv._session_owners[session_id] = owner
+
+
 def _client() -> TestClient:
     # raise_server_exceptions=False so handler-internal failures don't
     # mask the WS handshake assertions we're making.
     return TestClient(srv.app, raise_server_exceptions=False)
 
 
-class TestWsTokenIssuance(unittest.TestCase):
+class _WsStateCase(unittest.TestCase):
+    def setUp(self):
+        srv._ws_tokens.clear()
+        srv._ws_clients.clear()
+        srv._ws_pending_tokens.clear()
+        srv._active_loops.clear()
+        srv._session_owners.clear()
+
+    def tearDown(self):
+        srv._ws_tokens.clear()
+        srv._ws_clients.clear()
+        srv._ws_pending_tokens.clear()
+        srv._active_loops.clear()
+        srv._session_owners.clear()
+
+
+class TestWsTokenIssuance(_WsStateCase):
     def test_issue_endpoint_returns_token_and_ttl(self):
+        _seed_owned_session(SESSION_A)
         with _client() as c:
-            resp = c.post("/api/session/ws-token")
+            resp = c.post("/api/session/ws-token", json={"session_id": SESSION_A})
             self.assertEqual(resp.status_code, 200)
             body = resp.json()
             self.assertIn("token", body)
             self.assertIn("ttl_seconds", body)
             self.assertTrue(isinstance(body["token"], str) and len(body["token"]) >= 32)
             self.assertGreater(body["ttl_seconds"], 0)
+            self.assertEqual(srv._ws_tokens[body["token"]].session_id, SESSION_A)
 
 
-class TestWsTokenHelpers(unittest.TestCase):
-    def setUp(self):
-        srv._ws_tokens.clear()
+class TestWsTokenHelpers(_WsStateCase):
 
     def test_consume_rejects_none(self):
         self.assertFalse(srv._consume_ws_token(None))
@@ -56,15 +82,19 @@ class TestWsTokenHelpers(unittest.TestCase):
         self.assertFalse(srv._consume_ws_token("not-a-real-token"))
 
     def test_issue_then_consume_succeeds_once(self):
-        token = srv._issue_ws_token()
+        token = srv._issue_ws_token(SESSION_A)
         self.assertTrue(srv._consume_ws_token(token))
         # Second consumption fails — single-use.
         self.assertFalse(srv._consume_ws_token(token))
 
     def test_expired_token_rejected(self):
-        token = srv._issue_ws_token()
+        token = srv._issue_ws_token(SESSION_A)
         # Force expiration by rewriting issuance timestamp.
-        srv._ws_tokens[token] = time.monotonic() - (srv._WS_TOKEN_TTL_SECONDS + 5)
+        record = srv._ws_tokens[token]
+        srv._ws_tokens[token] = type(record)(
+            issued_at=time.monotonic() - (srv._WS_TOKEN_TTL_SECONDS + 5),
+            session_id=record.session_id,
+        )
         self.assertFalse(srv._consume_ws_token(token))
 
 
@@ -76,7 +106,9 @@ class TestOriginHelper(unittest.TestCase):
         self.assertTrue(srv._is_allowed_ws_origin("http://127.0.0.1:5173"))
 
     def test_allows_missing_origin_for_non_browser_clients(self):
-        # curl, tests, native clients don't send Origin.
+        # F-052 was the missing token-to-session binding, not the empty-Origin
+        # allowance itself. curl/tests/native clients still omit Origin, but
+        # they now need a session-bound token and cannot subscribe elsewhere.
         self.assertTrue(srv._is_allowed_ws_origin(None))
         self.assertTrue(srv._is_allowed_ws_origin(""))
 
@@ -91,11 +123,8 @@ class TestOriginHelper(unittest.TestCase):
         self.assertFalse(srv._is_allowed_ws_origin("https://localhost:5173"))
 
 
-class TestWsRejection(unittest.TestCase):
+class TestWsRejection(_WsStateCase):
     """Connections without a valid token must be rejected before accept."""
-
-    def setUp(self):
-        srv._ws_tokens.clear()
 
     def test_ws_no_token_rejected(self):
         with _client() as c, self.assertRaises(WebSocketDisconnect):
@@ -108,8 +137,9 @@ class TestWsRejection(unittest.TestCase):
                 ws.receive_text()
 
     def test_ws_foreign_origin_rejected(self):
+        _seed_owned_session(SESSION_A)
         with _client() as c:
-            token = c.post("/api/session/ws-token").json()["token"]
+            token = c.post("/api/session/ws-token", json={"session_id": SESSION_A}).json()["token"]
             with self.assertRaises(WebSocketDisconnect):
                 with c.websocket_connect(
                     f"/ws?token={token}",
@@ -123,8 +153,9 @@ class TestWsRejection(unittest.TestCase):
                 ws.receive_text()
 
     def test_vnc_ws_foreign_origin_rejected(self):
+        _seed_owned_session(SESSION_A)
         with _client() as c:
-            token = c.post("/api/session/ws-token").json()["token"]
+            token = c.post("/api/session/ws-token", json={"session_id": SESSION_A}).json()["token"]
             with self.assertRaises(WebSocketDisconnect):
                 with c.websocket_connect(
                     f"/vnc/websockify?token={token}",
@@ -133,24 +164,23 @@ class TestWsRejection(unittest.TestCase):
                     ws.receive_text()
 
 
-class TestWsAcceptance(unittest.TestCase):
+class TestWsAcceptance(_WsStateCase):
     """Same-origin + valid token must connect successfully on /ws."""
-
-    def setUp(self):
-        srv._ws_tokens.clear()
 
     def test_ws_valid_token_no_origin_accepts(self):
         # Non-browser client (no Origin) + valid token → accepted.
+        _seed_owned_session(SESSION_A)
         with _client() as c:
-            token = c.post("/api/session/ws-token").json()["token"]
+            token = c.post("/api/session/ws-token", json={"session_id": SESSION_A}).json()["token"]
             with c.websocket_connect(f"/ws?token={token}") as ws:
                 ws.send_text('{"type":"ping"}')
                 msg = ws.receive_text()
                 self.assertIn("pong", msg)
 
     def test_ws_valid_token_dev_origin_accepts(self):
+        _seed_owned_session(SESSION_A)
         with _client() as c:
-            token = c.post("/api/session/ws-token").json()["token"]
+            token = c.post("/api/session/ws-token", json={"session_id": SESSION_A}).json()["token"]
             with c.websocket_connect(
                 f"/ws?token={token}",
                 headers={"origin": "http://localhost:5173"},
@@ -159,12 +189,35 @@ class TestWsAcceptance(unittest.TestCase):
                 msg = ws.receive_text()
                 self.assertIn("pong", msg)
 
-    def test_ws_token_is_single_use(self):
+    def test_ws_subscribe_accepts_bound_session_and_consumes_token(self):
+        _seed_owned_session(SESSION_A)
         with _client() as c:
-            token = c.post("/api/session/ws-token").json()["token"]
+            token = c.post("/api/session/ws-token", json={"session_id": SESSION_A}).json()["token"]
             with c.websocket_connect(f"/ws?token={token}") as ws:
-                ws.send_text('{"type":"ping"}')
-                ws.receive_text()
+                ws.send_json({"type": "subscribe", "session_id": SESSION_A})
+                ws.send_json({"type": "ping"})
+                self.assertEqual(ws.receive_json()["event"], "pong")
+                self.assertNotIn(token, srv._ws_tokens)
+                self.assertIn(SESSION_A, next(iter(srv._ws_clients.values())))
+
+    def test_ws_subscribe_mismatch_closes_1008(self):
+        _seed_owned_session(SESSION_A)
+        with _client() as c:
+            token = c.post("/api/session/ws-token", json={"session_id": SESSION_A}).json()["token"]
+            with c.websocket_connect(f"/ws?token={token}") as ws:
+                ws.send_json({"type": "subscribe", "session_id": SESSION_B})
+                with self.assertRaises(WebSocketDisconnect) as exc_info:
+                    ws.receive_json()
+                self.assertEqual(exc_info.exception.code, 1008)
+
+    def test_ws_token_is_single_use(self):
+        _seed_owned_session(SESSION_A)
+        with _client() as c:
+            token = c.post("/api/session/ws-token", json={"session_id": SESSION_A}).json()["token"]
+            with c.websocket_connect(f"/ws?token={token}") as ws:
+                ws.send_json({"type": "subscribe", "session_id": SESSION_A})
+                ws.send_json({"type": "ping"})
+                ws.receive_json()
             # Reusing the same token must fail.
             with self.assertRaises(WebSocketDisconnect):
                 with c.websocket_connect(f"/ws?token={token}") as ws:

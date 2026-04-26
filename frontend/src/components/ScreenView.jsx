@@ -1,22 +1,24 @@
 import { useState, useEffect } from 'react'
+import { issueWsToken } from '../api'
 
-export default function ScreenView({ screenshot, screenshotFormat = 'png', containerRunning, agentServiceUp }) {
+export default function ScreenView({ screenshot, screenshotFormat = 'png', containerRunning, agentServiceUp, sessionId }) {
   // Default to VNC (interactive) when container is running
   const [useVnc, setUseVnc] = useState(true)
   const [vncUrl, setVncUrl] = useState(null)
 
   // Route noVNC through the backend reverse proxy (same origin).  The
   // ws-token must be appended to ``path=`` so noVNC's internal WebSocket
-  // passes the ``/ws`` auth gate.  Tokens are 30-second single-use, so
-  // we re-fetch each time the iframe is (re)mounted.
+  // passes the auth gate. Tokens are session-bound and single-use, so
+  // we re-fetch for the active session each time the iframe is (re)mounted.
   useEffect(() => {
-    if (!containerRunning || !useVnc) return
+    if (!containerRunning || !useVnc || !sessionId) {
+      setVncUrl(null)
+      return
+    }
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetch('/api/session/ws-token', { method: 'POST' })
-        if (!res.ok) throw new Error(`ws-token ${res.status}`)
-        const data = await res.json()
+        const data = await issueWsToken(sessionId)
         if (cancelled || !data.token) return
         const path = `vnc/websockify?token=${encodeURIComponent(data.token)}`
         setVncUrl(`/vnc/vnc.html?autoconnect=true&resize=scale&path=${encodeURIComponent(path)}`)
@@ -26,7 +28,7 @@ export default function ScreenView({ screenshot, screenshotFormat = 'png', conta
       }
     })()
     return () => { cancelled = true }
-  }, [containerRunning, useVnc])
+  }, [containerRunning, sessionId, useVnc])
 
   // Loading state: container running but agent service not yet ready
   if (containerRunning && !agentServiceUp && !screenshot) {

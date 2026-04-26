@@ -1,20 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { issueWsToken } from '../api'
 
 const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
 const WS_BASE = `${WS_PROTOCOL}//${window.location.host}/ws`
 
-async function fetchWsToken() {
-  // Short-lived, single-use token; /ws rejects connections without one.
-  const res = await fetch('/api/session/ws-token', { method: 'POST' })
-  if (!res.ok) throw new Error(`ws-token request failed: ${res.status}`)
-  const data = await res.json()
-  if (!data.token) throw new Error('ws-token response missing token')
-  return data.token
-}
-
 export default function useWebSocket() {
   const wsRef = useRef(null)
-  const [connected, setConnected] = useState(false)
+  const [connected, setConnected] = useState(true)
   const [lastScreenshot, setLastScreenshot] = useState(null)
   const [lastScreenshotFormat, setLastScreenshotFormat] = useState('png')
   const [logs, setLogs] = useState([])
@@ -23,25 +15,41 @@ export default function useWebSocket() {
   const [safetyPrompt, setSafetyPrompt] = useState(null)
   const [activeSessionId, setActiveSessionId] = useState(null)
   const reconnectTimer = useRef(null)
+  const activeSessionIdRef = useRef(null)
 
-  const connect = useCallback(async () => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return
-
-    let token
-    try {
-      token = await fetchWsToken()
-    } catch (e) {
-      // Backend down; retry after delay.  Do NOT open ws with empty token —
-      // the server will reject it and we'd spin in a tight reconnect loop.
-      reconnectTimer.current = setTimeout(() => connect(), 2000)
+  const connect = useCallback(async (sessionId) => {
+    if (!sessionId) return
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
       return
     }
 
+    let token
+    try {
+      const data = await issueWsToken(sessionId)
+      token = data.token
+      if (!token) throw new Error('ws-token response missing token')
+    } catch (e) {
+      if (activeSessionIdRef.current !== sessionId) return
+      // The session is live but the per-session token mint failed. Retry after
+      // delay with a fresh token request instead of reusing a stale credential.
+      setConnected(false)
+      reconnectTimer.current = setTimeout(() => connect(sessionId), 2000)
+      return
+    }
+
+    if (activeSessionIdRef.current !== sessionId) return
+
     const ws = new WebSocket(`${WS_BASE}?token=${encodeURIComponent(token)}`)
+    ws._sessionId = sessionId
     wsRef.current = ws
 
     ws.onopen = () => {
+      if (activeSessionIdRef.current !== sessionId) {
+        ws.close()
+        return
+      }
       setConnected(true)
+      ws.send(JSON.stringify({ type: 'subscribe', session_id: sessionId }))
       // Heartbeat
       const ping = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -84,10 +92,17 @@ export default function useWebSocket() {
     }
 
     ws.onclose = () => {
-      setConnected(false)
       clearInterval(ws._pingInterval)
-      // Reconnect after 2s
-      reconnectTimer.current = setTimeout(connect, 2000)
+      if (wsRef.current === ws) {
+        wsRef.current = null
+      }
+      const nextSessionId = activeSessionIdRef.current
+      if (nextSessionId) {
+        setConnected(false)
+        reconnectTimer.current = setTimeout(() => connect(nextSessionId), 2000)
+      } else {
+        setConnected(true)
+      }
     }
 
     ws.onerror = () => {
@@ -96,14 +111,44 @@ export default function useWebSocket() {
   }, [])
 
   useEffect(() => {
-    connect()
+    activeSessionIdRef.current = activeSessionId
+  }, [activeSessionId])
+
+  useEffect(() => {
+    clearTimeout(reconnectTimer.current)
+
+    if (!activeSessionId) {
+      const ws = wsRef.current
+      if (ws) {
+        wsRef.current = null
+        ws.close()
+      }
+      setConnected(true)
+      return
+    }
+
+    const ws = wsRef.current
+    if (ws && ws.readyState !== WebSocket.CLOSED) {
+      if (ws._sessionId === activeSessionId) {
+        return
+      }
+      wsRef.current = null
+      ws.close()
+      return
+    }
+
+    setConnected(false)
+    connect(activeSessionId)
+  }, [activeSessionId, connect])
+
+  useEffect(() => {
     return () => {
       clearTimeout(reconnectTimer.current)
       if (wsRef.current) {
         wsRef.current.close()
       }
     }
-  }, [connect])
+  }, [])
 
   const clearLogs = useCallback(() => setLogs([]), [])
   const clearSteps = useCallback(() => setSteps([]), [])
@@ -112,20 +157,15 @@ export default function useWebSocket() {
 
   // Subscribe the WS connection to a specific session_id so the backend
   // only fans out that session's events to this tab (prevents multi-tab
-  // cross-talk).  The ambient `screenshot_stream` continues regardless.
+  // cross-talk). Tokens are bound to exactly one session, so a new session
+  // means a fresh token and, if needed, a fresh underlying connection.
   const subscribeSession = useCallback((sessionId) => {
-    setActiveSessionId(sessionId)
-    const ws = wsRef.current
-    if (ws && ws.readyState === WebSocket.OPEN && sessionId) {
-      ws.send(JSON.stringify({ type: 'subscribe', session_id: sessionId }))
+    if (sessionId) {
+      setActiveSessionId(sessionId)
     }
   }, [])
 
   const unsubscribeSession = useCallback((sessionId) => {
-    const ws = wsRef.current
-    if (ws && ws.readyState === WebSocket.OPEN && sessionId) {
-      ws.send(JSON.stringify({ type: 'unsubscribe', session_id: sessionId }))
-    }
     setActiveSessionId((cur) => (cur === sessionId ? null : cur))
   }, [])
 

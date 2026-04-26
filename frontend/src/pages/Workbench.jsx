@@ -204,6 +204,7 @@ export default function Workbench() {
     if (!sessionId) return
     if (!window.confirm('Stop the agent? Progress from this session cannot be recovered.')) return
     try { await stopAgent(sessionId) } catch { /* ignore */ }
+    unsubscribeSession(sessionId)
     setAgentRunning(false)
     setSessionId(null)
   }
@@ -538,7 +539,7 @@ export default function Workbench() {
 
         {/* Center: Live Screen */}
         <main className="wb-screen-area">
-          <ScreenView screenshot={lastScreenshot} screenshotFormat={lastScreenshotFormat} containerRunning={containerRunning} agentServiceUp={agentServiceUp} />
+          <ScreenView screenshot={lastScreenshot} screenshotFormat={lastScreenshotFormat} containerRunning={containerRunning} agentServiceUp={agentServiceUp} sessionId={sessionId} />
 
           {/* Progress bar */}
           {agentRunning && steps.length > 0 && (

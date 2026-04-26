@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import json
 import logging
 import secrets
@@ -259,36 +260,56 @@ def _client_key(request: Request) -> str:
 #
 # Browsers cannot set Authorization headers on WebSocket upgrade requests,
 # so we issue a one-shot query-param token via REST and validate it on
-# WS accept.  Tokens are 30-second TTL random 256-bit values.  They are
-# not cryptographically bound to a session (local-use tool); the goal is
-# to ensure the WS caller has same-origin HTTP access.
+# WS accept. Tokens are 30-second TTL random 256-bit values bound to the
+# agent session they were minted for; ``/ws`` consumes them on first
+# successful ``subscribe`` and the noVNC proxy consumes them at WS accept.
 
 _WS_TOKEN_TTL_SECONDS: float = 30.0
-_ws_tokens: Dict[str, float] = {}   # token → issuance monotonic timestamp
 
 
-def _issue_ws_token() -> str:
+@dataclass(frozen=True)
+class _WsTokenRecord:
+    """Short-lived WS credential bound to one agent session."""
+
+    issued_at: float
+    session_id: str
+
+
+_ws_tokens: Dict[str, _WsTokenRecord] = {}   # token → issuance + bound session
+
+
+def _peek_ws_token(token: str | None) -> _WsTokenRecord | None:
+    """Return the token record when it exists and has not expired."""
+    if not token:
+        return None
+    record = _ws_tokens.get(token)
+    if record is None:
+        return None
+    if time.monotonic() - record.issued_at > _WS_TOKEN_TTL_SECONDS:
+        _ws_tokens.pop(token, None)
+        return None
+    return record
+
+
+def _issue_ws_token(session_id: str) -> str:
     """Mint a short-lived WebSocket auth token."""
     token = secrets.token_urlsafe(32)
     now = time.monotonic()
-    _ws_tokens[token] = now
+    _ws_tokens[token] = _WsTokenRecord(issued_at=now, session_id=session_id)
     # Opportunistic eviction of expired tokens to keep the dict small.
     cutoff = now - _WS_TOKEN_TTL_SECONDS
-    for t, ts in list(_ws_tokens.items()):
-        if ts < cutoff:
+    for t, record in list(_ws_tokens.items()):
+        if record.issued_at < cutoff:
             _ws_tokens.pop(t, None)
     return token
 
 
 def _consume_ws_token(token: str | None) -> bool:
     """Validate and consume a WS token (one-shot)."""
-    if not token:
+    record = _peek_ws_token(token)
+    if record is None:
         return False
-    issued = _ws_tokens.pop(token, None)
-    if issued is None:
-        return False
-    if time.monotonic() - issued > _WS_TOKEN_TTL_SECONDS:
-        return False
+    _ws_tokens.pop(token, None)
     return True
 
 
@@ -338,6 +359,7 @@ async def _reap_idle_sessions() -> None:
 
 _active_loops: dict[str, AgentLoop] = {}
 _active_tasks: dict[str, asyncio.Task] = {}
+_session_owners: dict[str, str] = {}
 
 # Each WS client tracks which session_ids it wants to receive events for.
 # An empty set means the client has not yet subscribed to any session;
@@ -346,6 +368,7 @@ _active_tasks: dict[str, asyncio.Task] = {}
 # safety).  Scoping cuts broadcast fan-out for multi-tab scenarios and
 # prevents tab B from seeing tab A's live screenshot stream.
 _ws_clients: dict[WebSocket, set[str]] = {}
+_ws_pending_tokens: dict[WebSocket, str] = {}
 
 # B-19: Session idle timeout tracking  (last-activity timestamp per session)
 _SESSION_IDLE_TIMEOUT = 30 * 60  # 30 minutes
@@ -412,6 +435,7 @@ async def _broadcast(event: str, data: dict, *, session_id: str | None = None) -
             logger.debug("broadcast send error: %s", e)
     for ws in stale:
         _ws_clients.pop(ws, None)
+        _ws_pending_tokens.pop(ws, None)
 
 
 # ── REST Endpoints ────────────────────────────────────────────────────────────
@@ -529,17 +553,31 @@ async def api_build_image():
     success = await build_image()
     return {"success": success}
 
+class WsTokenRequest(BaseModel):
+    """Body for the ws-token endpoint."""
+
+    session_id: str
+
 
 @app.post("/api/session/ws-token")
-async def api_issue_ws_token():
+async def api_issue_ws_token(req: WsTokenRequest, request: Request):
     """Mint a short-lived WebSocket authentication token (30s TTL, single-use).
 
     Browsers cannot set custom headers on WebSocket upgrades, so the
     frontend calls this endpoint over authenticated HTTP (CORS-gated) and
-    then opens ``/ws?token=<token>``.  The token is validated and consumed
-    on WS accept.
+    then opens ``/ws?token=<token>``. The token is bound to one
+    ``session_id``; ``/ws`` consumes it on first successful
+    ``subscribe`` and the noVNC proxy consumes it on WS accept.
     """
-    return {"token": _issue_ws_token(), "ttl_seconds": int(_WS_TOKEN_TTL_SECONDS)}
+    rid = getattr(request.state, "request_id", None)
+    sid = req.session_id
+    if not _is_valid_uuid(sid):
+        return _error_response(400, "Invalid session_id", request_id=rid)
+    if sid not in _active_loops:
+        return _error_response(404, "Session not found", request_id=rid)
+    if _session_owners.get(sid) != _client_key(request):
+        return _error_response(403, "Session not owned by caller", request_id=rid)
+    return {"token": _issue_ws_token(sid), "ttl_seconds": int(_WS_TOKEN_TTL_SECONDS)}
 
 
 @app.get("/api/keys/status")
@@ -899,6 +937,7 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     )
 
     _active_loops[loop.session_id] = loop
+    _session_owners[loop.session_id] = _client_key(request)
     _touch_session(loop.session_id)  # B-19: start idle timer
 
     async def _run_and_notify():
@@ -916,6 +955,7 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
         # Cleanup bookkeeping so status endpoint reflects completion
         _active_tasks.pop(loop.session_id, None)
         _active_loops.pop(loop.session_id, None)
+        _session_owners.pop(loop.session_id, None)
         _session_last_activity.pop(loop.session_id, None)  # B-19
 
     task = asyncio.create_task(_run_and_notify())
@@ -958,6 +998,7 @@ async def _stop_agent(session_id: str) -> dict:
 
     _active_tasks.pop(session_id, None)
     _active_loops.pop(session_id, None)
+    _session_owners.pop(session_id, None)
     logger.info("AUDIT session_stopped — session_id=%s", session_id)
     return {"session_id": session_id, "status": "stopped"}
 
@@ -1126,12 +1167,15 @@ async def websocket_endpoint(ws: WebSocket):
         logger.warning("/ws rejected: bad origin %r", ws.headers.get("origin"))
         await ws.close(code=1008)
         return
-    if not _consume_ws_token(ws.query_params.get("token")):
+    token = ws.query_params.get("token")
+    if _peek_ws_token(token) is None:
         logger.warning("/ws rejected: missing/invalid token")
         await ws.close(code=4401)
         return
     await ws.accept()
     _ws_clients[ws] = set()  # empty = no scoped events until subscribe
+    if token is not None:
+        _ws_pending_tokens[ws] = token
     logger.info("WebSocket client connected (%d total)", len(_ws_clients))
 
     streaming_task: asyncio.Task | None = None
@@ -1147,10 +1191,24 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_text(json.dumps({"event": "pong"}))
                 elif mtype == "subscribe":
                     # Replace this client's subscription set with a
-                    # specific session_id list.  Once a client subscribes,
-                    # it only receives events scoped to those sessions.
+                    # specific session_id. The presented token must be bound
+                    # to that same session and is consumed on first success.
                     sid = msg.get("session_id")
                     if isinstance(sid, str) and _is_valid_uuid(sid):
+                        pending_token = _ws_pending_tokens.get(ws)
+                        if pending_token is None:
+                            await ws.close(code=1008, reason="policy_violation")
+                            break
+                        record = _peek_ws_token(pending_token)
+                        if record is None:
+                            await ws.close(code=4401)
+                            break
+                        if record.session_id != sid:
+                            await ws.close(code=1008, reason="policy_violation")
+                            break
+                        _ws_tokens.pop(pending_token, None)
+                        _ws_pending_tokens.pop(ws, None)
+                        _ws_clients[ws].clear()
                         _ws_clients[ws].add(sid)
                 elif mtype == "unsubscribe":
                     sid = msg.get("session_id")
@@ -1165,6 +1223,7 @@ async def websocket_endpoint(ws: WebSocket):
         logger.warning("WebSocket error: %s", e)
     finally:
         _ws_clients.pop(ws, None)
+        _ws_pending_tokens.pop(ws, None)
         if streaming_task:
             streaming_task.cancel()
 

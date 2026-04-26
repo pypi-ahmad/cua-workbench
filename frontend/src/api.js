@@ -83,6 +83,13 @@ export async function startAgent({ task, apiKey, model, maxSteps, mode, engine, 
   }
 }
 
+export async function issueWsToken(sessionId) {
+  return request('/session/ws-token', {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId }),
+  })
+}
+
 export async function stopAgent(sessionId) {
   return request(`/agent/stop/${sessionId}`, { method: 'POST' })
 }
