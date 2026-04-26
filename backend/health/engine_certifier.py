@@ -504,6 +504,13 @@ class EngineCertifier:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
+            # We just passed PIPE for stdin/stdout, so Popen guarantees these
+            # are non-None. The assert documents the invariant for mypy and
+            # turns any future regression (e.g. someone changing PIPE to None)
+            # into a clear AssertionError instead of an opaque attribute error.
+            assert proc.stdin is not None and proc.stdout is not None, (
+                "engine_certifier requires PIPE for stdin/stdout"
+            )
             # Send JSON-RPC initialize request
             init_msg = json.dumps({
                 "jsonrpc": "2.0",
