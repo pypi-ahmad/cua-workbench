@@ -81,11 +81,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install pip-audit
 
-      # Audit only the runtime requirements file.  --strict turns any
-      # known vulnerability into a non-zero exit.  Dev-only deps are
-      # excluded because they never ship in the container image.
-      - name: Audit requirements.txt
-        run: pip-audit -r requirements.txt --strict
+      # Audit both runtime and development requirement sets.  --strict
+      # turns any known vulnerability into a non-zero exit.
+      - name: Audit requirements.txt and requirements-dev.txt
+        run: pip-audit -r requirements.txt -r requirements-dev.txt --strict
 
   npm-audit:
     name: npm audit (frontend prod deps)
