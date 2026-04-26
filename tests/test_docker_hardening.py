@@ -134,6 +134,28 @@ class TestDockerfileHardening(unittest.TestCase):
         self.assertNotIn("@playwright/mcp@latest", self.text)
 
 
+class TestDockerManagerHardening(unittest.TestCase):
+    """backend/utils/docker_manager.py must not publish CDP port either.
+
+    Parity with the compose path: the programmatic ``docker run`` invocation
+    used by ``/api/container/start`` must not bind 9223 to the host. This is
+    a textual check because the function is too coupled to FastAPI state to
+    invoke directly here.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = (_ROOT / "backend" / "utils" / "docker_manager.py").read_text(encoding="utf-8")
+
+    def test_cdp_port_9223_not_published_via_api(self):
+        """No ``-p 127.0.0.1:9223:9223`` in the docker_manager args list."""
+        self.assertNotIn(
+            "127.0.0.1:9223:9223",
+            self.text,
+            "CDP port 9223 is published by docker_manager.start_container",
+        )
+
+
 class TestEntrypointCommentParity(unittest.TestCase):
     """Comment in entrypoint must reflect the actual ALLOWED_HOSTS value."""
 
