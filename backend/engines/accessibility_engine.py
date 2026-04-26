@@ -1162,6 +1162,70 @@ class LinuxATSPIProvider(AccessibilityProvider):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+# ── Injection-safe string helpers (F-041) ───────────────────────────────────
+# Substring-escaping (replace("'", "''")) is unsafe against control chars,
+# null bytes, and surrogate-pair edge cases. Replace user-supplied strings
+# with a base64-encoded payload that is decoded back to a string inside
+# the PowerShell / JXA script. Reject newlines, control chars, surrogates,
+# and explicit shell metacharacters before encoding.
+
+import base64 as _b64
+
+_SHELL_METACHARS = (";", "`", "$(", "${")
+
+
+def _validate_user_string(value: str, field: str = "value") -> str:
+    """Raise ValueError if `value` is unsafe to embed in a generated script.
+
+    Allows printable Unicode + space + tab. Rejects control chars (< 0x20,
+    excluding tab), DEL (0x7f), supplementary-plane chars above U+FFFF
+    that could disrupt host script parsers, and explicit shell
+    metacharacters.
+    """
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise TypeError(f"{field} must be str, got {type(value).__name__}")
+    for i, ch in enumerate(value):
+        cp = ord(ch)
+        if cp < 0x20 and ch not in ("\t",):
+            raise ValueError(f"{field}: control character U+{cp:04X} at offset {i}")
+        if cp == 0x7F:
+            raise ValueError(f"{field}: DEL character at offset {i}")
+        if cp > 0xFFFF:
+            raise ValueError(f"{field}: char above U+FFFF at offset {i}")
+    for meta in _SHELL_METACHARS:
+        if meta in value:
+            raise ValueError(f"{field}: shell metacharacter {meta!r} not allowed")
+    return value
+
+
+def _ps_str(value: str, field: str = "value") -> str:
+    """Return a PowerShell expression that evaluates to the given string.
+
+    Uses base64 encoding to avoid quoting/escaping issues entirely.
+    """
+    safe = _validate_user_string(value, field)
+    enc = _b64.b64encode(safe.encode("utf-8")).decode("ascii")
+    return (
+        "([System.Text.Encoding]::UTF8.GetString("
+        f"[Convert]::FromBase64String('{enc}')))"
+    )
+
+
+def _jxa_str(value: str, field: str = "value") -> str:
+    """Return a JavaScript (JXA) expression that evaluates to the string.
+
+    Uses ``decodeURIComponent(escape(atob('...')))`` style — ``atob`` is
+    available in JXA via the ObjC bridge; safer is to embed a literal
+    JS string built from a JSON-encoded scalar.
+    """
+    safe = _validate_user_string(value, field)
+    # JSON-encoding produces a valid JS string literal; this is robust
+    # because we have already rejected control chars and surrogates.
+    return json.dumps(safe, ensure_ascii=True)
+
+
 class WindowsUIAProvider(AccessibilityProvider):
     """Windows UI Automation provider via PowerShell subprocess.
 
@@ -1369,16 +1433,16 @@ class WindowsUIAProvider(AccessibilityProvider):
     ) -> list[UIElement]:
         conditions = []
         if name:
-            safe_name = name.replace("'", "''")
             conditions.append(
-                f"New-Object System.Windows.Automation.PropertyCondition("
-                f"[System.Windows.Automation.AutomationElement]::NameProperty, '{safe_name}')"
+                "New-Object System.Windows.Automation.PropertyCondition("
+                "[System.Windows.Automation.AutomationElement]::NameProperty, "
+                f"{_ps_str(name, 'name')})"
             )
         if role:
             conditions.append(
-                f"New-Object System.Windows.Automation.PropertyCondition("
-                f"[System.Windows.Automation.AutomationElement]::LocalizedControlTypeProperty, "
-                f"'{role.replace(chr(39), chr(39)*2)}')"
+                "New-Object System.Windows.Automation.PropertyCondition("
+                "[System.Windows.Automation.AutomationElement]::LocalizedControlTypeProperty, "
+                f"{_ps_str(role, 'role')})"
             )
 
         if conditions:
@@ -1484,6 +1548,7 @@ class WindowsUIAProvider(AccessibilityProvider):
             return False
 
     def type_text_phys(self, text: str) -> bool:
+        _validate_user_string(text, "text")
         safe = text.replace("'", "''")
         script = (
             "Add-Type -AssemblyName System.Windows.Forms\n"
@@ -1531,12 +1596,12 @@ class WindowsUIAProvider(AccessibilityProvider):
             return False
 
     def activate_window(self, name: str) -> bool:
-        safe = name.replace("'", "''")
         script = (
             "Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes\n"
             "$root = [System.Windows.Automation.AutomationElement]::RootElement\n"
-            f"$cond = New-Object System.Windows.Automation.PropertyCondition("
-            f"[System.Windows.Automation.AutomationElement]::NameProperty, '{safe}')\n"
+            "$cond = New-Object System.Windows.Automation.PropertyCondition("
+            "[System.Windows.Automation.AutomationElement]::NameProperty, "
+            f"{_ps_str(name, 'name')})\n"
             "$win = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond)\n"
             "if ($null -ne $win) {\n"
             "  try {\n"
@@ -1561,12 +1626,12 @@ class WindowsUIAProvider(AccessibilityProvider):
         automation_id = elem.get("name", "")
         if action_name in ("click", "invoke"):
             # Try InvokePattern via UIA
-            safe = automation_id.replace("'", "''")
             script = (
                 "Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes\n"
                 "$root = [System.Windows.Automation.AutomationElement]::RootElement\n"
-                f"$cond = New-Object System.Windows.Automation.PropertyCondition("
-                f"[System.Windows.Automation.AutomationElement]::NameProperty, '{safe}')\n"
+                "$cond = New-Object System.Windows.Automation.PropertyCondition("
+                "[System.Windows.Automation.AutomationElement]::NameProperty, "
+                f"{_ps_str(automation_id, 'automation_id')})\n"
                 "$el = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)\n"
                 "if ($null -ne $el) {\n"
                 "  try {\n"
@@ -1583,18 +1648,18 @@ class WindowsUIAProvider(AccessibilityProvider):
 
     def set_value(self, element_id: int, value: str) -> bool:
         elem = self.get_cached(element_id)
-        safe_name = elem.get("name", "").replace("'", "''")
-        safe_val = value.replace("'", "''")
+        elem_name = elem.get("name", "")
         script = (
             "Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes\n"
             "$root = [System.Windows.Automation.AutomationElement]::RootElement\n"
-            f"$cond = New-Object System.Windows.Automation.PropertyCondition("
-            f"[System.Windows.Automation.AutomationElement]::NameProperty, '{safe_name}')\n"
+            "$cond = New-Object System.Windows.Automation.PropertyCondition("
+            "[System.Windows.Automation.AutomationElement]::NameProperty, "
+            f"{_ps_str(elem_name, 'elem_name')})\n"
             "$el = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)\n"
             "if ($null -ne $el) {\n"
             "  try {\n"
             "    $vp = $el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)\n"
-            f"    $vp.SetValue('{safe_val}'); 'ok'\n"
+            f"    $vp.SetValue({_ps_str(value, 'value')}); 'ok'\n"
             "  } catch { 'fail' }\n"
             "} else { 'notfound' }"
         )
@@ -1605,12 +1670,13 @@ class WindowsUIAProvider(AccessibilityProvider):
 
     def get_value(self, element_id: int) -> str:
         elem = self.get_cached(element_id)
-        safe_name = elem.get("name", "").replace("'", "''")
+        elem_name = elem.get("name", "")
         script = (
             "Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes\n"
             "$root = [System.Windows.Automation.AutomationElement]::RootElement\n"
-            f"$cond = New-Object System.Windows.Automation.PropertyCondition("
-            f"[System.Windows.Automation.AutomationElement]::NameProperty, '{safe_name}')\n"
+            "$cond = New-Object System.Windows.Automation.PropertyCondition("
+            "[System.Windows.Automation.AutomationElement]::NameProperty, "
+            f"{_ps_str(elem_name, 'elem_name')})\n"
             "$el = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)\n"
             "if ($null -ne $el) {\n"
             "  try {\n"
@@ -1636,12 +1702,13 @@ class WindowsUIAProvider(AccessibilityProvider):
 
     def focus_element(self, element_id: int) -> bool:
         elem = self.get_cached(element_id)
-        safe_name = elem.get("name", "").replace("'", "''")
+        elem_name = elem.get("name", "")
         script = (
             "Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes\n"
             "$root = [System.Windows.Automation.AutomationElement]::RootElement\n"
-            f"$cond = New-Object System.Windows.Automation.PropertyCondition("
-            f"[System.Windows.Automation.AutomationElement]::NameProperty, '{safe_name}')\n"
+            "$cond = New-Object System.Windows.Automation.PropertyCondition("
+            "[System.Windows.Automation.AutomationElement]::NameProperty, "
+            f"{_ps_str(elem_name, 'elem_name')})\n"
             "$el = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)\n"
             "if ($null -ne $el) { try { $el.SetFocus(); 'ok' } catch { 'fail' } }"
         )
@@ -1660,12 +1727,13 @@ class WindowsUIAProvider(AccessibilityProvider):
 
     def scroll_element_to_view(self, element_id: int) -> bool:
         elem = self.get_cached(element_id)
-        safe_name = elem.get("name", "").replace("'", "''")
+        elem_name = elem.get("name", "")
         script = (
             "Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes\n"
             "$root = [System.Windows.Automation.AutomationElement]::RootElement\n"
-            f"$cond = New-Object System.Windows.Automation.PropertyCondition("
-            f"[System.Windows.Automation.AutomationElement]::NameProperty, '{safe_name}')\n"
+            "$cond = New-Object System.Windows.Automation.PropertyCondition("
+            "[System.Windows.Automation.AutomationElement]::NameProperty, "
+            f"{_ps_str(elem_name, 'elem_name')})\n"
             "$el = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)\n"
             "if ($null -ne $el) {\n"
             "  try {\n"
@@ -1771,10 +1839,10 @@ class MacAccessibilityProvider(AccessibilityProvider):
         cached = self._tree_cache.get(f"app_tree:{app_name}:{max_depth}")
         if cached is not None:
             return cached
-        safe = app_name.replace('"', '\\"')
+        app_lit = _jxa_str(app_name, "app_name")
         script = (
             f'const se = Application("System Events");\n'
-            f'const proc = se.processes["{safe}"];\n'
+            f'const proc = se.processes[{app_lit}];\n'
             "const result = [];\n"
             "function walk(el, d) {\n"
             f"  if (d > {max_depth}) return;\n"
@@ -1805,16 +1873,16 @@ class MacAccessibilityProvider(AccessibilityProvider):
         if cached is not None:
             return cached
         if app_name:
-            safe = app_name.replace('"', '\\"')
+            app_lit = _jxa_str(app_name, "app_name")
             script = (
                 f'const se = Application("System Events");\n'
-                f'const proc = se.processes["{safe}"];\n'
+                f'const proc = se.processes[{app_lit}];\n'
                 "const result = [];\n"
                 "try {\n"
                 "  const wins = proc.windows();\n"
                 "  for (let i = 0; i < wins.length; i++) {\n"
                 "    result.push({role: 'frame', name: wins[i].name() || '', "
-                f"app_name: '{safe}', states: [], bbox: null, element_id: 0}});\n"
+                f"app_name: {app_lit}, states: [], bbox: null, element_id: 0}});\n"
                 "  }\n"
                 "} catch(e) {}\n"
                 "JSON.stringify(result);"
@@ -1899,15 +1967,12 @@ class MacAccessibilityProvider(AccessibilityProvider):
     ) -> list[UIElement]:
         whose_clause = ""
         if name:
-            safe = name.replace('"', '\\"')
-            whose_clause = f'.whose({{name: "{safe}"}})'
+            whose_clause = f'.whose({{name: {_jxa_str(name, "name")}}})'
         elif role:
-            safe_r = role.replace('"', '\\"')
-            whose_clause = f'.whose({{role: "{safe_r}"}})'
+            whose_clause = f'.whose({{role: {_jxa_str(role, "role")}}})'
 
         if app_name:
-            safe_app = app_name.replace('"', '\\"')
-            proc_selector = f'se.processes["{safe_app}"]'
+            proc_selector = f"se.processes[{_jxa_str(app_name, 'app_name')}]"
         else:
             proc_selector = "se.processes.whose({frontmost: true})[0]"
 
@@ -1995,8 +2060,8 @@ class MacAccessibilityProvider(AccessibilityProvider):
             return False
 
     def type_text_phys(self, text: str) -> bool:
-        safe = text.replace("\\", "\\\\").replace('"', '\\"')
-        script = f'tell application "System Events" to keystroke "{safe}"'
+        text_lit = _jxa_str(text, "text")
+        script = f'tell application "System Events" to keystroke {text_lit}'
         try:
             subprocess.run(["osascript", "-e", script], check=True, timeout=15, capture_output=True)
             self.invalidate_caches()
@@ -2031,8 +2096,8 @@ class MacAccessibilityProvider(AccessibilityProvider):
         if code is not None:
             script = f'tell application "System Events" to key code {code}{using}'
         else:
-            safe = main_key.replace('"', '\\"')
-            script = f'tell application "System Events" to keystroke "{safe}"{using}'
+            key_lit = _jxa_str(main_key, "main_key")
+            script = f'tell application "System Events" to keystroke {key_lit}{using}'
         try:
             subprocess.run(["osascript", "-e", script], check=True, timeout=5, capture_output=True)
             self.invalidate_caches()
@@ -2042,7 +2107,11 @@ class MacAccessibilityProvider(AccessibilityProvider):
             return False
 
     def activate_window(self, name: str) -> bool:
-        safe = name.replace('"', '\\"')
+        # AppleScript uses double-quoted strings; reuse the validator that
+        # _jxa_str applies and then drop the JSON wrapping quotes since we
+        # need to embed inside the AppleScript double-quote already.
+        _validate_user_string(name, "name")
+        safe = name.replace('\\', '\\\\').replace('"', '\\"')
         script = (
             f'tell application "{safe}"\n'
             "  activate\n"
@@ -2081,9 +2150,12 @@ class MacAccessibilityProvider(AccessibilityProvider):
         app_name = elem.get("app_name", "")
         if not app_name:
             return False
-        safe_app = app_name.replace('"', '\\"')
-        safe_name = el_name.replace('"', '\\"')
-        safe_val = value.replace('"', '\\"')
+        _validate_user_string(app_name, "app_name")
+        _validate_user_string(el_name, "el_name")
+        _validate_user_string(value, "value")
+        safe_app = app_name.replace('\\', '\\\\').replace('"', '\\"')
+        safe_name = el_name.replace('\\', '\\\\').replace('"', '\\"')
+        safe_val = value.replace('\\', '\\\\').replace('"', '\\"')
         script = (
             f'tell application "System Events"\n'
             f'  tell process "{safe_app}"\n'
@@ -3054,11 +3126,11 @@ async def _h_paste(text: str, target: str) -> dict:
                     )
                 )
             elif system == "Windows":
-                safe = text.replace("'", "''")
+                ps_text = _ps_str(text, "clipboard_text")
                 await asyncio.to_thread(
                     lambda: subprocess.run(
                         ["powershell", "-NoProfile", "-Command",
-                         f"Set-Clipboard -Value '{safe}'"],
+                         f"Set-Clipboard -Value {ps_text}"],
                         check=True, timeout=5,
                     )
                 )
