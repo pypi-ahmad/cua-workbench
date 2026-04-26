@@ -3,6 +3,7 @@ uvicorn[standard]>=0.32.0,<1.0.0
 websockets>=13.0,<17.0.0
 pydantic>=2.10.0,<3.0.0
 google-genai>=1.0.0,<2.0.0
+openai>=1.50.0,<2.0.0
 # Bumped minimum so the current Computer Use tool version
 # (computer_20251124 + beta header computer-use-2025-11-24) is supported.
 anthropic>=0.45.0,<1.0.0
