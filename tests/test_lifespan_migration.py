@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import re
 import unittest
 from pathlib import Path
@@ -91,6 +92,14 @@ class TestLifespanBehavior(unittest.TestCase):
             shared = srv.app.state.http
         # After context exit, the httpx client must be closed.
         self.assertTrue(shared.is_closed, "Shared httpx client not closed on shutdown")
+
+
+def test_lifespan_logs_webrtc_availability(caplog):
+    with caplog.at_level(logging.INFO, logger=srv.logger.name):
+        with TestClient(srv.app):
+            pass
+
+    assert any("WebRTC streaming" in record.message for record in caplog.records)
 
 
 if __name__ == "__main__":
