@@ -583,8 +583,14 @@ class DesktopExecutor:
             return await self._fallback_screenshot()
 
     async def _fallback_screenshot(self) -> bytes:
-        """Grab a screenshot via ``docker exec scrot`` as last resort."""
-        path = "/tmp/cu_screenshot.png"
+        """Grab a screenshot via ``docker exec scrot`` as last resort.
+
+        Uses a per-call unique path (``/tmp/cua-cu-<uuid>.png``) inside
+        the container so concurrent fallbacks across CU sessions do
+        not race on a single shared filename (I-008 / F-014).
+        """
+        import uuid
+        path = f"/tmp/cua-cu-{uuid.uuid4().hex}.png"
         # Run scrot inside the container
         proc = await asyncio.create_subprocess_exec(
             "docker", "exec",
@@ -601,6 +607,13 @@ class DesktopExecutor:
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc_read.communicate()
+        # Best-effort cleanup of the per-call tempfile.
+        cleanup = await asyncio.create_subprocess_exec(
+            "docker", "exec", self._container, "rm", "-f", path,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await cleanup.wait()
         if proc_read.returncode != 0 or not stdout:
             raise RuntimeError(
                 f"Fallback screenshot failed: {stderr.decode(errors='replace')}"

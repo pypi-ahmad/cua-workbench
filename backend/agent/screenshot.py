@@ -29,7 +29,11 @@ def _get_client() -> httpx.AsyncClient:
     return _http_client
 
 
-async def capture_screenshot(mode: str = "browser", engine: str | None = None) -> str:
+async def capture_screenshot(
+    mode: str = "browser",
+    engine: str | None = None,
+    session_id: str | None = None,
+) -> str:
     """Capture a PNG screenshot and return base64 string.
 
     When *engine* is ``playwright_mcp``, captures the screenshot from the
@@ -40,6 +44,11 @@ async def capture_screenshot(mode: str = "browser", engine: str | None = None) -
     Args:
         mode: 'browser' or 'desktop'.
         engine: Optional engine name — 'playwright_mcp' triggers MCP route.
+        session_id: Optional caller session id — threaded through to the
+            in-container ``/screenshot?session_id=<sid>`` so each session
+            captures into its own ``cua-<sid>-<rand>.png`` tempfile
+            (I-008).  Defaults to ``None`` which the service maps to the
+            shared ``default`` prefix (still uniquified by tempfile).
 
     Returns:
         Base64-encoded PNG string.
@@ -50,6 +59,8 @@ async def capture_screenshot(mode: str = "browser", engine: str | None = None) -
 
     # ── Default: screenshot via agent_service ─────────────────────────────
     url = f"{config.agent_service_url}/screenshot?mode={mode}"
+    if session_id:
+        url += f"&session_id={session_id}"
     client = _get_client()
 
     try:
@@ -67,22 +78,30 @@ async def capture_screenshot(mode: str = "browser", engine: str | None = None) -
 
     except (httpx.ConnectError, httpx.TimeoutException) as e:
         logger.warning("Agent service unreachable, falling back to docker exec: %s", e)
-        return await _fallback_docker_screenshot()
+        return await _fallback_docker_screenshot(session_id=session_id)
 
 
-async def _fallback_docker_screenshot() -> str:
-    """Fallback: grab screenshot via docker exec + scrot."""
+async def _fallback_docker_screenshot(session_id: str | None = None) -> str:
+    """Fallback: grab screenshot via docker exec + scrot.
+
+    Uses a per-call unique path (``/tmp/cua-<sid>-<uuid>.png``) inside
+    the container so concurrent fallbacks across sessions do not race
+    on a single shared filename (I-008 / F-014).
+    """
+    import uuid
     name = config.container_name
+    sid = (session_id or "default").replace("/", "_")[:64]
+    path = f"/tmp/cua-{sid}-fallback-{uuid.uuid4().hex}.png"
 
     proc = await asyncio.create_subprocess_exec(
-        "docker", "exec", name, "scrot", "-z", "-o", "/tmp/screenshot.png",
+        "docker", "exec", name, "scrot", "-z", "-o", path,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
     )
     _, stderr = await proc.communicate()
 
     if proc.returncode != 0:
         proc = await asyncio.create_subprocess_exec(
-            "docker", "exec", name, "import", "-window", "root", "/tmp/screenshot.png",
+            "docker", "exec", name, "import", "-window", "root", path,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
         _, stderr = await proc.communicate()
@@ -90,10 +109,17 @@ async def _fallback_docker_screenshot() -> str:
             raise RuntimeError(f"Screenshot capture failed: {stderr.decode().strip()}")
 
     proc_read = await asyncio.create_subprocess_exec(
-        "docker", "exec", name, "cat", "/tmp/screenshot.png",
+        "docker", "exec", name, "cat", path,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
     )
     stdout, stderr = await proc_read.communicate()
+
+    # Best-effort cleanup of the per-call tempfile inside the container.
+    cleanup = await asyncio.create_subprocess_exec(
+        "docker", "exec", name, "rm", "-f", path,
+        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+    )
+    await cleanup.wait()
 
     if proc_read.returncode != 0 or not stdout:
         raise RuntimeError(f"Failed to read screenshot: {stderr.decode().strip()}")
@@ -103,9 +129,9 @@ async def _fallback_docker_screenshot() -> str:
     return b64
 
 
-async def get_screenshot_bytes() -> bytes:
+async def get_screenshot_bytes(session_id: str | None = None) -> bytes:
     """Return raw PNG bytes of the current screen."""
-    b64 = await capture_screenshot()
+    b64 = await capture_screenshot(session_id=session_id)
     return base64.b64decode(b64)
 
 
