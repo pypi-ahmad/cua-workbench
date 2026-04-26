@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import re
+from typing import Any, cast
 
 from google import genai
 from google.genai import types
@@ -324,7 +325,7 @@ async def query_gemini(
 
             response = await client.aio.models.generate_content(
                 model=model_name,
-                contents=contents,
+                contents=cast(Any, contents),
                 config=generation_config,
             )
 

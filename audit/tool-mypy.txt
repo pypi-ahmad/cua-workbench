@@ -1,0 +1,47 @@
+backend\health\engine_certifier.py:540: error: Cannot find implementation or library stub for module named "gi"  [import-not-found]
+backend\health\engine_certifier.py:540: note: Error code "import-not-found" not covered by "type: ignore" comment
+backend\health\engine_certifier.py:542: error: Cannot find implementation or library stub for module named "gi.repository"  [import-not-found]
+backend\health\engine_certifier.py:542: note: Error code "import-not-found" not covered by "type: ignore" comment
+backend\health\engine_certifier.py:542: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
+backend\streaming\video_capture.py:8: error: Cannot find implementation or library stub for module named "av"  [import-not-found]
+backend\streaming\video_capture.py:27: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+backend\streaming\webrtc_server.py:5: error: Cannot find implementation or library stub for module named "av"  [import-not-found]
+backend\streaming\webrtc_server.py:7: error: Cannot find implementation or library stub for module named "aiortc"  [import-not-found]
+backend\streaming\webrtc_server.py:76: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+backend\engines\accessibility_engine.py:524: error: Cannot find implementation or library stub for module named "gi"  [import-not-found]
+backend\engines\accessibility_engine.py:526: error: Cannot find implementation or library stub for module named "gi.repository"  [import-not-found]
+backend\engines\accessibility_engine.py:526: note: Error code "import-not-found" not covered by "type: ignore" comment
+backend\engines\accessibility_engine.py:3242: error: Cannot infer type of lambda  [misc]
+docker\agent_service.py:44: error: All conditional function variants must have identical signatures  [misc]
+docker\agent_service.py:44: note: Original:
+docker\agent_service.py:44: note:     def resolve_action(action: str) -> str
+docker\agent_service.py:44: note: Redefinition:
+docker\agent_service.py:44: note:     def resolve_action(a: Any) -> Any
+docker\agent_service.py:253: error: Cannot find implementation or library stub for module named "playwright.sync_api"  [import-not-found]
+docker\agent_service.py:451: error: Incompatible default for parameter "coords" (default has type "None", parameter has type "list[Any]")  [assignment]
+docker\agent_service.py:451: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+docker\agent_service.py:451: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+docker\agent_service.py:451: error: Incompatible default for parameter "selector" (default has type "None", parameter has type "str")  [assignment]
+docker\agent_service.py:634: error: Item "None" of "Any | None" has no attribute "new_page"  [union-attr]
+docker\agent_service.py:645: error: Item "None" of "Any | None" has no attribute "pages"  [union-attr]
+docker\agent_service.py:653: error: Item "None" of "Any | None" has no attribute "pages"  [union-attr]
+docker\agent_service.py:827: error: Incompatible default for parameter "selector" (default has type "None", parameter has type "str")  [assignment]
+docker\agent_service.py:827: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+docker\agent_service.py:827: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+docker\agent_service.py:957: error: Item "None" of "Any | None" has no attribute "add_cookies"  [union-attr]
+docker\agent_service.py:964: error: Item "None" of "Any | None" has no attribute "cookies"  [union-attr]
+docker\agent_service.py:971: error: Item "None" of "Any | None" has no attribute "clear_cookies"  [union-attr]
+docker\agent_service.py:980: error: Item "None" of "Any | None" has no attribute "new_context"  [union-attr]
+backend\agent\anthropic_client.py:254: error: Argument "system" to "create" of "AsyncMessages" has incompatible type "list[dict[Any, Any]] | str"; expected "str | Iterable[TextBlockParam] | Omit"  [arg-type]
+backend\agent\anthropic_client.py:255: error: Argument "messages" to "create" of "AsyncMessages" has incompatible type "list[dict[Any, Any]]"; expected "Iterable[MessageParam]"  [arg-type]
+backend\agent\playwright_mcp_client.py:136: error: Argument 1 to "join" of "str" has incompatible type "list[Any | None]"; expected "Iterable[str]"  [arg-type]
+backend\engines\computer_use_engine.py:908: error: Argument 1 to "execute" of "ActionExecutor" has incompatible type "str | None"; expected "str"  [arg-type]
+backend\engines\computer_use_engine.py:1091: error: Argument 1 to "to_thread" has incompatible type overloaded function; expected "Callable[[str, int, str, list[dict[Any, Any]], list[dict[str, Sequence[object]]], Any | list[Any], dict[str, object]], BetaMessage]"  [arg-type]
+backend\agent\gemini_client.py:327: error: Argument "contents" to "generate_content" of "AsyncModels" has incompatible type "list[Content]"; expected "Content | str | Image | File | Part | list[str | Image | File | Part] | list[Content | str | Image | File | Part | list[str | Image | File | Part]] | Content | ContentDict | str | Image | File | FileDict | Part | PartDict | list[str | Image | File | FileDict | Part | PartDict] | list[Content | ContentDict | str | Image | File | FileDict | Part | PartDict | list[str | Image | File | FileDict | Part | PartDict]]"  [arg-type]
+backend\agent\loop.py:632: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+backend\agent\loop.py:651: error: Cannot find implementation or library stub for module named "playwright.async_api"  [import-not-found]
+backend\agent\loop.py:651: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
+backend\api\server.py:51: error: Incompatible types in assignment (expression has type "None", variable has type "WebRTCManager")  [assignment]
+backend\api\server.py:54: error: Incompatible types in assignment (expression has type "None", variable has type "ImportError")  [assignment]
+backend\api\server.py:344: error: Argument 1 to "pop" of "dict" has incompatible type "str | None"; expected "str"  [arg-type]
+Found 30 errors in 11 files (checked 34 source files)

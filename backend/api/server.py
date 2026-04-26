@@ -11,7 +11,7 @@ import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,13 +45,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 _WEBRTC_INSTALL_HINT = "Install optional dependencies: pip install aiortc av"
+_webrtc_manager: Any = None
+_webrtc_import_error: ImportError | None = None
 try:
-    from backend.streaming.webrtc_server import manager as _webrtc_manager
+    from backend.streaming.webrtc_server import manager as _imported_webrtc_manager
 except ImportError as exc:
-    _webrtc_manager = None
     _webrtc_import_error = exc
 else:
-    _webrtc_import_error = None
+    _webrtc_manager = _imported_webrtc_manager
 
 
 # ── Lifespan (replaces deprecated @app.on_event("startup"|"shutdown")) ────────
@@ -339,7 +340,7 @@ def _issue_ws_token(session_id: str) -> str:
 def _consume_ws_token(token: str | None) -> bool:
     """Validate and consume a WS token (one-shot)."""
     record = _peek_ws_token(token)
-    if record is None:
+    if record is None or token is None:
         return False
     _ws_tokens.pop(token, None)
     return True
@@ -375,6 +376,9 @@ async def _reap_idle_sessions() -> None:
             await asyncio.sleep(60)  # check every minute
             now = time.monotonic()
             for sid in list(_session_last_activity.keys()):
+                # Yield control between iterations so the reaper does not
+                # hold the event loop on a long dict scan (F-045).
+                await asyncio.sleep(0)
                 if sid not in _active_loops:
                     _session_last_activity.pop(sid, None)
                     continue
@@ -1192,9 +1196,10 @@ async def vnc_ws_proxy(ws: WebSocket):
     await ws.accept()
     try:
         import websockets
+        from websockets.typing import Subprotocol
         async with websockets.connect(
             f"{_NOVNC_WS}/websockify",
-            subprotocols=["binary"],
+            subprotocols=[Subprotocol("binary")],
             max_size=2**22,
         ) as upstream:
 

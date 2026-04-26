@@ -1,0 +1,57 @@
+
+=================================== ERRORS ====================================
+_____ ERROR collecting tests/stress/test_phase3_desktop_engine_stress.py ______
+ImportError while importing test module 'A:\cua-workbench\tests\stress\test_phase3_desktop_engine_stress.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\ahmad\AppData\Local\Programs\Python\Python314\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\stress\test_phase3_desktop_engine_stress.py:33: in <module>
+    from backend.engines.desktop_hybrid_engine import (
+E   ModuleNotFoundError: No module named 'backend.engines.desktop_hybrid_engine'
+______ ERROR collecting tests/stress/test_phase4_accessibility_stress.py ______
+ImportError while importing test module 'A:\cua-workbench\tests\stress\test_phase4_accessibility_stress.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\ahmad\AppData\Local\Programs\Python\Python314\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\stress\test_phase4_accessibility_stress.py:31: in <module>
+    from backend.engines.accessibility_engine import (
+E   ImportError: cannot import name '_element_cache' from 'backend.engines.accessibility_engine' (A:\cua-workbench\backend\engines\accessibility_engine.py)
+_____ ERROR collecting tests/stress/test_phase5_hybrid_fallback_stress.py _____
+ImportError while importing test module 'A:\cua-workbench\tests\stress\test_phase5_hybrid_fallback_stress.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\ahmad\AppData\Local\Programs\Python\Python314\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\stress\test_phase5_hybrid_fallback_stress.py:30: in <module>
+    from backend.engines.desktop_hybrid_engine import (
+E   ModuleNotFoundError: No module named 'backend.engines.desktop_hybrid_engine'
+______________ ERROR collecting tests/test_mcp_tool_denylist.py _______________
+ImportError while importing test module 'A:\cua-workbench\tests\test_mcp_tool_denylist.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\ahmad\AppData\Local\Programs\Python\Python314\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_mcp_tool_denylist.py:24: in <module>
+    from backend.agent.playwright_mcp_client import (
+backend\agent\playwright_mcp_client.py:55: in <module>
+    from mcp import ClientSession, StdioServerParameters
+E   ModuleNotFoundError: No module named 'mcp'
+============================== warnings summary ===============================
+C:\Users\ahmad\AppData\Local\Programs\Python\Python314\Lib\site-packages\fastapi\routing.py:234: 23 warnings
+  C:\Users\ahmad\AppData\Local\Programs\Python\Python314\Lib\site-packages\fastapi\routing.py:234: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    is_coroutine = asyncio.iscoroutinefunction(dependant.call)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/stress/test_phase3_desktop_engine_stress.py
+ERROR tests/stress/test_phase4_accessibility_stress.py
+ERROR tests/stress/test_phase5_hybrid_fallback_stress.py
+ERROR tests/test_mcp_tool_denylist.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 4 errors during collection !!!!!!!!!!!!!!!!!!!
+23 warnings, 4 errors in 1.71s

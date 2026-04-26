@@ -3238,9 +3238,9 @@ async def _h_open_terminal(text: str, target: str) -> dict:
             # Try terminals in order of preference for the container environment
             for terminal_cmd in ["xfce4-terminal", "gnome-terminal", "xterm", "x-terminal-emulator"]:
                 if shutil.which(terminal_cmd):
-                    await asyncio.to_thread(
-                        lambda cmd=terminal_cmd: subprocess.Popen([cmd], env=env)
-                    )
+                    def _spawn_terminal(cmd: str = terminal_cmd) -> "subprocess.Popen[bytes]":
+                        return subprocess.Popen([cmd], env=env)
+                    await asyncio.to_thread(_spawn_terminal)
                     return {"success": True, "message": f"Opened terminal ({terminal_cmd})"}
             return {"success": False, "message": "open_terminal failed: no terminal emulator found"}
         elif system == "Windows":
