@@ -102,8 +102,11 @@ RUN mkdir -p /opt/google/chrome \
       ln -sf /usr/bin/google-chrome /opt/google/chrome/chrome; \
     else \
       CHROMIUM=$(find /ms-playwright -name chrome -type f -executable 2>/dev/null | head -1); \
-      [ -n "$CHROMIUM" ] && ln -sf "$CHROMIUM" /opt/google/chrome/chrome \
-        || echo 'WARNING: no Chrome/Chromium binary found for symlink'; \
+      if [ -z "$CHROMIUM" ]; then \
+        echo 'FATAL: no Chrome/Chromium binary found for /opt/google/chrome/chrome symlink' >&2; \
+        exit 1; \
+      fi; \
+      ln -sf "$CHROMIUM" /opt/google/chrome/chrome; \
     fi
 
 # ── Pre-create Chrome profile to suppress first-run dialogs & keyring ────────
