@@ -31,6 +31,7 @@ from backend.agent.model_router import query_model
 from backend.agent.prompts import get_system_prompt
 from backend.agent.screenshot import capture_screenshot, check_service_health
 from backend.agent.executor import execute_action
+from backend.tools.unified_schema import is_read_only_action
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,12 @@ MAX_STUCK_DETECTIONS = 3
 # Maximum identical execution results (e.g. evaluate_js returning the same
 # JSON) before the loop injects an ultimatum to return done/error.
 MAX_DUPLICATE_RESULTS = 2
+
+# Read-only actions (F-031 / I-023) are exempted from MAX_DUPLICATE_RESULTS
+# up to this many consecutive identical reads. The carve-out lets the agent
+# legitimately re-query the same DOM/tree after a no-op nav, while still
+# catching a truly stuck reading agent.
+MAX_DUPLICATE_READONLY_RESULTS = 5
 
 
 class AgentLoop:
@@ -870,8 +877,20 @@ class AgentLoop:
         This catches the common loop where evaluate_js or get_text returns
         the same data repeatedly — the agent keeps re-extracting data it
         already has because the model can't remember prior results.
+
+        F-031 / I-023: Read-only actions (browser_get_text, screenshot,
+        find_elements, etc.) are exempted from the tight cap up to
+        MAX_DUPLICATE_READONLY_RESULTS consecutive identical reads, so a
+        truly stuck reading agent still trips the detector eventually.
         """
-        window = MAX_DUPLICATE_RESULTS + 1  # need N+1 items to detect N duplicates
+        last_action = self._action_history[-1] if self._action_history else None
+        is_read_only = bool(
+            last_action and is_read_only_action(last_action.action)
+        )
+        threshold = (
+            MAX_DUPLICATE_READONLY_RESULTS if is_read_only else MAX_DUPLICATE_RESULTS
+        )
+        window = threshold + 1  # need N+1 items to detect N duplicates
         if len(self._result_cache) < window:
             return False
         recent = self._result_cache[-window:]
