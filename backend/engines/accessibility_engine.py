@@ -1091,6 +1091,7 @@ class LinuxATSPIProvider(AccessibilityProvider):
                 click_args.extend(["--repeat", str(clicks)])
             click_args.append(str(button))
             subprocess.run(click_args, check=True, timeout=5)
+            self.invalidate_caches()
             return True
         except Exception as exc:
             logger.warning("xdotool click failed: %s", exc)
@@ -1104,6 +1105,7 @@ class LinuxATSPIProvider(AccessibilityProvider):
                 ["xdotool", "type", "--clearmodifiers", "--delay", "20", "--", text],
                 check=True, timeout=30,
             )
+            self.invalidate_caches()
             return True
         except Exception as exc:
             logger.warning("xdotool type failed: %s", exc)
@@ -1115,6 +1117,7 @@ class LinuxATSPIProvider(AccessibilityProvider):
                 ["xdotool", "key", "--clearmodifiers", key],
                 check=True, timeout=5,
             )
+            self.invalidate_caches()
             return True
         except Exception as exc:
             logger.warning("xdotool key failed: %s", exc)
@@ -1132,6 +1135,7 @@ class LinuxATSPIProvider(AccessibilityProvider):
                     ["xdotool", "windowactivate", "--sync", wids[0]],
                     check=True, timeout=5,
                 )
+                self.invalidate_caches()
                 return True
         except Exception as exc:
             logger.warning("xdotool window activate failed: %s", exc)
@@ -1470,6 +1474,7 @@ class WindowsUIAProvider(AccessibilityProvider):
                 script += "[WinInput]::mouse_event([WinInput]::LUP, 0, 0, 0, 0)\n"
         try:
             self._run_ps(script)
+            self.invalidate_caches()
             return True
         except Exception as exc:
             logger.warning("Windows click failed: %s", exc)
@@ -1483,6 +1488,7 @@ class WindowsUIAProvider(AccessibilityProvider):
         )
         try:
             self._run_ps(script)
+            self.invalidate_caches()
             return True
         except Exception as exc:
             logger.warning("Windows type failed: %s", exc)
@@ -1515,6 +1521,7 @@ class WindowsUIAProvider(AccessibilityProvider):
         )
         try:
             self._run_ps(script)
+            self.invalidate_caches()
             return True
         except Exception as exc:
             logger.warning("Windows key press failed: %s", exc)
@@ -1538,7 +1545,10 @@ class WindowsUIAProvider(AccessibilityProvider):
             "} else { 'notfound' }"
         )
         try:
-            return "ok" in self._run_ps(script)
+            ok = "ok" in self._run_ps(script)
+            if ok:
+                self.invalidate_caches()
+            return ok
         except Exception as exc:
             logger.warning("Windows activate window failed: %s", exc)
             return False
@@ -1974,6 +1984,7 @@ class MacAccessibilityProvider(AccessibilityProvider):
                     ["osascript", "-e", applescript],
                     check=True, timeout=5, capture_output=True,
                 )
+            self.invalidate_caches()
             return True
         except Exception as exc:
             logger.warning("macOS click failed: %s", exc)
@@ -1984,6 +1995,7 @@ class MacAccessibilityProvider(AccessibilityProvider):
         script = f'tell application "System Events" to keystroke "{safe}"'
         try:
             subprocess.run(["osascript", "-e", script], check=True, timeout=15, capture_output=True)
+            self.invalidate_caches()
             return True
         except Exception as exc:
             logger.warning("macOS type failed: %s", exc)
@@ -2019,6 +2031,7 @@ class MacAccessibilityProvider(AccessibilityProvider):
             script = f'tell application "System Events" to keystroke "{safe}"{using}'
         try:
             subprocess.run(["osascript", "-e", script], check=True, timeout=5, capture_output=True)
+            self.invalidate_caches()
             return True
         except Exception as exc:
             logger.warning("macOS key press failed: %s", exc)
@@ -2033,6 +2046,7 @@ class MacAccessibilityProvider(AccessibilityProvider):
         )
         try:
             subprocess.run(["osascript", "-e", script], check=True, timeout=5, capture_output=True)
+            self.invalidate_caches()
             return True
         except Exception:
             # Fallback: try via System Events
@@ -2042,6 +2056,7 @@ class MacAccessibilityProvider(AccessibilityProvider):
             )
             try:
                 subprocess.run(["osascript", "-e", script2], check=True, timeout=5, capture_output=True)
+                self.invalidate_caches()
                 return True
             except Exception as exc:
                 logger.warning("macOS activate window failed: %s", exc)
