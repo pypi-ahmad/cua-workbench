@@ -387,6 +387,8 @@ class TestComputerUseEngine:
             provider=Provider.CLAUDE,
             api_key="fake-key",
             environment=Environment.BROWSER,
+            tool_version="computer_20251124",
+            beta_flag=["computer-use-2025-11-24"],
         )
         executor = engine._build_executor(page=page)
         assert isinstance(executor, PlaywrightExecutor)
@@ -397,6 +399,8 @@ class TestComputerUseEngine:
             provider=Provider.CLAUDE,
             api_key="fake-key",
             environment=Environment.DESKTOP,
+            tool_version="computer_20251124",
+            beta_flag=["computer-use-2025-11-24"],
         )
         executor = engine._build_executor(page=None)
         assert isinstance(executor, DesktopExecutor)
@@ -422,6 +426,8 @@ class TestComputerUseEngine:
             environment=Environment.DESKTOP,
             screen_width=1920,
             screen_height=1080,
+            tool_version="computer_20251124",
+            beta_flag=["computer-use-2025-11-24"],
         )
         assert engine.screen_width == 1920
         assert engine.screen_height == 1080
@@ -733,57 +739,77 @@ class TestDesktopExecutorAclose(unittest.IsolatedAsyncioTestCase):
         await ex.aclose()
 
 
-# ── Claude tool version auto-detection (Fix 2) ───────────────────────────────
+# ── Claude tool version configuration (allowlist-driven) ─────────────────────
 
-class TestClaudeToolVersionDetection:
-    """ClaudeCUClient._build_tools returns correct tool type per model."""
+class TestClaudeToolVersionConfiguration:
+    """ClaudeCUClient._build_tools returns the explicitly configured tool type."""
 
-    def _make_client(self, model: str) -> ClaudeCUClient:
+    def _make_client(self, model: str, tool_version: str, beta_flag: str) -> ClaudeCUClient:
         """Construct a ClaudeCUClient without hitting Anthropic import."""
         client = ClaudeCUClient.__new__(ClaudeCUClient)
         client._anthropic = MagicMock()
         client._client = MagicMock()
         client._model = model
         client._system_prompt = ""
-        # Re-run the detection logic
-        if any(tag in model for tag in ClaudeCUClient._NEW_TOOL_MODELS):
-            client._tool_version = "computer_20251124"
-            client._beta_flag = "computer-use-2025-11-24"
-        else:
-            client._tool_version = "computer_20250124"
-            client._beta_flag = "computer-use-2025-01-24"
+        client._tool_version = tool_version
+        client._beta_flags = [beta_flag]
+        client._beta_flag = beta_flag
         return client
 
-    def test_sonnet_4_uses_20250124(self):
-        c = self._make_client("claude-sonnet-4-20250514")
+    def test_explicit_legacy_tool_version_supported(self):
+        c = self._make_client(
+            "claude-sonnet-4-20250514",
+            "computer_20250124",
+            "computer-use-2025-01-24",
+        )
         assert c._tool_version == "computer_20250124"
         assert c._beta_flag == "computer-use-2025-01-24"
         tools = c._build_tools(1024, 768)
         assert tools[0]["type"] == "computer_20250124"
         assert "display_number" not in tools[0]
 
-    def test_sonnet_46_uses_20251124(self):
-        c = self._make_client("claude-sonnet-4-6")
+    def test_sonnet_46_uses_allowlist_tool_version(self):
+        c = self._make_client(
+            "claude-sonnet-4-6",
+            "computer_20251124",
+            "computer-use-2025-11-24",
+        )
         assert c._tool_version == "computer_20251124"
         assert c._beta_flag == "computer-use-2025-11-24"
 
-    def test_opus_46_uses_20251124(self):
-        c = self._make_client("claude-opus-4-6")
+    def test_opus_46_uses_allowlist_tool_version(self):
+        c = self._make_client(
+            "claude-opus-4-6",
+            "computer_20251124",
+            "computer-use-2025-11-24",
+        )
         assert c._tool_version == "computer_20251124"
         assert c._beta_flag == "computer-use-2025-11-24"
 
-    def test_opus_45_uses_20251124(self):
-        c = self._make_client("claude-opus-4-5")
+    def test_explicit_metadata_supported_for_non_allowlisted_models(self):
+        c = self._make_client(
+            "claude-opus-4-5",
+            "computer_20251124",
+            "computer-use-2025-11-24",
+        )
         assert c._tool_version == "computer_20251124"
         assert c._beta_flag == "computer-use-2025-11-24"
 
-    def test_haiku_uses_20250124(self):
-        c = self._make_client("claude-haiku-4-5-20250101")
+    def test_explicit_legacy_metadata_supported_for_other_models(self):
+        c = self._make_client(
+            "claude-haiku-4-5-20250101",
+            "computer_20250124",
+            "computer-use-2025-01-24",
+        )
         assert c._tool_version == "computer_20250124"
 
     def test_build_tools_no_display_number(self):
         """_build_tools must NOT include display_number (Fix 5)."""
-        c = self._make_client("claude-sonnet-4-20250514")
+        c = self._make_client(
+            "claude-sonnet-4-20250514",
+            "computer_20250124",
+            "computer-use-2025-01-24",
+        )
         tools = c._build_tools(1920, 1080)
         assert "display_number" not in tools[0]
         assert tools[0]["display_width_px"] == 1920
@@ -802,6 +828,7 @@ class TestClaudeBetaApiCall(unittest.IsolatedAsyncioTestCase):
         client._model = "claude-sonnet-4-20250514"
         client._system_prompt = ""
         client._tool_version = "computer_20250124"
+        client._beta_flags = ["computer-use-2025-01-24"]
         client._beta_flag = "computer-use-2025-01-24"
 
         # Mock the beta messages endpoint to return a terminal response
@@ -837,6 +864,7 @@ class TestClaudeBetaApiCall(unittest.IsolatedAsyncioTestCase):
         client._model = "claude-sonnet-4-6"
         client._system_prompt = ""
         client._tool_version = "computer_20251124"
+        client._beta_flags = ["computer-use-2025-11-24"]
         client._beta_flag = "computer-use-2025-11-24"
 
         mock_response = MagicMock()
@@ -872,6 +900,7 @@ class TestClaudeThinkingEnabled(unittest.IsolatedAsyncioTestCase):
         client._model = "claude-sonnet-4-20250514"
         client._system_prompt = ""
         client._tool_version = "computer_20250124"
+        client._beta_flags = ["computer-use-2025-01-24"]
         client._beta_flag = "computer-use-2025-01-24"
 
         mock_response = MagicMock()

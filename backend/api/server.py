@@ -179,11 +179,40 @@ def _load_allowed_models() -> list[dict]:
         data = _json.load(f)
     return data.get("models", [])
 
-_ALLOWED_MODELS: list[dict] = _load_allowed_models()
+def _build_allowed_model_state(models: list[dict]) -> tuple[list[dict], dict[str, set[str]]]:
+    """Validate allowlist entries and build the runtime provider index."""
+    valid_models_by_provider: dict[str, set[str]] = {}
+    for entry in models:
+        provider = entry.get("provider")
+        model_id = entry.get("model_id")
+        if not isinstance(provider, str) or not provider:
+            raise ValueError("allowed_models.json entry missing provider")
+        if not isinstance(model_id, str) or not model_id:
+            raise ValueError("allowed_models.json entry missing model_id")
+        if provider == "anthropic":
+            tool_version = entry.get("cu_tool_version")
+            if not isinstance(tool_version, str) or not tool_version:
+                raise ValueError(
+                    f"allowed_models.json anthropic model {model_id!r} missing cu_tool_version"
+                )
+            betas = entry.get("cu_betas")
+            if not isinstance(betas, list) or not betas or any(not isinstance(beta, str) or not beta for beta in betas):
+                raise ValueError(
+                    f"allowed_models.json anthropic model {model_id!r} missing cu_betas"
+                )
+        valid_models_by_provider.setdefault(provider, set()).add(model_id)
+    return models, valid_models_by_provider
 
-_VALID_MODELS_BY_PROVIDER: Dict[str, set[str]] = {}
-for _m in _ALLOWED_MODELS:
-    _VALID_MODELS_BY_PROVIDER.setdefault(_m["provider"], set()).add(_m["model_id"])
+
+def _allowed_model_entry(provider: str, model_id: str) -> dict | None:
+    """Return the matching allowlist entry, if present."""
+    for entry in _ALLOWED_MODELS:
+        if entry["provider"] == provider and entry["model_id"] == model_id:
+            return entry
+    return None
+
+
+_ALLOWED_MODELS, _VALID_MODELS_BY_PROVIDER = _build_allowed_model_state(_load_allowed_models())
 
 
 # ── Rate limiter (in-memory sliding window) ───────────────────────────────────
@@ -840,6 +869,9 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     if req.model not in _VALID_MODELS_BY_PROVIDER.get(req.provider, set()):
         allowed = ", ".join(m["model_id"] for m in _ALLOWED_MODELS)
         return _error_response(400, f"Model '{req.model}' is not allowed. Supported models: {allowed}", request_id=rid)
+    model_entry = _allowed_model_entry(req.provider, req.model)
+    if model_entry is None:
+        return _error_response(500, f"Model metadata missing for '{req.model}'", request_id=rid)
     if not req.task or not req.task.strip():
         return _error_response(400, "Describe what the agent should do.", request_id=rid)
 
@@ -864,6 +896,8 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
 
     # Validate execution_target ("local" | "docker")
     execution_target = req.execution_target if req.execution_target in ("local", "docker") else "local"
+    tool_version = model_entry.get("cu_tool_version") if req.provider == "anthropic" else None
+    beta_flag = model_entry.get("cu_betas") if req.provider == "anthropic" else None
 
     # Guard: computer_use engine only supports Docker target for now
     # Refs:
@@ -929,6 +963,8 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
         engine=req.engine,
         provider=req.provider,
         execution_target=execution_target,
+        tool_version=tool_version,
+        beta_flag=beta_flag,
         on_log=_scoped_log,
         on_step=_scoped_step,
         on_screenshot=_scoped_screenshot,

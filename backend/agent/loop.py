@@ -72,6 +72,8 @@ class AgentLoop:
         on_safety_broadcast: Optional[Callable] = None,
         safety_events: dict | None = None,
         safety_decisions: dict | None = None,
+        tool_version: str | None = None,
+        beta_flag: list[str] | None = None,
     ):
         """Initialise a new agent loop for *task* using the given provider/model."""
         self.session = AgentSession(
@@ -86,6 +88,8 @@ class AgentLoop:
         self._mode = mode
         self._provider = provider
         self._execution_target = execution_target  # "local" or "docker"
+        self._cu_tool_version = tool_version
+        self._cu_beta_flag = beta_flag
         self._action_history: list[AgentAction] = []
         self._stop_requested = False
         self._consecutive_errors = 0
@@ -478,6 +482,8 @@ class AgentLoop:
             system_instruction=system_instruction,
             container_name=config.container_name,
             agent_service_url=config.agent_service_url,
+            tool_version=self._cu_tool_version,
+            beta_flag=self._cu_beta_flag,
         )
 
         # For browser mode, acquire a Playwright page from the agent service
