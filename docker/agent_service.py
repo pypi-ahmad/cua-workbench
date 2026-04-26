@@ -2703,8 +2703,8 @@ def main():
     # Sweep leaked /tmp/cua-* screenshot files (I-008).
     _start_screenshot_janitor()
 
-    server = HTTPServer(("0.0.0.0", SERVICE_PORT), AgentHandler)
-    logger.info("Agent service listening on 0.0.0.0:%d", SERVICE_PORT)
+    server = HTTPServer(("127.0.0.1", SERVICE_PORT), AgentHandler)
+    logger.info("Agent service ready on 127.0.0.1:%d (loopback-only)", SERVICE_PORT)
 
     def _handle_signal(sig, frame):
         """Gracefully shut down the server on SIGTERM/SIGINT."""
