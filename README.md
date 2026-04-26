@@ -366,7 +366,7 @@ python -m pip install -r requirements-dev.txt
 Run the main suite (excluding the stress tier and any `integration`-marked tests, which require a running Docker container and real provider credentials):
 
 ```bash
-pytest tests --ignore=tests/stress -q -m "not integration"
+pytest tests -q -m "not integration and not stress"
 ```
 
 Run the stress scenarios separately:

@@ -32,9 +32,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -c constraints.txt -r requirements-dev.txt
 
-      - name: Run pytest (fast suite, no stress, no integration)
+      - name: Run pytest (fast suite, no integration)
         run: |
-          pytest tests --ignore=tests/stress -q -m "not integration"
+          pytest tests -q -m "not integration and not stress"
 
   shell-smoke:
     name: Shell Script Smoke

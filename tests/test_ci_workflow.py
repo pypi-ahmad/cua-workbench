@@ -52,8 +52,8 @@ class TestCIWorkflow(unittest.TestCase):
         self.assertIsNotNone(job, "backend test job missing")
         steps = " ".join(s.get("run", "") for s in job["steps"] if "run" in s)
         self.assertIn("pytest", steps)
-        self.assertIn("--ignore=tests/stress", steps)
-        self.assertIn('-m "not integration"', steps)
+        self.assertIn('-m "not integration and not stress"', steps)
+        self.assertNotIn("--ignore=tests/stress", steps)
 
     def test_backend_install_uses_constraints_file(self):
         job = self.jobs.get("backend")
