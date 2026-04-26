@@ -38,6 +38,8 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol, Tup
 
 import httpx
 
+from backend.utils.agent_auth import get_auth_headers
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -347,7 +349,9 @@ class DesktopExecutor:
     async def _post_action(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """POST an action to the agent_service and return the JSON result."""
         client = await self._get_client()
-        resp = await client.post(f"{self._service_url}/action", json=payload)
+        resp = await client.post(
+            f"{self._service_url}/action", json=payload, headers=get_auth_headers(),
+        )
         resp.raise_for_status()
         return resp.json()
 
@@ -566,6 +570,7 @@ class DesktopExecutor:
             client = await self._get_client()
             resp = await client.get(
                 f"{self._service_url}/screenshot", params={"mode": "desktop"},
+                headers=get_auth_headers(),
             )
             resp.raise_for_status()
             data = resp.json()

@@ -519,13 +519,14 @@ async def agent_service_health():
 async def set_agent_mode(body: dict):
     """Switch the agent service between browser and desktop mode at runtime."""
     import httpx
+    from backend.utils.agent_auth import get_auth_headers
     mode = body.get("mode", "browser")
     if mode not in ("browser", "desktop"):
         return {"error": "mode must be 'browser' or 'desktop'"}
     url = f"{config.agent_service_url}/mode"
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
-            resp = await client.post(url, json={"mode": mode})
+            resp = await client.post(url, json={"mode": mode}, headers=get_auth_headers())
             return resp.json()
         except Exception as e:
             return {"error": str(e)}

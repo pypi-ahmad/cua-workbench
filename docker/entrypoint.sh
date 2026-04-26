@@ -12,6 +12,23 @@ export PYTHONPATH=/app
 echo "=== CUA Container Starting (XFCE4 Mode) ==="
 
 # ─────────────────────────────────────────────
+# 0a. agent_service bearer token (I-002)
+# ─────────────────────────────────────────────
+# A 32-byte random token gates every agent_service endpoint except
+# /health (which the docker HEALTHCHECK probes).  The token is
+# generated on first start and written to /run/secrets/agent_service_token
+# with mode 0400.  docker_manager copies this file out to a host-side
+# 0600 tempfile after the container is healthy so the host executor can
+# inject Authorization: Bearer <token> on every call.  See I-002.
+TOKEN_FILE=/run/secrets/agent_service_token
+if [ ! -f "${TOKEN_FILE}" ]; then
+    mkdir -p /run/secrets
+    head -c 32 /dev/urandom | base64 -w 0 > "${TOKEN_FILE}"
+    chmod 0400 "${TOKEN_FILE}"
+fi
+export AGENT_SERVICE_TOKEN_FILE="${TOKEN_FILE}"
+
+# ─────────────────────────────────────────────
 # 0. Ensure Chrome symlink for Playwright MCP
 # ─────────────────────────────────────────────
 if [ ! -x /opt/google/chrome/chrome ]; then

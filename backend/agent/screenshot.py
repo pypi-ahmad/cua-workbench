@@ -13,6 +13,7 @@ import logging
 import httpx
 
 from backend.config import config
+from backend.utils.agent_auth import get_auth_headers
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ async def capture_screenshot(mode: str = "browser", engine: str | None = None) -
     client = _get_client()
 
     try:
-        resp = await client.get(url)
+        resp = await client.get(url, headers=get_auth_headers())
         resp.raise_for_status()
         data = resp.json()
 
@@ -110,6 +111,8 @@ async def get_screenshot_bytes() -> bytes:
 
 async def check_service_health() -> bool:
     """Check if the internal agent service is responsive."""
+    # /health is intentionally unauthenticated (I-002) so the docker
+    # HEALTHCHECK and external orchestrators can probe it.
     url = f"{config.agent_service_url}/health"
     client = _get_client()
     try:
