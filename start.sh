@@ -3,6 +3,7 @@
 # start.sh — One-command launcher for CUA Workbench (Linux / macOS)
 #
 # Usage:  ./start.sh          Start backend + frontend
+#         ./start.sh --check  Verify prerequisites without launching
 #         ./start.sh --stop   Stop background processes
 # ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
@@ -16,6 +17,11 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 info()  { printf "${GREEN}[CUA]${NC} %s\n" "$*"; }
 warn()  { printf "${YELLOW}[CUA]${NC} %s\n" "$*"; }
 error() { printf "${RED}[CUA]${NC} %s\n" "$*"; }
+
+CHECK_ONLY=0
+if [[ "${1:-}" == "--check" ]]; then
+    CHECK_ONLY=1
+fi
 
 # ── Stop mode ─────────────────────────────────────────────────────────────────
 if [[ "${1:-}" == "--stop" ]]; then
@@ -32,12 +38,20 @@ command -v docker  >/dev/null 2>&1 || warn "Docker not found — container featu
 
 # Check Python deps
 if ! python3 -c "import fastapi" 2>/dev/null; then
+    if (( CHECK_ONLY )); then
+        error "Python dependencies missing. Install them before starting."
+        exit 1
+    fi
     warn "Python dependencies missing. Installing..."
     pip install -r requirements.txt
 fi
 
 # Check Node deps
 if [ ! -d frontend/node_modules ]; then
+    if (( CHECK_ONLY )); then
+        error "Frontend dependencies missing. Run npm install in frontend/."
+        exit 1
+    fi
     warn "Node modules missing. Installing..."
     (cd frontend && npm install)
 fi
@@ -45,6 +59,11 @@ fi
 # ── .env reminder ─────────────────────────────────────────────────────────────
 if [ ! -f .env ]; then
     warn "No .env file found. You can provide API keys via the UI or environment variables."
+fi
+
+if (( CHECK_ONLY )); then
+    info "Check mode complete."
+    exit 0
 fi
 
 # ── Launch backend ────────────────────────────────────────────────────────────
