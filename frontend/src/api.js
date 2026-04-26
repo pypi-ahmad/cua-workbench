@@ -4,6 +4,21 @@ function generateRequestId() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+function buildRequestError(status, payload, fallbackMessage) {
+  const message =
+    payload && typeof payload === 'object'
+      ? payload.error || payload.detail || fallbackMessage
+      : payload || fallbackMessage
+
+  const error = new Error(message || fallbackMessage)
+  error.status = status
+  if (payload && typeof payload === 'object') {
+    error.detail = payload.detail
+    error.requestId = payload.request_id
+  }
+  return error
+}
+
 async function request(path, options = {}) {
   const requestId = generateRequestId()
   const headers = { 'Content-Type': 'application/json', 'X-Request-ID': requestId, ...options.headers }
@@ -11,20 +26,25 @@ async function request(path, options = {}) {
     ...options,
     headers,
   })
-  if (!res.ok) {
-    let message
-    try {
-      message = await res.text()
-    } catch {
-      message = res.statusText
-    }
-    throw new Error(message || res.statusText)
-  }
   const ct = res.headers.get('content-type') || ''
-  if (ct.includes('application/json')) {
-    return res.json()
+  const rawBody = await res.text()
+  let payload = rawBody
+
+  if (ct.includes('application/json') && rawBody) {
+    try {
+      payload = JSON.parse(rawBody)
+    } catch {
+      payload = rawBody
+    }
   }
-  return res.text()
+
+  if (!res.ok) {
+    throw buildRequestError(res.status, payload, res.statusText)
+  }
+  if (ct.includes('application/json')) {
+    return payload || {}
+  }
+  return rawBody
 }
 
 export async function getHealth() {
@@ -107,14 +127,10 @@ export async function getModels() {
 }
 
 export async function validateApiKey(provider, apiKey) {
-  try {
-    return await request('/keys/validate', {
-      method: 'POST',
-      body: JSON.stringify({ provider, api_key: apiKey }),
-    })
-  } catch {
-    return { valid: null, error: 'Could not validate key' }
-  }
+  return request('/keys/validate', {
+    method: 'POST',
+    body: JSON.stringify({ provider, api_key: apiKey }),
+  })
 }
 
 export async function getHealthDetailed() {

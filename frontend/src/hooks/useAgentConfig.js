@@ -86,8 +86,10 @@ export default function useAgentConfig(initialProvider = 'google') {
     setKeyValidating(true)
     try {
       const res = await validateApiKey(prov || provider, keyToValidate)
-      setKeyValid(res.valid !== false)
-    } catch { setKeyValid(null) }
+      setKeyValid(res.valid === true)
+    } catch (error) {
+      setKeyValid(error?.status === 422 ? false : null)
+    }
     finally { setKeyValidating(false) }
   }, [provider])
 

@@ -554,20 +554,29 @@ async def agent_service_health():
 
 
 @app.post("/api/agent-service/mode")
-async def set_agent_mode(body: dict):
+async def set_agent_mode(body: dict, request: Request):
     """Switch the agent service between browser and desktop mode at runtime."""
     import httpx
     from backend.utils.agent_auth import get_auth_headers
+
+    rid = getattr(request.state, "request_id", None)
     mode = body.get("mode", "browser")
     if mode not in ("browser", "desktop"):
-        return {"error": "mode must be 'browser' or 'desktop'"}
+        return _error_response(400, "mode must be 'browser' or 'desktop'", request_id=rid)
     url = f"{config.agent_service_url}/mode"
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
             resp = await client.post(url, json={"mode": mode}, headers=get_auth_headers())
+            if resp.status_code >= 400:
+                return _error_response(
+                    502,
+                    "Upstream service error",
+                    detail=f"agent service mode switch failed with HTTP {resp.status_code}",
+                    request_id=rid,
+                )
             return resp.json()
         except Exception as e:
-            return {"error": str(e)}
+            return _error_response(502, "Upstream service error", detail=str(e), request_id=rid)
 
 
 @app.post("/api/container/start")
@@ -654,12 +663,13 @@ async def api_validate_key(req: ValidateKeyRequest, request: Request):
     # Per-IP throttle: each validation call hits the user's third-party
     # account.  Cap to 5/min/IP so a stuck retry loop or hostile loopback
     # caller can't burn the operator's quota.
+    rid = getattr(request.state, "request_id", None)
     if not _key_validate_limiter.allow(_client_key(request)):
-        return {"valid": None, "error": "Too many validation attempts — wait a minute and retry."}
+        return _error_response(429, "Too many validation attempts — wait a minute and retry.", request_id=rid)
     if req.provider not in _VALID_PROVIDERS:
-        return {"valid": False, "error": f"Unknown provider: {req.provider}"}
+        return _error_response(400, f"Unknown provider: {req.provider}", request_id=rid)
     if not req.api_key or len(req.api_key) < 8:
-        return {"valid": False, "error": "Key too short"}
+        return _error_response(400, "Key too short", request_id=rid)
 
     # Validate via the provider's ``/models`` endpoint.  These are
     # authenticated GETs with no token cost and a clean 401/403 on a bad
@@ -676,8 +686,13 @@ async def api_validate_key(req: ValidateKeyRequest, request: Request):
                 if resp.status_code == 200:
                     return {"valid": True}
                 if resp.status_code in (401, 403, 400):
-                    return {"valid": False, "error": "Invalid Google API key"}
-                return {"valid": None, "error": f"Unexpected status {resp.status_code}"}
+                    return _error_response(422, "Invalid Google API key", request_id=rid)
+                return _error_response(
+                    502,
+                    "Upstream provider error",
+                    detail=f"Unexpected Google status {resp.status_code}",
+                    request_id=rid,
+                )
             elif req.provider == "anthropic":
                 resp = await client.get(
                     "https://api.anthropic.com/v1/models",
@@ -689,15 +704,30 @@ async def api_validate_key(req: ValidateKeyRequest, request: Request):
                 if resp.status_code == 200:
                     return {"valid": True}
                 if resp.status_code in (401, 403):
-                    return {"valid": False, "error": "Invalid Anthropic API key"}
-                return {"valid": None, "error": f"Unexpected status {resp.status_code}"}
+                    return _error_response(422, "Invalid Anthropic API key", request_id=rid)
+                return _error_response(
+                    502,
+                    "Upstream provider error",
+                    detail=f"Unexpected Anthropic status {resp.status_code}",
+                    request_id=rid,
+                )
     except httpx.TimeoutException:
-        return {"valid": None, "error": "Validation timed out — could not verify key"}
+        return _error_response(
+            502,
+            "Upstream provider error",
+            detail="Validation timed out — could not verify key",
+            request_id=rid,
+        )
     except Exception as e:
         logger.debug("Key validation error: %s", e)
-        return {"valid": None, "error": "Could not verify key"}
+        return _error_response(
+            502,
+            "Upstream provider error",
+            detail="Could not verify key",
+            request_id=rid,
+        )
 
-    return {"valid": None, "error": "Unknown provider"}
+    return _error_response(400, "Unknown provider", request_id=rid)
 
 
 @app.get("/api/health/detailed")
@@ -1019,11 +1049,16 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
 
 
 @app.post("/api/agent/stop/{session_id}")
-async def api_stop_agent(session_id: str):
+async def api_stop_agent(session_id: str, request: Request):
     """Stop a running agent session by ID."""
+    rid = getattr(request.state, "request_id", None)
     if not _is_valid_uuid(session_id):
-        return {"error": "Invalid session_id"}
-    return await _stop_agent(session_id)
+        return _error_response(400, "Invalid session_id", request_id=rid)
+
+    result = await _stop_agent(session_id)
+    if result.get("error") == "Session not found":
+        return _error_response(404, "Session not found", request_id=rid)
+    return result
 
 
 async def _stop_agent(session_id: str) -> dict:
@@ -1050,13 +1085,14 @@ async def _stop_agent(session_id: str) -> dict:
 
 
 @app.get("/api/agent/status/{session_id}")
-async def api_agent_status(session_id: str):
+async def api_agent_status(session_id: str, request: Request):
     """Return the current status of an agent session."""
+    rid = getattr(request.state, "request_id", None)
     if not _is_valid_uuid(session_id):
-        return {"error": "Invalid session_id"}
+        return _error_response(400, "Invalid session_id", request_id=rid)
     loop = _active_loops.get(session_id)
     if not loop:
-        return {"error": "Session not found"}
+        return _error_response(404, "Session not found", request_id=rid)
 
     session = loop.session
     last_action: Optional[AgentAction] = None
@@ -1087,7 +1123,7 @@ class SafetyConfirmRequest(BaseModel):
 
 
 @app.post("/api/agent/safety-confirm")
-async def api_agent_safety_confirm(req: SafetyConfirmRequest):
+async def api_agent_safety_confirm(req: SafetyConfirmRequest, request: Request):
     """Respond to a CU safety_decision / require_confirmation prompt.
 
     When the native Computer Use engine encounters a
@@ -1097,11 +1133,12 @@ async def api_agent_safety_confirm(req: SafetyConfirmRequest):
 
     The AgentLoop can check ``_safety_events[session_id]`` to unblock.
     """
+    rid = getattr(request.state, "request_id", None)
     sid = req.session_id
     if not _is_valid_uuid(sid):
-        return {"error": "Invalid session_id"}
+        return _error_response(400, "Invalid session_id", request_id=rid)
     if sid not in _active_loops:
-        return {"error": "Session not found"}
+        return _error_response(404, "Session not found", request_id=rid)
 
     # Store the decision and signal the waiting loop
     _safety_decisions[sid] = req.confirm
@@ -1116,13 +1153,14 @@ async def api_agent_safety_confirm(req: SafetyConfirmRequest):
 
 
 @app.get("/api/agent/history/{session_id}")
-async def api_agent_history(session_id: str):
+async def api_agent_history(session_id: str, request: Request):
     """Return the full step history for a session (without screenshots)."""
+    rid = getattr(request.state, "request_id", None)
     if not _is_valid_uuid(session_id):
-        return {"error": "Invalid session_id"}
+        return _error_response(400, "Invalid session_id", request_id=rid)
     loop = _active_loops.get(session_id)
     if not loop:
-        return {"error": "Session not found"}
+        return _error_response(404, "Session not found", request_id=rid)
 
     steps = [s.model_dump(exclude={"screenshot_b64"}) for s in loop.session.steps]
     return {"session_id": session_id, "steps": steps}

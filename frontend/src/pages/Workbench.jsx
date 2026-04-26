@@ -200,13 +200,32 @@ export default function Workbench() {
     }
   }
 
+  const getErrorMessage = (err) => err?.message || String(err)
+
   const handleStop = async () => {
     if (!sessionId) return
     if (!window.confirm('Stop the agent? Progress from this session cannot be recovered.')) return
-    try { await stopAgent(sessionId) } catch { /* ignore */ }
+    try {
+      await stopAgent(sessionId)
+    } catch (e) {
+      if (e?.status !== 404) {
+        setError(`Failed to stop: ${getErrorMessage(e)}`)
+        return
+      }
+    }
     unsubscribeSession(sessionId)
     setAgentRunning(false)
     setSessionId(null)
+  }
+
+  const handleSafetyDecision = async (confirm) => {
+    if (!safetyPrompt) return
+    try {
+      await confirmSafety(safetyPrompt.sessionId, confirm)
+      clearSafetyPrompt()
+    } catch (e) {
+      setError(`Failed to ${confirm ? 'allow' : 'deny'} action: ${getErrorMessage(e)}`)
+    }
   }
 
   const handleDownloadLogs = () => {
@@ -523,11 +542,11 @@ export default function Workbench() {
                 <p style={{ fontSize: 10, color: 'var(--text-secondary)', margin: '0 0 6px', lineHeight: 1.5 }}>{safetyPrompt.explanation}</p>
                 <div style={{ display: 'flex', gap: 4 }}>
                   <button
-                    onClick={async () => { await confirmSafety(safetyPrompt.sessionId, true); clearSafetyPrompt() }}
+                    onClick={() => handleSafetyDecision(true)}
                     style={{ padding: '3px 10px', fontSize: 10, borderRadius: 3, border: '1px solid var(--success, #34d399)', cursor: 'pointer', background: 'var(--success, #34d399)', color: '#000', fontWeight: 600 }}
                   >Allow</button>
                   <button
-                    onClick={async () => { await confirmSafety(safetyPrompt.sessionId, false); clearSafetyPrompt() }}
+                    onClick={() => handleSafetyDecision(false)}
                     style={{ padding: '3px 10px', fontSize: 10, borderRadius: 3, border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
                   >Deny</button>
                 </div>
