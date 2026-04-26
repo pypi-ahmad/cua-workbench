@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -18,6 +18,21 @@ _ENV_FILE = _PROJECT_ROOT / ".env"
 if _ENV_FILE.exists():
     load_dotenv(_ENV_FILE, override=False)
     logger.debug("Loaded .env from %s", _ENV_FILE)
+
+
+class ConfigError(ValueError):
+    """Raised when a configuration value cannot be parsed."""
+
+
+def _env_int(name: str, default: int) -> int:
+    """Read an integer env var or raise a clear ConfigError."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ConfigError(f"Invalid integer for {name}: {raw!r}") from exc
 
 
 @dataclass
@@ -63,7 +78,7 @@ class Config:
     step_timeout: float = 30.0
 
     # Server
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8000
     debug: bool = False
 
@@ -95,20 +110,24 @@ class Config:
             gemini_model=os.getenv("GEMINI_MODEL", cls.gemini_model),
             container_name=os.getenv("CONTAINER_NAME", cls.container_name),
             agent_service_host=os.getenv("AGENT_SERVICE_HOST", cls.agent_service_host),
-            agent_service_port=int(os.getenv("AGENT_SERVICE_PORT", str(cls.agent_service_port))),
+            agent_service_port=_env_int("AGENT_SERVICE_PORT", cls.agent_service_port),
             agent_mode=os.getenv("AGENT_MODE", cls.agent_mode),
             playwright_mcp_host=os.getenv("PLAYWRIGHT_MCP_HOST", cls.playwright_mcp_host),
-            playwright_mcp_port=int(os.getenv("PLAYWRIGHT_MCP_PORT", str(cls.playwright_mcp_port))),
+            playwright_mcp_port=_env_int("PLAYWRIGHT_MCP_PORT", cls.playwright_mcp_port),
             playwright_mcp_path=os.getenv("PLAYWRIGHT_MCP_PATH", cls.playwright_mcp_path),
             playwright_mcp_autostart=os.getenv("PLAYWRIGHT_MCP_AUTOSTART", "0").lower() in ("1", "true", "yes"),
             playwright_mcp_command=os.getenv("PLAYWRIGHT_MCP_COMMAND", cls.playwright_mcp_command),
             playwright_mcp_args=os.getenv("PLAYWRIGHT_MCP_ARGS", cls.playwright_mcp_args),
             playwright_mcp_docker_transport=os.getenv("PLAYWRIGHT_MCP_DOCKER_TRANSPORT", cls.playwright_mcp_docker_transport),
-            screen_width=int(os.getenv("SCREEN_WIDTH", str(cls.screen_width))),
-            screen_height=int(os.getenv("SCREEN_HEIGHT", str(cls.screen_height))),
-            max_steps=int(os.getenv("MAX_STEPS", str(cls.max_steps))),
+            screen_width=_env_int("SCREEN_WIDTH", cls.screen_width),
+            screen_height=_env_int("SCREEN_HEIGHT", cls.screen_height),
+            screenshot_format=os.getenv("SCREENSHOT_FORMAT", cls.screenshot_format),
+            max_steps=_env_int("MAX_STEPS", cls.max_steps),
+            action_delay_ms=_env_int("ACTION_DELAY_MS", cls.action_delay_ms),
             step_timeout=float(os.getenv("STEP_TIMEOUT", str(cls.step_timeout))),
-            gemini_retry_attempts=int(os.getenv("GEMINI_RETRY_ATTEMPTS", str(cls.gemini_retry_attempts))),
+            gemini_retry_attempts=_env_int("GEMINI_RETRY_ATTEMPTS", cls.gemini_retry_attempts),
+            host=os.getenv("HOST", cls.host),
+            port=_env_int("PORT", cls.port),
             debug=os.getenv("DEBUG", "").lower() in ("1", "true", "yes"),
             vnc_password=os.getenv("VNC_PASSWORD", cls.vnc_password),
         )
