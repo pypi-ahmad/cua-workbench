@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import hashlib
 import json
 import logging
 import secrets
@@ -215,6 +216,11 @@ def _allowed_model_entry(provider: str, model_id: str) -> dict | None:
 _ALLOWED_MODELS, _VALID_MODELS_BY_PROVIDER = _build_allowed_model_state(_load_allowed_models())
 
 
+def _fingerprint(key: str) -> str:
+    """Return a short stable fingerprint for sensitive in-memory map keys."""
+    return hashlib.blake2b(key.encode("utf-8"), digest_size=8).hexdigest()
+
+
 # ── Rate limiter (in-memory sliding window) ───────────────────────────────────
 
 class _RateLimiter:
@@ -251,13 +257,15 @@ class _PerKeyRateLimiter:
         self._buckets: dict[str, list[float]] = {}
 
     def allow(self, key: str) -> bool:
+        bucket_key = _fingerprint(key)
+        del key
         now = time.monotonic()
         cutoff = now - self._window
         # Evict any bucket whose newest call is older than the window.
         for k, calls in list(self._buckets.items()):
             if not calls or calls[-1] < cutoff:
                 self._buckets.pop(k, None)
-        bucket = self._buckets.setdefault(key, [])
+        bucket = self._buckets.setdefault(bucket_key, [])
         bucket[:] = [t for t in bucket if t >= cutoff]
         if len(bucket) >= self._max:
             return False
@@ -288,6 +296,8 @@ def _client_key(request: Request) -> str:
 # ── WebSocket auth (short-lived tokens bound to issuance time) ────────────────
 #
 # Browsers cannot set Authorization headers on WebSocket upgrade requests,
+
+
 # so we issue a one-shot query-param token via REST and validate it on
 # WS accept. Tokens are 30-second TTL random 256-bit values bound to the
 # agent session they were minted for; ``/ws`` consumes them on first
