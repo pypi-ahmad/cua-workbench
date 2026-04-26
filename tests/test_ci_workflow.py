@@ -68,6 +68,14 @@ class TestCIWorkflow(unittest.TestCase):
         self.assertTrue(any("npm ci" in r for r in runs), "npm ci step missing")
         self.assertTrue(any("npm run build" in r for r in runs), "build step missing")
 
+    def test_shell_smoke_job_present(self):
+        job = self.jobs.get("shell-smoke")
+        self.assertIsNotNone(job, "shell-smoke job missing")
+        runs = " ".join(s.get("run", "") for s in job["steps"] if "run" in s)
+        self.assertIn("bash -n setup.sh start.sh", runs)
+        self.assertIn("bash setup.sh --check", runs)
+        self.assertIn("bash start.sh --check", runs)
+
     def test_pip_audit_job_present_and_strict(self):
         job = self.jobs.get("pip-audit")
         self.assertIsNotNone(job, "pip-audit job missing")

@@ -3,6 +3,7 @@
 #
 # Usage:
 #   bash setup.sh          # normal setup
+#   bash setup.sh --check  # non-destructive prerequisite check
 #   bash setup.sh --clean  # DESTRUCTIVE: compose down + prune ALL images/volumes
 
 set -euo pipefail
@@ -15,6 +16,11 @@ NC='\033[0m'
 info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
+
+CHECK_ONLY=0
+if [[ "${1:-}" == "--check" ]]; then
+  CHECK_ONLY=1
+fi
 
 # ── Check prerequisites ──────────────────────────────────────────────────────
 command -v docker >/dev/null 2>&1 || error "Docker is required. Install: https://docs.docker.com/get-docker/"
@@ -30,12 +36,19 @@ avail_gb=$(( avail_kb / 1048576 ))
 if (( avail_gb < MIN_DISK_GB )); then
   warn "Low disk space: ${avail_gb}GB available (${MIN_DISK_GB}GB recommended)."
   warn "The Docker image build may fail. Free up space or press Ctrl+C to abort."
-  sleep 3
+  if (( CHECK_ONLY == 0 )); then
+    sleep 3
+  fi
 else
   info "Disk space OK: ${avail_gb}GB available."
 fi
 
 info "All prerequisites met."
+
+if (( CHECK_ONLY )); then
+  info "Check mode complete."
+  exit 0
+fi
 
 # ── Optional destructive cleanup ─────────────────────────────────────────────
 if [[ "${1:-}" == "--clean" ]]; then
