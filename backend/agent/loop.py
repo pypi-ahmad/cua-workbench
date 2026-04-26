@@ -774,7 +774,7 @@ class AgentLoop:
         if action.action not in (ActionType.DONE, ActionType.ERROR):
             self._emit_log("info", f"Step {step_num}: Executing {action.action.value}...")
             try:
-                result = await execute_action(action, mode=self._mode, engine=self._engine, step=step_num, execution_target=self._execution_target)
+                result = await execute_action(action, mode=self._mode, engine=self._engine, step=step_num, execution_target=self._execution_target, session_id=self.session.session_id)
                 if result.get("success"):
                     self._emit_log("info", f"Step {step_num}: {result['message']}")
                 else:
@@ -782,7 +782,7 @@ class AgentLoop:
                     if self._is_retryable_failure(action, result):
                         self._emit_log("warning", f"Step {step_num}: Action failed: {initial_error}")
                         self._emit_log("info", f"Step {step_num}: Retrying once...")
-                        retry_result = await execute_action(action, mode=self._mode, engine=self._engine, step=step_num, execution_target=self._execution_target)
+                        retry_result = await execute_action(action, mode=self._mode, engine=self._engine, step=step_num, execution_target=self._execution_target, session_id=self.session.session_id)
                         if retry_result.get("success"):
                             self._emit_log("info", f"Step {step_num}: Retry succeeded: {retry_result['message']}")
                         else:

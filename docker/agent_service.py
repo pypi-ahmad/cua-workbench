@@ -164,8 +164,8 @@ _BLOCKED_CMD_PATTERNS = (
     "mv / ",
 )
 
-# Allowed directories for file upload operations
-_UPLOAD_ALLOWED_PREFIXES = ("/tmp", "/app", "/home")
+# Allowed directories for file upload operations are now session-scoped.
+# See ``_upload_prefix`` and the I-015 block further down.
 
 # Strict allowlist of commands permitted in run_command.  Entries MUST
 # match what the image actually installs (see docker/Dockerfile).  Listing
@@ -851,13 +851,56 @@ def _pw_wait_for_navigation() -> dict:
     return {"success": True, "message": "Navigation complete"}
 
 
-def _pw_upload_file(selector: str, file_path: str) -> dict:
-    """Set input file on the element matching *selector* (path-restricted)."""
+# ── Upload sandbox (I-015) ────────────────────────────────────────────────────
+#
+# The previous coarse allowlist permitted writes to /home, which
+# contained the Chromium profile and was a persistence vector
+# (e.g. a malicious upload to /home/user/.bashrc or to
+# /home/user/.config/chromium/Default/Preferences).  The replacement
+# is a per-session subdirectory under /tmp/cua-uploads/<session_id>
+# that the host stamps onto each upload request via the X-Session-Id
+# header.  Any write whose realpath escapes that directory is
+# rejected with {success: False}.
+
+_UPLOAD_BASE = "/tmp/cua-uploads"
+
+
+def _upload_prefix(session_id: str | None) -> str:
+    """Return the absolute, per-session upload directory.
+
+    The directory is created if missing.  ``session_id`` is sanitized
+    via ``_safe_session_id`` so a malicious caller cannot smuggle
+    ``..`` or absolute paths into the directory name.
+    """
+    sid = _safe_session_id(session_id)
+    prefix = os.path.join(_UPLOAD_BASE, sid)
+    try:
+        os.makedirs(prefix, mode=0o700, exist_ok=True)
+    except OSError as exc:
+        logger.warning("Failed to create upload prefix %s: %s", prefix, exc)
+    return prefix
+
+
+def _pw_upload_file(selector: str, file_path: str, session_id: str | None) -> dict:
+    """Set input file on the element matching *selector*.
+
+    Path is constrained to ``/tmp/cua-uploads/<session_id>/...``.  Any
+    attempt to escape (via ``..``, symlinks, or absolute paths outside
+    the prefix) is rejected.  ``session_id`` must come from the
+    authenticated request — see ``do_POST`` X-Session-Id handling.
+    """
     page = _get_page()
-    # Directory traversal protection
+    prefix = os.path.realpath(_upload_prefix(session_id))
     resolved = os.path.realpath(file_path)
-    if not any(resolved.startswith(p) for p in _UPLOAD_ALLOWED_PREFIXES):
-        return {"success": False, "message": f"Upload restricted to {_UPLOAD_ALLOWED_PREFIXES}"}
+    # Use path-component containment, not raw startswith, so a
+    # neighbour directory like /tmp/cua-uploads/foobar cannot pass for
+    # /tmp/cua-uploads/foo.
+    prefix_with_sep = prefix.rstrip(os.sep) + os.sep
+    if resolved != prefix and not resolved.startswith(prefix_with_sep):
+        return {
+            "success": False,
+            "message": f"Upload restricted to {prefix} (got {resolved})",
+        }
     page.set_input_files(selector, file_path)
     return {"success": True, "message": f"Uploaded {file_path} to {selector}"}
 
@@ -1971,7 +2014,7 @@ class AgentHandler(BaseHTTPRequestHandler):
 
             with _lock:
                 try:
-                    result = self._dispatch_action(body)
+                    result = self._dispatch_action(body, session_id=self._session_id_from_headers())
                     self._respond(200, result)
                 except Exception as e:
                     logger.exception("Action failed")
@@ -2015,7 +2058,17 @@ class AgentHandler(BaseHTTPRequestHandler):
                 return part.split("=", 1)[1]
         return None
 
-    def _dispatch_action(self, body: dict) -> dict:
+    def _session_id_from_headers(self) -> str | None:
+        """Return the X-Session-Id request header, if any.
+
+        Used by ``upload_file`` (I-015) to scope the upload prefix to a
+        per-session subdirectory.  Defaults to None when absent so the
+        sanitizer maps it to ``default``.
+        """
+        sid = self.headers.get("X-Session-Id") if self.headers else None
+        return sid.strip() if sid else None
+
+    def _dispatch_action(self, body: dict, session_id: str | None = None) -> dict:
         """Route an incoming action to the correct engine dispatcher."""
         start_time = time.time()
         
@@ -2049,7 +2102,7 @@ class AgentHandler(BaseHTTPRequestHandler):
             elif mode == "desktop":
                 result = self._dispatch_desktop(action, x, y, text, coords, target)
             else:
-                result = self._dispatch_browser(action, x, y, text, coords, target)
+                result = self._dispatch_browser(action, x, y, text, coords, target, session_id=session_id)
         except Exception as e:
             logger.exception(f"Action {action} failed")
             result = {"success": False, "message": str(e)}
@@ -2112,7 +2165,7 @@ class AgentHandler(BaseHTTPRequestHandler):
             return {"success": False, "message": "Accessibility action timed out (30s)"}
         return result_container[0]
 
-    def _dispatch_browser(self, action: str, x: int, y: int, text: str, coords: list, target: str = "") -> dict:
+    def _dispatch_browser(self, action: str, x: int, y: int, text: str, coords: list, target: str = "", session_id: str | None = None) -> dict:
         """Dispatch a single action to the Playwright browser engine."""
         # ── Mouse / Interaction ───────────────────────────────────────
         if action == "click":
@@ -2271,7 +2324,7 @@ class AgentHandler(BaseHTTPRequestHandler):
             file_path = text.split("|")[1] if "|" in text else text
             if not selector or not file_path:
                  return {"success": False, "message": "upload_file requires target and file path"}
-            return _pw_upload_file(selector, file_path)
+            return _pw_upload_file(selector, file_path, session_id)
         elif action == "download_file":
             selector = target or text
             return _pw_download_file(selector)
