@@ -24,11 +24,13 @@ EXPECTED_MODELS = [
     ("google", "gemini-3.1-pro-preview"),
     ("anthropic", "claude-sonnet-4-6"),
     ("anthropic", "claude-opus-4-6"),
+    ("openai", "gpt-5.4"),
+    ("openai", "gpt-5.4-mini"),
 ]
 
 
 class TestAllowedModelsFile:
-    """Verify allowed_models.json is valid and contains exactly the 4 models."""
+    """Verify allowed_models.json is valid and contains exactly the expected models."""
 
     def test_file_exists(self):
         assert _ALLOWED_MODELS_PATH.exists(), "backend/allowed_models.json not found"
@@ -38,9 +40,9 @@ class TestAllowedModelsFile:
         assert "models" in data
         assert isinstance(data["models"], list)
 
-    def test_exactly_four_models(self):
+    def test_expected_model_count(self):
         data = json.loads(_ALLOWED_MODELS_PATH.read_text(encoding="utf-8"))
-        assert len(data["models"]) == 4
+        assert len(data["models"]) == len(EXPECTED_MODELS)
 
     def test_model_ids_match(self):
         data = json.loads(_ALLOWED_MODELS_PATH.read_text(encoding="utf-8"))
@@ -63,6 +65,15 @@ class TestAllowedModelsFile:
             assert "model_id" in m
             assert "display_name" in m
             assert "supports_computer_use" in m
+
+    def test_openai_models_use_computer_tool(self):
+        data = json.loads(_ALLOWED_MODELS_PATH.read_text(encoding="utf-8"))
+        for m in data["models"]:
+            if m["provider"] == "openai":
+                assert m["default_engine"] == "computer_use"
+                assert m["cu_tool_type"] == "computer"
+                assert m["supports_playwright_mcp"] is False
+                assert m["supports_accessibility"] is False
 
     def test_no_display_number_in_metadata(self):
         """display_number must never appear in model metadata."""
@@ -90,6 +101,11 @@ class TestServerModelValidation:
         assert "claude-sonnet-4-6" in valid["anthropic"]
         assert "claude-opus-4-6" in valid["anthropic"]
 
+    def test_openai_models_in_validator(self):
+        valid = self._get_valid_models()
+        assert "gpt-5.4" in valid["openai"]
+        assert "gpt-5.4-mini" in valid["openai"]
+
     def test_old_model_ids_not_in_validator(self):
         """Stale model IDs from before the fix must not be present."""
         valid = self._get_valid_models()
@@ -98,10 +114,10 @@ class TestServerModelValidation:
             all_ids.update(s)
         assert "claude-4.6-sonnet" not in all_ids, "Stale claude-4.6-sonnet still in validator"
 
-    def test_exactly_four_models_total(self):
+    def test_expected_model_count_total(self):
         valid = self._get_valid_models()
         total = sum(len(s) for s in valid.values())
-        assert total == 4
+        assert total == len(EXPECTED_MODELS)
 
 
 # ── /api/models endpoint ─────────────────────────────────────────────────────
@@ -115,11 +131,11 @@ class TestApiModelsEndpoint:
         from backend.api.server import app
         return TestClient(app)
 
-    def test_returns_four_models(self, client):
+    def test_returns_expected_models(self, client):
         resp = client.get("/api/models")
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data["models"]) == 4
+        assert len(data["models"]) == len(EXPECTED_MODELS)
 
     def test_model_ids(self, client):
         resp = client.get("/api/models")
@@ -178,6 +194,14 @@ class TestAgentStartModelRestriction:
         assert resp.status_code == 400
         data = resp.json()
         assert "error" in data
+
+    def test_reject_openai_model_for_unsupported_engine(self, client):
+        resp = client.post(
+            "/api/agent/start",
+            json=self._start_payload(provider="openai", model="gpt-5.4"),
+        )
+        assert resp.status_code == 400
+        assert "does not support engine" in resp.json()["error"]
 
     def test_error_lists_allowed_models(self, client):
         resp = client.post("/api/agent/start", json=self._start_payload(model="nope"))

@@ -226,6 +226,17 @@ def _allowed_model_entry(provider: str, model_id: str) -> dict | None:
     return None
 
 
+def _model_supports_engine(model_entry: dict, engine: str) -> bool:
+    """Return whether *model_entry* explicitly supports *engine*."""
+    if engine == "computer_use":
+        return bool(model_entry.get("supports_computer_use"))
+    if engine == "playwright_mcp":
+        return model_entry.get("supports_playwright_mcp", True) is not False
+    if engine == "omni_accessibility":
+        return model_entry.get("supports_accessibility", True) is not False
+    return True
+
+
 _ALLOWED_MODELS, _VALID_MODELS_BY_PROVIDER = _build_allowed_model_state(_load_allowed_models())
 _VALID_PROVIDERS = set(_VALID_MODELS_BY_PROVIDER)
 
@@ -915,6 +926,12 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     model_entry = _allowed_model_entry(req.provider, req.model)
     if model_entry is None:
         return _error_response(500, f"Model metadata missing for '{req.model}'", request_id=rid)
+    if not _model_supports_engine(model_entry, req.engine):
+        return _error_response(
+            400,
+            f"Model '{req.model}' does not support engine '{req.engine}'",
+            request_id=rid,
+        )
     if not req.task or not req.task.strip():
         return _error_response(400, "Describe what the agent should do.", request_id=rid)
 

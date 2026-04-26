@@ -42,6 +42,28 @@
       "cu_tool_version": "computer_20251124",
       "cu_betas": ["computer-use-2025-11-24"],
       "notes": "Claude Opus 4.6 — requires beta endpoint + computer_20251124 tool."
+    },
+    {
+      "provider": "openai",
+      "model_id": "gpt-5.4",
+      "display_name": "GPT-5.4",
+      "supports_computer_use": true,
+      "supports_playwright_mcp": false,
+      "supports_accessibility": false,
+      "default_engine": "computer_use",
+      "cu_tool_type": "computer",
+      "notes": "GPT-5.4 via Responses API computer tool."
+    },
+    {
+      "provider": "openai",
+      "model_id": "gpt-5.4-mini",
+      "display_name": "GPT-5.4 mini",
+      "supports_computer_use": true,
+      "supports_playwright_mcp": false,
+      "supports_accessibility": false,
+      "default_engine": "computer_use",
+      "cu_tool_type": "computer",
+      "notes": "Lower-cost GPT-5.4 variant via Responses API computer tool."
     }
   ]
 }

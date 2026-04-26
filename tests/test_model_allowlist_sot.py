@@ -50,7 +50,7 @@ class TestAllowlistShape(unittest.TestCase):
             self.assertTrue(entry["model_id"])
 
     def test_providers_are_recognized(self):
-        recognized = {"google", "anthropic"}
+        recognized = {"google", "anthropic", "openai"}
         for entry in _load_allowlist():
             self.assertIn(
                 entry["provider"], recognized,
@@ -58,7 +58,7 @@ class TestAllowlistShape(unittest.TestCase):
             )
 
     def test_no_duplicate_model_ids_per_provider(self):
-        for provider in ("google", "anthropic"):
+        for provider in ("google", "anthropic", "openai"):
             ids = [m["model_id"] for m in _load_allowlist() if m["provider"] == provider]
             self.assertEqual(
                 len(ids), len(set(ids)),
@@ -95,6 +95,14 @@ class TestAllowlistShape(unittest.TestCase):
         self.assertEqual(kwargs["tool_version"], "computer_test_20260101")
         self.assertEqual(kwargs["beta_flag"], ["computer-use-2026-01-01"])
 
+    def test_openai_entries_require_computer_tool_metadata(self):
+        openai_entries = [m for m in _load_allowlist() if m["provider"] == "openai"]
+        self.assertEqual({m["model_id"] for m in openai_entries}, {"gpt-5.4", "gpt-5.4-mini"})
+        for entry in openai_entries:
+            self.assertTrue(entry["supports_computer_use"])
+            self.assertEqual(entry["default_engine"], "computer_use")
+            self.assertEqual(entry["cu_tool_type"], "computer")
+
 
 class TestRuntimeMatchesAllowlist(unittest.TestCase):
     """server._VALID_MODELS_BY_PROVIDER must mirror the JSON file."""
@@ -108,6 +116,21 @@ class TestRuntimeMatchesAllowlist(unittest.TestCase):
     def test_runtime_provider_set_matches_file(self):
         expected = {entry["provider"] for entry in _load_allowlist()}
         self.assertEqual(srv._VALID_PROVIDERS, expected)
+
+    def test_openai_models_in_runtime_validator(self):
+        self.assertEqual(
+            srv._VALID_MODELS_BY_PROVIDER["openai"],
+            {"gpt-5.4", "gpt-5.4-mini"},
+        )
+
+    def test_supports_computer_use_flag_is_honored(self):
+        openai_entry = next(
+            entry for entry in _load_allowlist()
+            if entry["provider"] == "openai" and entry["model_id"] == "gpt-5.4"
+        )
+        self.assertTrue(srv._model_supports_engine(openai_entry, "computer_use"))
+        self.assertFalse(srv._model_supports_engine(openai_entry, "playwright_mcp"))
+        self.assertFalse(srv._model_supports_engine(openai_entry, "omni_accessibility"))
 
 
 class TestCodeDefaultsAreAllowlisted(unittest.TestCase):
@@ -126,7 +149,7 @@ class TestCodeDefaultsAreAllowlisted(unittest.TestCase):
         text = (_REPO / "backend" / "models.py").read_text(encoding="utf-8")
         defaults = re.findall(r'model:\s*str\s*=\s*"([^"]+)"', text)
         self.assertTrue(defaults, "no model defaults found in backend/models.py")
-        all_ids = _ids_for("google") | _ids_for("anthropic")
+        all_ids = _ids_for("google") | _ids_for("anthropic") | _ids_for("openai")
         for d in defaults:
             self.assertIn(d, all_ids, f"backend/models.py default {d!r} not in allowlist")
 
@@ -175,7 +198,7 @@ class TestSingleSourceLookupSemantics(unittest.TestCase):
 
     def test_unknown_provider_rejected(self):
         self.assertEqual(
-            srv._VALID_MODELS_BY_PROVIDER.get("openai", set()),
+            srv._VALID_MODELS_BY_PROVIDER.get("not-a-provider", set()),
             set(),
         )
 
