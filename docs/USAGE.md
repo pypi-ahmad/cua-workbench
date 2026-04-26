@@ -48,7 +48,7 @@ This is a local single-user workbench. There are no accounts, no server-side his
 ## Before You Start
 
 1. **Docker is required** for the sandbox. The UI will load without it, but the agent will not be able to execute against a real environment.
-2. **At least one API key is required**: a Google Gemini key (`GOOGLE_API_KEY`) or an Anthropic Claude key (`ANTHROPIC_API_KEY`). You can provide these in a `.env` file, as a system environment variable, or paste the key directly into the UI each session.
+2. **At least one API key is required**: a Google Gemini key (`GOOGLE_API_KEY`), an Anthropic Claude key (`ANTHROPIC_API_KEY`), or an OpenAI key (`OPENAI_API_KEY`). You can provide these in a `.env` file, as a system environment variable, or paste the key directly into the UI each session.
 3. **Python 3.10+** and **Node.js 18+** must be installed.
 4. The setup script (`setup.sh` or `setup.bat`) handles all first-run preparation including building the Docker image. Run it once before starting the app for the first time.
 
@@ -190,7 +190,7 @@ If this is your first run after setup, the Docker image should already be built.
 
 In the Workbench sidebar:
 
-- Select **Google Gemini** or **Anthropic Claude** from the Provider dropdown
+- Select **Google Gemini**, **Anthropic Claude**, or **OpenAI** from the Provider dropdown
 - Select a model from the Model dropdown (models are loaded from the backend at runtime)
 
 ### 4. Provide an API key
@@ -287,7 +287,7 @@ The sidebar collects all inputs needed to start a session.
 **Run Mode** — top-level toggle: Browser or Desktop  
 Switching run mode automatically sets the default engine.
 
-**Provider** — Google Gemini or Anthropic Claude
+**Provider** — Google Gemini, Anthropic Claude, or OpenAI
 
 **Model** — loaded from `GET /api/models` at runtime. Only models listed in `backend/allowed_models.json` appear. If the backend is unreachable, the dropdown shows "Loading models…" or an error.
 
@@ -295,7 +295,7 @@ Switching run mode automatically sets the default engine.
 - **Enter manually** — shows a password input. The key is validated on blur (≥ 8 characters triggers a live check).
 - **Saved key ✓** — uses a key found in `.env` or the process environment. The button is disabled if no key is available for the selected provider.
 
-**API key link** — "Get a Google/Anthropic API key ↗" opens the provider's key-management page in a new tab.
+**API key link** — "Get a provider API key ↗" opens the selected provider's key-management page in a new tab.
 
 **Advanced Settings** — collapsed by default. Contains:
 - Engine override dropdown (filtered by run mode)
@@ -405,7 +405,7 @@ For tasks that require native screen-level control.
 | Input | Requirement |
 |---|---|
 | Task text | Required. Plain text. No maximum length enforced by the UI, but the backend request model accepts up to 10,000 characters. |
-| Provider | Must be `google` or `anthropic` |
+| Provider | Must be `google`, `anthropic`, or `openai` |
 | Model | Must be in `backend/allowed_models.json`. The dropdown enforces this. |
 | API key | Required unless a saved key is available. Minimum 8 characters for validation to run. |
 | Max steps | Integer 1–200. The backend hard-caps at 200. |
@@ -507,6 +507,7 @@ The safety endpoint is `POST /api/agent/safety-confirm`.
 |---|---|
 | `GOOGLE_API_KEY` | Google Gemini |
 | `ANTHROPIC_API_KEY` | Anthropic Claude |
+| `OPENAI_API_KEY` | OpenAI |
 
 The backend resolves keys in this priority order: UI input → `.env` file → system environment variable. These are read by the backend; the frontend only transmits the key if the user chose "Enter manually".
 
@@ -516,6 +517,8 @@ The backend resolves keys in this priority order: UI input → `.env` file → s
 |---|---|---|
 | `GOOGLE_API_KEY` | — | Google provider credential |
 | `ANTHROPIC_API_KEY` | — | Anthropic provider credential |
+| `OPENAI_API_KEY` | — | OpenAI provider credential |
+| `OPENAI_BASE_URL` | — | Optional custom Responses API base URL |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | Config default; not used when the UI specifies a model |
 | `CONTAINER_NAME` | `cua-environment` | Docker container name |
 | `AGENT_SERVICE_HOST` | `127.0.0.1` | Host for the in-container agent service |
@@ -550,8 +553,10 @@ The backend resolves keys in this priority order: UI input → `.env` file → s
 | Google | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview |
 | Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 |
 | Anthropic | `claude-opus-4-6` | Claude Opus 4.6 |
+| OpenAI | `gpt-5.4` | GPT-5.4 |
+| OpenAI | `gpt-5.4-mini` | GPT-5.4 mini |
 
-All four models support all three engines.
+Gemini and Claude models support all three engines. OpenAI models currently support **Full Screen Control** only.
 
 To add a model, edit `backend/allowed_models.json` directly. The backend and frontend will pick up the change on next restart.
 
@@ -691,6 +696,7 @@ No API key is found for the selected provider. Add one to `.env`:
 ```
 GOOGLE_API_KEY=your-key-here
 ANTHROPIC_API_KEY=your-key-here
+OPENAI_API_KEY=your-key-here
 ```
 
 Then restart the backend. You can verify:

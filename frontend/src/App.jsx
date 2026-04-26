@@ -46,7 +46,7 @@ export default function App() {
         <div className="landing-steps">
           <h3>How it works</h3>
           <ol>
-            <li><strong>Choose a provider</strong> — Google Gemini or Anthropic Claude</li>
+            <li><strong>Choose a provider</strong> — Google Gemini, Anthropic Claude, or OpenAI</li>
             <li><strong>Paste your API key</strong> — or use a saved key from your environment</li>
             <li><strong>Describe a task</strong> — e.g. "Search Google for the weather in Tokyo"</li>
             <li><strong>Watch the agent work</strong> — live screenshots, action timeline, and logs</li>

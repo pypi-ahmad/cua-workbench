@@ -5,6 +5,14 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getKeyStatuses, getEngines, getModels, validateApiKey } from '../api'
 
+const PROVIDER_LABELS = {
+  google: 'Google Gemini',
+  anthropic: 'Anthropic Claude',
+  openai: 'OpenAI',
+}
+
+const PROVIDER_ORDER = ['google', 'anthropic', 'openai']
+
 /**
  * Returns all data needed to populate the agent config form.
  *
@@ -26,9 +34,26 @@ export default function useAgentConfig(initialProvider = 'google') {
 
   // Derive per-provider model options
   const toOption = (m) => ({ value: m.model_id, label: m.display_name })
-  const googleModels = useMemo(() => fetchedModels.filter(m => m.provider === 'google').map(toOption), [fetchedModels])
-  const anthropicModels = useMemo(() => fetchedModels.filter(m => m.provider === 'anthropic').map(toOption), [fetchedModels])
-  const models = provider === 'anthropic' ? anthropicModels : googleModels
+  const modelsByProvider = useMemo(() => fetchedModels.reduce((acc, entry) => {
+    const providerId = entry.provider
+    if (!providerId) return acc
+    if (!acc[providerId]) acc[providerId] = []
+    acc[providerId].push(toOption(entry))
+    return acc
+  }, {}), [fetchedModels])
+  const providerOptions = useMemo(() => {
+    const discovered = Object.keys(modelsByProvider)
+    const ordered = [
+      ...PROVIDER_ORDER.filter(providerId => discovered.includes(providerId)),
+      ...discovered.filter(providerId => !PROVIDER_ORDER.includes(providerId)),
+    ]
+    const providers = ordered.length > 0 ? ordered : PROVIDER_ORDER
+    return providers.map(providerId => ({
+      value: providerId,
+      label: PROVIDER_LABELS[providerId] || providerId,
+    }))
+  }, [modelsByProvider])
+  const models = modelsByProvider[provider] || []
 
   // Fetch keys, engines, models on mount
   useEffect(() => {
@@ -69,7 +94,7 @@ export default function useAgentConfig(initialProvider = 'google') {
   // Change provider → auto-select first model + best key source
   const changeProvider = useCallback((newProvider) => {
     setProvider(newProvider)
-    const list = newProvider === 'anthropic' ? anthropicModels : googleModels
+    const list = modelsByProvider[newProvider] || []
     setModel(list.length > 0 ? list[0].value : '')
     const status = keyStatuses[newProvider]
     if (status?.available) {
@@ -78,7 +103,7 @@ export default function useAgentConfig(initialProvider = 'google') {
       setKeySource('ui')
     }
     setKeyValid(null)
-  }, [anthropicModels, googleModels, keyStatuses])
+  }, [keyStatuses, modelsByProvider])
 
   // Key validation
   const handleValidateKey = useCallback(async (keyToValidate, prov) => {
@@ -98,11 +123,10 @@ export default function useAgentConfig(initialProvider = 'google') {
     provider, setProvider: changeProvider,
     model, setModel,
     models,
+    providerOptions,
     fetchedModels,
     modelsLoaded,
     backendReachable,
-    googleModels,
-    anthropicModels,
     // Engine
     engineList,
     // Key
