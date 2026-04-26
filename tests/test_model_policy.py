@@ -200,12 +200,25 @@ class TestAgentStartModelRestriction:
 # ── Anthropic CU tool-spec for allowed models ──────────────────────────────
 
 class TestAnthropicToolSpecForAllowedModels:
-    """Verify ClaudeCUClient auto-detects correct tool version for UI models."""
+    """Verify ClaudeCUClient uses tool metadata from the allowlist."""
+
+    def _entry(self, model: str) -> dict:
+        data = json.loads(_ALLOWED_MODELS_PATH.read_text(encoding="utf-8"))
+        for entry in data["models"]:
+            if entry["provider"] == "anthropic" and entry["model_id"] == model:
+                return entry
+        raise AssertionError(f"No anthropic allowlist entry for {model}")
 
     def _make_client(self, model: str):
+        entry = self._entry(model)
         with patch.dict("sys.modules", {"anthropic": MagicMock()}):
             from backend.engines.computer_use_engine import ClaudeCUClient
-            return ClaudeCUClient(api_key="fake", model=model)
+            return ClaudeCUClient(
+                api_key="fake",
+                model=model,
+                tool_version=entry["cu_tool_version"],
+                beta_flag=entry["cu_betas"],
+            )
 
     def test_sonnet_46_tool_version(self):
         c = self._make_client("claude-sonnet-4-6")

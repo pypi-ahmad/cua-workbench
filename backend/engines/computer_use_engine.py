@@ -10,7 +10,7 @@ Architecture
 
     ComputerUseEngine
     ├── GeminiCUClient   (google-genai  types.Tool(computer_use=...))
-    ├── ClaudeCUClient   (anthropic     computer_2025XXYY tool, auto-detected)
+    ├── ClaudeCUClient   (anthropic     tool metadata from allowed_models.json)
     └── Executors
         ├── PlaywrightExecutor  (browser actions via Playwright page)
         └── DesktopExecutor     (desktop via agent_service HTTP API → xdotool + scrot)
@@ -972,11 +972,9 @@ class ClaudeCUClient:
     """Native Claude computer-use tool protocol.
 
     API contract:
-    - Auto-detects tool version from model name:
-      * Claude Sonnet 4.6 / Opus 4.6 / Opus 4.5 → ``computer_20251124``
-        with beta header ``computer-use-2025-11-24``
-      * All other CU models → ``computer_20250124``
-        with beta header ``computer-use-2025-01-24``
+        - Requires explicit tool metadata from allowed_models.json:
+            * ``tool_version`` selects the Anthropic computer-use tool type
+            * ``beta_flag`` supplies the beta headers for the request
     - Uses ``client.beta.messages.create()`` (beta endpoint required)
     - Enables thinking with a conservative token budget
     - Sends screenshots as base64 in ``tool_result`` content
@@ -986,22 +984,13 @@ class ClaudeCUClient:
       mouse_move, left_click_drag, triple_click, right_click
     """
 
-    # Models that require the newer computer_20251124 tool version.
-    # TODO: Remove this list once all callers pass tool_version/beta_flag
-    # from allowed_models.json (cu_tool_version / cu_betas fields).
-    _NEW_TOOL_MODELS = (
-        "claude-sonnet-4-6", "claude-sonnet-4.6",
-        "claude-opus-4-6", "claude-opus-4.6",
-        "claude-opus-4-5", "claude-opus-4.5",
-    )
-
     def __init__(
         self,
         api_key: str,
         model: str = "claude-sonnet-4-6",
         system_prompt: Optional[str] = None,
         tool_version: Optional[str] = None,
-        beta_flag: Optional[str] = None,
+        beta_flag: Optional[List[str]] = None,
     ):
         try:
             import anthropic
@@ -1014,18 +1003,19 @@ class ClaudeCUClient:
         self._client = anthropic.Anthropic(api_key=api_key)
         self._model = model
         self._system_prompt = system_prompt or ""
-
-        # Use explicit values from allowed_models.json if provided,
-        # otherwise auto-detect from model name (backwards compatibility).
-        if tool_version and beta_flag:
-            self._tool_version = tool_version
-            self._beta_flag = beta_flag
-        elif any(tag in model for tag in self._NEW_TOOL_MODELS):
-            self._tool_version = "computer_20251124"
-            self._beta_flag = "computer-use-2025-11-24"
-        else:
-            self._tool_version = "computer_20250124"
-            self._beta_flag = "computer-use-2025-01-24"
+        if not tool_version:
+            raise ValueError(
+                "ClaudeCUClient requires tool_version from allowed_models.json"
+            )
+        if not beta_flag:
+            raise ValueError(
+                "ClaudeCUClient requires beta_flag from allowed_models.json"
+            )
+        self._tool_version = tool_version
+        self._beta_flags = list(beta_flag)
+        if any(not beta for beta in self._beta_flags):
+            raise ValueError("ClaudeCUClient beta_flag entries must be non-empty strings")
+        self._beta_flag = self._beta_flags[0]
 
     def _build_tools(self, sw: int, sh: int) -> List[Dict]:
         return [
@@ -1083,7 +1073,7 @@ class ClaudeCUClient:
                 system=self._system_prompt,
                 tools=tools,
                 messages=messages,
-                betas=[self._beta_flag],
+                betas=getattr(self, "_beta_flags", [self._beta_flag]),
                 thinking={"type": "enabled", "budget_tokens": 4096},
             )
 
@@ -1312,6 +1302,8 @@ class ComputerUseEngine:
         excluded_actions: Optional[List[str]] = None,
         container_name: str = "cua-environment",
         agent_service_url: str = "http://127.0.0.1:9222",
+        tool_version: Optional[str] = None,
+        beta_flag: Optional[List[str]] = None,
     ):
         self.provider = provider
         self.environment = environment
@@ -1333,6 +1325,8 @@ class ComputerUseEngine:
                 api_key=api_key,
                 model=model or "claude-sonnet-4-6",
                 system_prompt=system_instruction,
+                tool_version=tool_version,
+                beta_flag=beta_flag,
             )
         else:
             raise ValueError(f"Unsupported provider: {provider}")

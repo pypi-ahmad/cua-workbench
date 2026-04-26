@@ -19,6 +19,7 @@ import json
 import re
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from backend.api import server as srv
 
@@ -63,6 +64,36 @@ class TestAllowlistShape(unittest.TestCase):
                 len(ids), len(set(ids)),
                 f"Duplicate model_id for provider {provider}: {ids}",
             )
+
+    def test_anthropic_entries_require_cu_metadata_at_startup(self):
+        bad_models = [
+            {
+                "provider": "anthropic",
+                "model_id": "claude-test",
+                "display_name": "Claude Test",
+                "supports_computer_use": True,
+            }
+        ]
+
+        with self.assertRaisesRegex(ValueError, "claude-test.*cu_tool_version"):
+            srv._build_allowed_model_state(bad_models)
+
+    def test_allowlist_metadata_flows_to_claude_client(self):
+        from backend.engines.computer_use_engine import ComputerUseEngine, Environment, Provider
+
+        with patch("backend.engines.computer_use_engine.ClaudeCUClient") as mock_client:
+            ComputerUseEngine(
+                provider=Provider.CLAUDE,
+                api_key="fake-key",
+                model="claude-sonnet-4-6",
+                environment=Environment.DESKTOP,
+                tool_version="computer_test_20260101",
+                beta_flag=["computer-use-2026-01-01"],
+            )
+
+        kwargs = mock_client.call_args.kwargs
+        self.assertEqual(kwargs["tool_version"], "computer_test_20260101")
+        self.assertEqual(kwargs["beta_flag"], ["computer-use-2026-01-01"])
 
 
 class TestRuntimeMatchesAllowlist(unittest.TestCase):
