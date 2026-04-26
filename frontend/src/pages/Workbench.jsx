@@ -22,6 +22,7 @@ export default function Workbench() {
     provider, setProvider,
     model, setModel,
     models,
+    providerOptions,
     fetchedModels,
     modelsLoaded,
     backendReachable,
@@ -150,8 +151,24 @@ export default function Workbench() {
 
   // handleValidateKey provided by useAgentConfig hook
 
+  const providerNames = {
+    google: 'Google',
+    anthropic: 'Anthropic',
+    openai: 'OpenAI',
+  }
+  const providerKeyLinks = {
+    google: 'https://aistudio.google.com/apikey',
+    anthropic: 'https://console.anthropic.com/settings/keys',
+    openai: 'https://platform.openai.com/api-keys',
+  }
+  const providerKeyLabels = {
+    google: 'a Google',
+    anthropic: 'an Anthropic',
+    openai: 'an OpenAI',
+  }
+
   const handleStart = async () => {
-    const providerLabel = provider === 'google' ? 'Google' : 'Anthropic'
+    const providerLabel = providerNames[provider] || provider
     if (keySource === 'ui' && !apiKey.trim()) return setError(`Enter your ${providerLabel} API key above, or switch to "Saved key" if one is already configured.`)
     if (!task.trim()) return setError('Describe what the agent should do.')
     setError('')
@@ -376,8 +393,9 @@ export default function Workbench() {
           <div className="wb-section">
             <label className="wb-label">Provider</label>
             <select className="wb-select" value={provider} onChange={(e) => setProvider(e.target.value)} disabled={agentRunning} title="Which AI provider to use for the agent">
-              <option value="google">Google Gemini</option>
-              <option value="anthropic">Anthropic Claude</option>
+              {providerOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
             </select>
             <label className="wb-label">Model</label>
             <select className="wb-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={agentRunning || models.length === 0} title="The specific AI model — larger models are slower but more capable">
@@ -426,11 +444,11 @@ export default function Workbench() {
                   {keyValidating && <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', fontSize: 10 }}>checking…</span>}
                 </div>
                 <a
-                  href={provider === 'anthropic' ? 'https://console.anthropic.com/settings/keys' : 'https://aistudio.google.com/apikey'}
+                  href={providerKeyLinks[provider] || providerKeyLinks.google}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ display: 'inline-block', marginTop: 4, fontSize: 11, color: 'var(--accent)' }}
-                >Get {provider === 'anthropic' ? 'an Anthropic' : 'a Google'} API key ↗</a>
+                >Get {providerKeyLabels[provider] || 'a provider'} API key ↗</a>
               </>
             )}
           </div>

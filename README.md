@@ -39,7 +39,7 @@ That makes the repository useful for engineering evaluation, prompt iteration, r
 | --- | --- |
 | Frontend | React 19, React Router 7, Vite 6 |
 | Backend | FastAPI, Uvicorn, Pydantic 2, HTTPX, websockets |
-| Model providers | Google GenAI SDK, Anthropic SDK |
+| Model providers | Google GenAI SDK, Anthropic SDK, OpenAI SDK |
 | Sandbox | Docker, Ubuntu 24.04, XFCE, Xvfb, x11vnc, noVNC |
 | Browser tooling | Playwright MCP (pinned to `@playwright/mcp@0.0.70`), Chromium / Google Chrome |
 | Image processing | Pillow, NumPy |
@@ -147,6 +147,9 @@ At least one provider key is required to start a real session.
 ```env
 GOOGLE_API_KEY=your-google-key
 ANTHROPIC_API_KEY=your-anthropic-key
+OPENAI_API_KEY=your-openai-key
+# Optional when routing OpenAI through a compatible gateway
+OPENAI_BASE_URL=https://your-openai-compatible-endpoint/v1
 ```
 
 The backend resolves keys in this order:
@@ -160,6 +163,7 @@ The backend resolves keys in this order:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | Default model fallback in backend config |
+| `OPENAI_BASE_URL` | — | Optional custom base URL for OpenAI Responses API calls |
 | `CONTAINER_NAME` | `cua-environment` | Docker container name |
 | `AGENT_SERVICE_HOST` | `127.0.0.1` | Agent-service host from the backend's perspective |
 | `AGENT_SERVICE_PORT` | `9222` | Agent-service port |
