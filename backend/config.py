@@ -42,6 +42,9 @@ class Config:
     # Gemini
     gemini_model: str = "gemini-3-flash-preview"
 
+    # OpenAI
+    openai_base_url: Optional[str] = None
+
     # Docker container
     container_name: str = "cua-environment"
     container_image: str = "cua-ubuntu:latest"
@@ -108,6 +111,7 @@ class Config:
         """Create a Config instance from environment variables."""
         return cls(
             gemini_model=os.getenv("GEMINI_MODEL", cls.gemini_model),
+            openai_base_url=os.getenv("OPENAI_BASE_URL", cls.openai_base_url),
             container_name=os.getenv("CONTAINER_NAME", cls.container_name),
             agent_service_host=os.getenv("AGENT_SERVICE_HOST", cls.agent_service_host),
             agent_service_port=_env_int("AGENT_SERVICE_PORT", cls.agent_service_port),
@@ -143,6 +147,7 @@ config = Config.from_env()
 _PROVIDER_KEY_ENV_VARS: Dict[str, str] = {
     "google": "GOOGLE_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
 }
 
 
