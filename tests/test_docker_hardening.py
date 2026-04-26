@@ -133,6 +133,46 @@ class TestDockerfileHardening(unittest.TestCase):
         self.assertIn("@playwright/mcp@0.0.70", self.text)
         self.assertNotIn("@playwright/mcp@latest", self.text)
 
+    # ── Non-root container (I-004) ───────────────────────────────────────
+
+    def test_useradd_cua_uid_1000(self):
+        """Image must create the unprivileged ``cua`` user (uid 1000)."""
+        self.assertRegex(
+            self.text,
+            r"useradd\s+-m\s+-u\s+1000\s+-s\s+/bin/bash\s+cua",
+            "useradd directive for cua:1000 missing",
+        )
+
+    def test_user_directive_drops_to_cua(self):
+        """Final ``USER`` directive must drop privileges to ``cua``."""
+        user_lines = [
+            line.strip()
+            for line in self.text.splitlines()
+            if line.strip().startswith("USER ")
+        ]
+        self.assertTrue(user_lines, "Dockerfile has no USER directive")
+        self.assertEqual(
+            user_lines[-1],
+            "USER cua",
+            f"Final USER must be 'cua', got: {user_lines[-1]!r}",
+        )
+
+    def test_writable_paths_chowned_to_cua(self):
+        """Runtime paths the agent_service writes must be chown'd to cua."""
+        self.assertIn("chown -R cua:cua", self.text)
+        # Spot-check the critical writable paths
+        for path in ("/home/cua", "/tmp/chrome-profile", "/tmp/cua-uploads",
+                     "/run/secrets", "/app"):
+            self.assertIn(path, self.text, f"{path} not in chown set")
+
+    def test_user_directive_precedes_entrypoint(self):
+        """USER cua must appear before ENTRYPOINT so the entrypoint runs unprivileged."""
+        idx_user = self.text.rfind("USER cua")
+        idx_entrypoint = self.text.rfind("ENTRYPOINT")
+        self.assertGreater(idx_user, 0, "USER cua not found")
+        self.assertGreater(idx_entrypoint, idx_user,
+                           "ENTRYPOINT must come after USER cua")
+
 
 class TestDockerManagerHardening(unittest.TestCase):
     """backend/utils/docker_manager.py must not publish CDP port either.

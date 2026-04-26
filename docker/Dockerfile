@@ -129,6 +129,29 @@ RUN chmod +x /entrypoint.sh
 # 5900 = VNC, 6080 = noVNC web UI, 8931 = Playwright MCP, 9222 = Agent Service API
 EXPOSE 5900 6080 8931 9222
 
+# ── Non-root user (I-004) ────────────────────────────────────────────────────
+# Drops the root multiplier on Chromium's --no-sandbox: a renderer
+# compromise no longer becomes container-root. Compose's cap_drop ALL
+# plus the remaining capability allowlist still applies.  Every
+# service in this image binds a port > 1024 (5900, 6080, 8931, 9222)
+# so no privileged-port capabilities are needed.
+#
+# Writable paths owned by cua:cua so the runtime services can:
+#   /home/cua             — XDG home, fonts, dconf cache
+#   /tmp/chrome-profile   — pre-seeded Chromium profile (Dockerfile)
+#   /tmp/cua-uploads      — per-session upload sandbox (I-015)
+#   /var/log/agent_service — structured agent_service logs
+#   /run/secrets          — bearer token written by entrypoint.sh (I-002)
+#   /app                  — read mostly, but venv writes lockfiles
+RUN useradd -m -u 1000 -s /bin/bash cua \
+ && mkdir -p /home/cua /tmp/chrome-profile /tmp/cua-uploads \
+             /var/log/agent_service /run/secrets \
+ && chown -R cua:cua /home/cua /tmp/chrome-profile /tmp/cua-uploads \
+                    /var/log/agent_service /run/secrets /app \
+ && chmod 0700 /run/secrets
+
+USER cua
+
 # Health check — agent_service /health endpoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:9222/health || exit 1
