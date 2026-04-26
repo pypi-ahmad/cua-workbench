@@ -16,13 +16,17 @@ import hmac
 import json
 import logging
 import os
+import re
 import shlex
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
 from threading import Lock
 
 logging.basicConfig(
@@ -287,14 +291,95 @@ def _screenshot_playwright() -> str:
     return base64.b64encode(png_bytes).decode("ascii")
 
 
-def _screenshot_desktop() -> str:
-    """Capture the full Xvfb display via scrot (works with any app)."""
-    subprocess.run(
-        ["scrot", "-z", "-o", "/tmp/screenshot.png"],
-        check=True, timeout=5,
+# ── Per-session screenshot tempfiles (I-008) ──────────────────────────────────
+#
+# A single shared filename across concurrent sessions races: session A
+# could read session B's frame and feed it to its LLM (F-014).
+# ``make_tempshot`` returns a NamedTemporaryFile path keyed by
+# session_id so each capture lands in a distinct file.  A periodic
+# janitor (``_start_screenshot_janitor``) prunes leaked /tmp/cua-*
+# files older than 60s in case a caller crashes mid-capture.
+
+_SCREENSHOT_PREFIX_RE = re.compile(r"^cua-[A-Za-z0-9_.\-]+-")
+_SCREENSHOT_DIR = "/tmp"
+_SCREENSHOT_MAX_AGE_S = 60.0
+_SCREENSHOT_JANITOR_PERIOD_S = 30.0
+
+
+def _safe_session_id(session_id: str | None) -> str:
+    """Sanitize session_id for use in a filename (alnum + dash + underscore).
+
+    Drops dots and slashes specifically so a malicious caller cannot
+    smuggle ``..`` or absolute paths into the filename component.
+    """
+    if not session_id:
+        return "default"
+    cleaned = re.sub(r"[^A-Za-z0-9_-]", "_", session_id)
+    return cleaned[:64] or "default"
+
+
+def make_tempshot(session_id: str | None = None) -> Path:
+    """Return a unique /tmp/cua-<sid>-<rand>.png path for one capture.
+
+    Uses ``tempfile.NamedTemporaryFile(delete=False)`` so the kernel
+    picks a unique suffix (no race with another session even if both
+    pass the same session_id).  Caller is responsible for unlinking
+    the file after reading it.  The janitor sweeps anything missed.
+    """
+    sid = _safe_session_id(session_id)
+    f = tempfile.NamedTemporaryFile(
+        prefix=f"cua-{sid}-", suffix=".png", dir=_SCREENSHOT_DIR, delete=False,
     )
-    with open("/tmp/screenshot.png", "rb") as f:
-        return base64.b64encode(f.read()).decode("ascii")
+    f.close()
+    return Path(f.name)
+
+
+def _screenshot_desktop(session_id: str | None = None) -> str:
+    """Capture the full Xvfb display via scrot to a per-session tempfile."""
+    path = make_tempshot(session_id)
+    try:
+        subprocess.run(
+            ["scrot", "-z", "-o", str(path)],
+            check=True, timeout=5,
+        )
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode("ascii")
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def _start_screenshot_janitor() -> None:
+    """Daemon thread that prunes /tmp/cua-* files older than 60s.
+
+    Defensive cleanup for the I-008 per-session screenshot scheme:
+    each capture unlinks its own tempfile, but a process crash mid-
+    capture would leak.  /tmp is tmpfs so the leak is bounded by
+    container restart, but the janitor keeps the steady-state count
+    low and lets bandit B108 stay at zero (no shared paths).
+    """
+    def _sweep() -> None:
+        while True:
+            try:
+                cutoff = time.time() - _SCREENSHOT_MAX_AGE_S
+                for entry in os.listdir(_SCREENSHOT_DIR):
+                    if not _SCREENSHOT_PREFIX_RE.match(entry):
+                        continue
+                    full = os.path.join(_SCREENSHOT_DIR, entry)
+                    try:
+                        if os.path.getmtime(full) < cutoff:
+                            os.unlink(full)
+                    except OSError:
+                        # File vanished between listdir and stat/unlink — fine.
+                        pass
+            except OSError as exc:
+                logger.debug("screenshot janitor sweep error: %s", exc)
+            time.sleep(_SCREENSHOT_JANITOR_PERIOD_S)
+
+    t = threading.Thread(target=_sweep, name="cua-screenshot-janitor", daemon=True)
+    t.start()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1530,24 +1615,38 @@ def _wmctrl_close_window(identifier: str) -> dict:
     return {"success": False, "message": f"Failed to close window: {identifier} — {result.stderr.strip()}"}
 
 
-def _xdo_screenshot_full() -> str:
-    """Capture the full screen via scrot."""
-    subprocess.run(
-        ["scrot", "-z", "-o", "/tmp/full.png"],
-        check=True, timeout=5,
-    )
-    with open("/tmp/full.png", "rb") as f:
-        return base64.b64encode(f.read()).decode("ascii")
+def _xdo_screenshot_full(session_id: str | None = None) -> str:
+    """Capture the full screen via scrot to a per-session tempfile."""
+    path = make_tempshot(session_id)
+    try:
+        subprocess.run(
+            ["scrot", "-z", "-o", str(path)],
+            check=True, timeout=5,
+        )
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode("ascii")
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
-def _xdo_screenshot_region(x: int, y: int, w: int, h: int) -> str:
-    """Capture a region of the screen via scrot."""
-    subprocess.run(
-        ["scrot", "-z", "-o", "-a", f"{x},{y},{w},{h}", "/tmp/region.png"],
-        check=True, timeout=5,
-    )
-    with open("/tmp/region.png", "rb") as f:
-        return base64.b64encode(f.read()).decode("ascii")
+def _xdo_screenshot_region(x: int, y: int, w: int, h: int, session_id: str | None = None) -> str:
+    """Capture a region of the screen via scrot to a per-session tempfile."""
+    path = make_tempshot(session_id)
+    try:
+        subprocess.run(
+            ["scrot", "-z", "-o", "-a", f"{x},{y},{w},{h}", str(path)],
+            check=True, timeout=5,
+        )
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode("ascii")
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 def _xdo_focus_click(identifier: str, x: int, y: int) -> dict:
@@ -1825,19 +1924,20 @@ class AgentHandler(BaseHTTPRequestHandler):
             return
 
         if self.path.startswith("/screenshot"):
-            # Parse ?mode=desktop|browser from query string
+            # Parse ?mode=desktop|browser and ?session_id=... from query.
             mode = self._parse_mode_from_query()
+            session_id = self._parse_query_param("session_id")
             with _lock:
                 try:
                     if mode == "desktop":
-                        b64 = _screenshot_desktop()
+                        b64 = _screenshot_desktop(session_id)
                         self._respond(200, {"screenshot": b64, "method": "desktop"})
                     else:
                         try:
                             b64 = _screenshot_playwright()
                             self._respond(200, {"screenshot": b64, "method": "playwright"})
                         except Exception:
-                            b64 = _screenshot_desktop()
+                            b64 = _screenshot_desktop(session_id)
                             self._respond(200, {"screenshot": b64, "method": "desktop_fallback"})
                 except Exception as e:
                     self._respond(500, {"error": str(e)})
@@ -1904,6 +2004,16 @@ class AgentHandler(BaseHTTPRequestHandler):
                     if val in ("browser", "desktop"):
                         return val
         return DEFAULT_MODE
+
+    def _parse_query_param(self, name: str) -> str | None:
+        """Extract a single query-string parameter, or None if absent."""
+        if "?" not in self.path:
+            return None
+        qs = self.path.split("?", 1)[1]
+        for part in qs.split("&"):
+            if part.startswith(name + "="):
+                return part.split("=", 1)[1]
+        return None
 
     def _dispatch_action(self, body: dict) -> dict:
         """Route an incoming action to the correct engine dispatcher."""
@@ -2481,6 +2591,9 @@ def main():
         _init_browser()
     except Exception as e:
         logger.warning("Playwright init failed (desktop mode still works): %s", e)
+
+    # Sweep leaked /tmp/cua-* screenshot files (I-008).
+    _start_screenshot_janitor()
 
     server = HTTPServer(("0.0.0.0", SERVICE_PORT), AgentHandler)
     logger.info("Agent service listening on 0.0.0.0:%d", SERVICE_PORT)
