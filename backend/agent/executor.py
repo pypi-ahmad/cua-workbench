@@ -111,6 +111,7 @@ async def execute_action(
     engine: str = "playwright_mcp",
     step: int = 0,
     execution_target: str = "local",
+    session_id: str | None = None,
 ) -> dict:
     """Execute a single agent action via the internal agent service.
 
@@ -120,6 +121,9 @@ async def execute_action(
         engine: 'playwright_mcp', 'omni_accessibility', or 'computer_use'.
         step: Current step number (used in structured error reporting).
         execution_target: 'local' (host machine) or 'docker' (container).
+        session_id: Optional caller session id, threaded into the
+            ``X-Session-Id`` request header so the in-container service
+            can scope uploads to ``/tmp/cua-uploads/<sid>`` (I-015).
 
     Returns:
         dict with keys: success (bool), message (str)
@@ -233,7 +237,7 @@ async def execute_action(
                 "coordinates": u_action.coordinates or [],
                 "mode": "omni_accessibility",
             }
-            result = await _send_with_retry(payload, retries=2)
+            result = await _send_with_retry(payload, retries=2, session_id=session_id)
 
         if not result.get("success") and "error_type" not in result:
             result["error_type"] = "execution"
@@ -310,15 +314,21 @@ async def execute_action(
     )
 
 
-async def _send_with_retry(payload: dict, retries: int = 2) -> dict:
+async def _send_with_retry(payload: dict, retries: int = 2, session_id: str | None = None) -> dict:
     """Send action to agent service, retrying on transient failures."""
     url = f"{config.agent_service_url}/action"
     client = _get_client()
     last_error = None
 
+    headers = dict(get_auth_headers())
+    if session_id:
+        # I-015: per-session upload sandbox.  The container reads this
+        # header and scopes file writes to /tmp/cua-uploads/<sid>.
+        headers["X-Session-Id"] = session_id
+
     for attempt in range(retries + 1):
         try:
-            resp = await client.post(url, json=payload, headers=get_auth_headers())
+            resp = await client.post(url, json=payload, headers=headers)
             
             try:
                 data = resp.json()
