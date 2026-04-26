@@ -34,7 +34,7 @@ import base64
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol, Tuple
 
 import httpx
 
@@ -710,7 +710,7 @@ class GeminiCUClient:
         executor: ActionExecutor,
         *,
         turn_limit: int = DEFAULT_TURN_LIMIT,
-        on_safety: Optional[Callable[[str], bool]] = None,
+        on_safety: Optional[Callable[[str], Awaitable[bool]]] = None,
         on_turn: Optional[Callable[[CUTurnRecord], None]] = None,
         on_log: Optional[Callable[[str, str], None]] = None,
     ) -> str:
@@ -856,10 +856,7 @@ class GeminiCUClient:
                     sd = args.pop("safety_decision")
                     if isinstance(sd, dict) and sd.get("decision") == "require_confirmation":
                         if on_safety:
-                            if asyncio.iscoroutinefunction(on_safety):
-                                confirmed = await on_safety(sd.get("explanation", ""))
-                            else:
-                                confirmed = on_safety(sd.get("explanation", ""))
+                            confirmed = await on_safety(sd.get("explanation", ""))
                         else:
                             confirmed = False
                         if not confirmed:
@@ -1028,7 +1025,7 @@ class ClaudeCUClient:
         executor: ActionExecutor,
         *,
         turn_limit: int = DEFAULT_TURN_LIMIT,
-        on_safety: Optional[Callable[[str], bool]] = None,
+        on_safety: Optional[Callable[[str], Awaitable[bool]]] = None,
         on_turn: Optional[Callable[[CUTurnRecord], None]] = None,
         on_log: Optional[Callable[[str, str], None]] = None,
     ) -> str:
@@ -1350,7 +1347,7 @@ class ComputerUseEngine:
         page: Optional[Any] = None,
         *,
         turn_limit: int = DEFAULT_TURN_LIMIT,
-        on_safety: Optional[Callable[[str], bool]] = None,
+        on_safety: Optional[Callable[[str], Awaitable[bool]]] = None,
         on_turn: Optional[Callable[[CUTurnRecord], None]] = None,
         on_log: Optional[Callable[[str, str], None]] = None,
     ) -> str:
