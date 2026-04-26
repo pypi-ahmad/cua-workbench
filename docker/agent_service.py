@@ -167,10 +167,11 @@ _BLOCKED_CMD_PATTERNS = (
 # Allowed directories for file upload operations are now session-scoped.
 # See ``_upload_prefix`` and the I-015 block further down.
 
-# Strict allowlist of commands permitted in run_command.  Entries MUST
-# match what the image actually installs (see docker/Dockerfile).  Listing
-# binaries that are not installed yields misleading "Command not allowed"
-# errors to the LLM and expands the attack surface of the prompt.
+# Strict allowlist of top-level programs permitted in run_command.
+# Entries MUST match what the image actually installs (see
+# docker/Dockerfile). Listing binaries that are not installed yields
+# misleading "Command not allowed" errors to the LLM and expands the
+# attack surface of the prompt.
 _ALLOWED_COMMANDS = frozenset({
     # Basic inspection utilities
     "ls", "cat", "head", "tail", "grep", "wc", "echo",
@@ -192,6 +193,46 @@ _ALLOWED_COMMANDS = frozenset({
     # Browsers present in the image
     "google-chrome", "google-chrome-stable",
 })
+_ALLOWED_PROGRAMS = _ALLOWED_COMMANDS
+
+# Raw shell metacharacters that imply multi-command intent, redirection,
+# or shell expansion. Reject these before tokenization.
+_RAW_REJECT_TOKENS = (
+    ";",
+    "&&",
+    "||",
+    "|",
+    ">",
+    "<",
+    "$(",
+    "`",
+    "$",
+)
+
+
+def _command_is_allowed(cmd: str) -> tuple[bool, str]:
+    for token in _RAW_REJECT_TOKENS:
+        if token in cmd:
+            return False, f"chaining/redirection forbidden: {token!r}"
+
+    try:
+        argv = shlex.split(cmd, posix=True)
+    except ValueError as e:
+        return False, f"shlex parse error: {e}"
+
+    if not argv:
+        return False, "empty command"
+
+    program = argv[0]
+    if program not in _ALLOWED_PROGRAMS:
+        return False, f"program not in allowlist: {program!r}"
+
+    joined = " ".join(argv)
+    for pattern in _BLOCKED_CMD_PATTERNS:
+        if pattern.lower() in joined.lower():
+            return False, f"blocked pattern in argv: {pattern!r}"
+
+    return True, ""
 
 # Ensure DISPLAY is set for all subprocesses (Critical Desktop Fix)
 os.environ["DISPLAY"] = ":99"
@@ -2015,7 +2056,10 @@ class AgentHandler(BaseHTTPRequestHandler):
             with _lock:
                 try:
                     result = self._dispatch_action(body, session_id=self._session_id_from_headers())
-                    self._respond(200, result)
+                    status_code = 200
+                    if isinstance(result, dict):
+                        status_code = int(result.pop("_status_code", 200))
+                    self._respond(status_code, result)
                 except Exception as e:
                     logger.exception("Action failed")
                     self._respond(500, {"success": False, "message": str(e)})
@@ -2603,14 +2647,11 @@ class AgentHandler(BaseHTTPRequestHandler):
             cmd = text or target
             if not cmd:
                 return {"success": False, "message": "run_command requires text (shell command)"}
-            try:
-                args = shlex.split(cmd)
-            except ValueError as e:
-                return {"success": False, "message": f"Invalid command syntax: {e}"}
-            if not args:
-                return {"success": False, "message": "Empty command"}
-            if args[0] not in _ALLOWED_COMMANDS:
-                return {"success": False, "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_ALLOWED_COMMANDS))}"}
+            allowed, reason = _command_is_allowed(cmd)
+            if not allowed:
+                return {"success": False, "message": reason, "_status_code": 403}
+
+            args = shlex.split(cmd, posix=True)
             try:
                 result = subprocess.run(
                     args, shell=False, capture_output=True, text=True, timeout=30,
