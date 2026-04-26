@@ -465,7 +465,11 @@ class AgentLoop:
         self._emit_log("info", "Delegating to native Computer Use engine")
 
         # Map provider string → CU Provider enum
-        provider_map = {"google": Provider.GEMINI, "anthropic": Provider.CLAUDE}
+        provider_map = {
+            "google": Provider.GEMINI,
+            "anthropic": Provider.CLAUDE,
+            "openai": Provider.OPENAI,
+        }
         cu_provider = provider_map.get(self._provider)
         if cu_provider is None:
             self._emit_log("error", f"Unsupported CU provider: {self._provider}")
@@ -476,7 +480,11 @@ class AgentLoop:
         env_map = {"browser": Environment.BROWSER, "desktop": Environment.DESKTOP}
         cu_env = env_map.get(self._mode, Environment.BROWSER)
 
-        system_instruction = get_system_prompt("computer_use", self._mode)
+        system_instruction = get_system_prompt(
+            "computer_use",
+            self._mode,
+            provider=self._provider,
+        )
 
         engine = ComputerUseEngine(
             provider=cu_provider,
@@ -490,6 +498,7 @@ class AgentLoop:
             agent_service_url=config.agent_service_url,
             tool_version=self._cu_tool_version,
             beta_flag=self._cu_beta_flag,
+            openai_base_url=config.openai_base_url,
         )
 
         # For browser mode, acquire a Playwright page from the agent service
