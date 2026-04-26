@@ -101,9 +101,11 @@ class AgentLoop:
         self._on_screenshot = on_screenshot
         self._on_safety_broadcast = on_safety_broadcast
 
-        # Shared dicts for safety confirmation (written by server.py endpoint)
-        self._safety_events = safety_events
-        self._safety_decisions = safety_decisions
+        # Shared dicts for safety confirmation (written by server.py endpoint).
+        # Default to empty dicts when callers omit them so _on_safety can rely
+        # on the .pop()/.__setitem__ interface without ``is not None`` guards.
+        self._safety_events: dict = safety_events if safety_events is not None else {}
+        self._safety_decisions: dict = safety_decisions if safety_decisions is not None else {}
 
         # Playwright lifecycle refs (cleaned up on session end)
         self._pw = None
