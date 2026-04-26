@@ -41,9 +41,9 @@ except ImportError:
     # Fallback if backend not available (e.g. local dev outside docker)
     logger.warning("backend.tools not found, alias resolution disabled")
 
-    def resolve_action(a):
+    def resolve_action(action: str) -> str:
         """Identity fallback when backend.tools is unavailable."""
-        return a
+        return action
 
 # ── Globals ───────────────────────────────────────────────────────────────────
 
@@ -305,6 +305,13 @@ def _get_page():
     return _page
 
 
+def _require_context():
+    """Return the browser context or raise if Playwright is not initialised."""
+    if _context is None:
+        raise RuntimeError("browser context is not initialised")
+    return _context
+
+
 def _shutdown_browser():
     """Tear down Playwright browser, context, and page."""
     global _playwright, _browser, _context, _page
@@ -448,7 +455,7 @@ def _pw_right_click(x: int, y: int) -> dict:
     return {"success": True, "message": f"Right-clicked at ({x}, {y})"}
 
 
-def _pw_type(text: str, coords: list = None, selector: str = None) -> dict:
+def _pw_type(text: str, coords: list | None = None, selector: str | None = None) -> dict:
     """Type text, ensuring focus if coordinates or selector are provided."""
     page = _get_page()
     
@@ -631,7 +638,7 @@ def _pw_new_tab(url: str = "") -> dict:
     target = url or "about:blank"
     if url and not url.startswith(("http://", "https://")):
         target = "https://" + url
-    page = _context.new_page()
+    page = _require_context().new_page()
     page.goto(target)
     _page = page
     return {"success": True, "message": f"Opened new tab: {target}"}
@@ -642,7 +649,7 @@ def _pw_close_tab() -> dict:
     global _page
     page = _get_page()
     page.close()
-    pages = _context.pages
+    pages = _require_context().pages
     _page = pages[-1] if pages else None
     return {"success": True, "message": "Closed current tab"}
 
@@ -650,7 +657,7 @@ def _pw_close_tab() -> dict:
 def _pw_switch_tab(identifier: str) -> dict:
     """Switch tab by index (0-based) or partial title/URL match."""
     global _page
-    pages = _context.pages
+    pages = _require_context().pages
     # Try numeric index first
     try:
         idx = int(identifier)
@@ -824,7 +831,7 @@ def _pw_export_page_pdf() -> str:
     return base64.b64encode(pdf_bytes).decode("ascii")
 
 
-def _pw_get_html(selector: str = None) -> dict:
+def _pw_get_html(selector: str | None = None) -> dict:
     """Return inner HTML of *selector*, or full page HTML if omitted."""
     page = _get_page()
     if selector:
@@ -954,21 +961,21 @@ def _pw_download_file(selector: str) -> dict:
 def _pw_set_cookies(cookies: list) -> dict:
     """Add cookies to the current browser context."""
     global _context
-    _context.add_cookies(cookies)
+    _require_context().add_cookies(cookies)
     return {"success": True, "message": "Cookies set"}
 
 
 def _pw_get_cookies() -> dict:
     """Retrieve all cookies from the current browser context."""
     global _context
-    cookies = _context.cookies()
+    cookies = _require_context().cookies()
     return {"success": True, "message": f"Got {len(cookies)} cookies"}
 
 
 def _pw_clear_cookies() -> dict:
     """Clear all cookies from the current browser context."""
     global _context
-    _context.clear_cookies()
+    _require_context().clear_cookies()
     return {"success": True, "message": "Cookies cleared"}
 
 
@@ -977,6 +984,8 @@ def _pw_new_context() -> dict:
     global _playwright, _browser, _context, _page
     if _context:
         _context.close()
+    if _browser is None:
+        raise RuntimeError("browser is not initialised")
     _context = _browser.new_context(
         viewport={"width": SCREEN_WIDTH - 100, "height": SCREEN_HEIGHT - 80},
         device_scale_factor=1,

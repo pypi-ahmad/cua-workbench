@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import re
+from typing import Any, cast
 
 import anthropic
 
@@ -251,8 +252,8 @@ async def query_claude(
             response = await client.messages.create(
                 model=model_name,
                 max_tokens=1024,
-                system=system_param,
-                messages=messages,
+                system=cast(Any, system_param),
+                messages=cast(Any, messages),
                 temperature=0.1,
             )
 

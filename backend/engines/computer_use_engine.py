@@ -34,7 +34,7 @@ import base64
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol, Tuple, cast
 
 import httpx
 
@@ -905,7 +905,7 @@ class GeminiCUClient:
                             break
                         safety_confirmed = True
 
-                result = await executor.execute(fc.name, args)
+                result = await executor.execute(fc.name or "", args)
                 # Stamp safety metadata so FunctionResponse includes
                 # safety_acknowledgement when the user confirmed.
                 if safety_confirmed:
@@ -1088,14 +1088,15 @@ class ClaudeCUClient:
                 on_log("info", f"Claude CU turn {turn + 1}/{turn_limit}")
 
             response = await asyncio.to_thread(
-                self._client.beta.messages.create,
-                model=self._model,
-                max_tokens=4096,
-                system=self._system_prompt,
-                tools=tools,
-                messages=messages,
-                betas=getattr(self, "_beta_flags", [self._beta_flag]),
-                thinking={"type": "enabled", "budget_tokens": 4096},
+                lambda: self._client.beta.messages.create(
+                    model=self._model,
+                    max_tokens=4096,
+                    system=self._system_prompt,
+                    tools=cast(Any, tools),
+                    messages=cast(Any, messages),
+                    betas=cast(Any, getattr(self, "_beta_flags", [self._beta_flag])),
+                    thinking={"type": "enabled", "budget_tokens": 4096},
+                )
             )
 
             assistant_content = response.content

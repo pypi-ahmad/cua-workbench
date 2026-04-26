@@ -1,0 +1,166 @@
+backend\agent\anthropic_client.py:10:8: F401 [*] `base64` imported but unused
+backend\agent\loop.py:16:22: F401 [*] `datetime.datetime` imported but unused
+backend\agent\loop.py:16:32: F401 [*] `datetime.timezone` imported but unused
+backend\agent\loop.py:628:27: F541 [*] f-string without any placeholders
+backend\agent\playwright_mcp_client.py:53:20: F401 [*] `typing.Any` imported but unused
+backend\api\server.py:110:1: E402 Module level import not at top of file
+backend\api\server.py:111:1: E402 Module level import not at top of file
+backend\config.py:7:36: F401 [*] `dataclasses.field` imported but unused
+backend\engines\accessibility_engine.py:38:8: F401 [*] `os` imported but unused
+backend\engines\accessibility_engine.py:47:52: F401 [*] `typing.List` imported but unused
+backend\engines\accessibility_engine.py:47:58: F401 [*] `typing.Optional` imported but unused
+backend\engines\accessibility_engine.py:47:68: F401 [*] `typing.Tuple` imported but unused
+backend\engines\accessibility_engine.py:1965:9: F841 Local variable `script` is assigned to but never used
+backend\engines\accessibility_engine.py:2507:26: F541 [*] f-string without any placeholders
+backend\engines\accessibility_engine.py:2508:26: F541 [*] f-string without any placeholders
+backend\engines\accessibility_engine.py:2881:1: E402 Module level import not at top of file
+backend\engines\computer_use_engine.py:1158:9: F841 Local variable `mapped` is assigned to but never used
+backend\health\engine_certifier.py:20:8: F401 [*] `asyncio` imported but unused
+backend\health\engine_certifier.py:30:31: F401 [*] `typing.FrozenSet` imported but unused
+backend\health\engine_certifier.py:30:48: F401 [*] `typing.Optional` imported but unused
+backend\health\engine_certifier.py:519:24: F401 [*] `select` imported but unused
+backend\streaming\video_capture.py:4:8: F401 [*] `time` imported but unused
+backend\tests\stress_system.py:53:1: E402 Module level import not at top of file
+backend\tests\stress_system.py:905:19: F541 [*] f-string without any placeholders
+backend\tools\action_aliases.py:151:5: F601 Dictionary key literal `"activate_window"` repeated
+docker\agent_service.py:1638:32: E701 Multiple statements on one line (colon)
+docker\agent_service.py:1639:18: E701 Multiple statements on one line (colon)
+docker\agent_service.py:1640:20: E701 Multiple statements on one line (colon)
+docker\agent_service.py:1641:44: E701 Multiple statements on one line (colon)
+docker\agent_service.py:1723:13: E401 [*] Multiple imports on one line
+docker\agent_service.py:1952:35: E713 [*] Test for membership should be `not in`
+docker\agent_service.py:2037:53: F541 [*] f-string without any placeholders
+tests\stress\conftest.py:24:5: F401 [*] `tests.stress.helpers.A11Y_ENGINES` imported but unused
+tests\stress\conftest.py:28:5: F401 [*] `tests.stress.helpers.StressConfig` imported but unused
+tests\stress\helpers.py:15:38: F401 [*] `unittest.mock.MagicMock` imported but unused
+tests\stress\helpers.py:15:49: F401 [*] `unittest.mock.patch` imported but unused
+tests\stress\test_phase1_engine_stress.py:17:38: F401 [*] `unittest.mock.MagicMock` imported but unused
+tests\stress\test_phase1_engine_stress.py:22:53: F401 [*] `backend.models.AutomationEngine` imported but unused
+tests\stress\test_phase1_engine_stress.py:23:34: F401 [*] `backend.tools.router.SUPPORTED_ENGINES` imported but unused
+tests\stress\test_phase1_engine_stress.py:29:5: F401 [*] `tests.stress.helpers.DESKTOP_ENGINES` imported but unused
+tests\stress\test_phase1_engine_stress.py:42:5: F401 [*] `tests.stress.helpers.make_type_action` imported but unused
+tests\stress\test_phase1_engine_stress.py:43:5: F401 [*] `tests.stress.helpers.mock_agent_service_success` imported but unused
+tests\stress\test_phase1_engine_stress.py:44:5: F401 [*] `tests.stress.helpers.mock_agent_service_intermittent` imported but unused
+tests\stress\test_phase1_engine_stress.py:45:5: F401 [*] `tests.stress.helpers.mock_screenshot_b64` imported but unused
+tests\stress\test_phase2_browser_engine_stress.py:21:8: F401 [*] `sys` imported but unused
+tests\stress\test_phase2_browser_engine_stress.py:26:38: F401 [*] `unittest.mock.MagicMock` imported but unused
+tests\stress\test_phase2_browser_engine_stress.py:26:56: F401 [*] `unittest.mock.PropertyMock` imported but unused
+tests\stress\test_phase2_browser_engine_stress.py:39:5: F401 [*] `tests.stress.helpers.StressMetrics` imported but unused
+tests\stress\test_phase2_browser_engine_stress.py:41:5: F401 [*] `tests.stress.helpers.make_open_url_action` imported but unused
+tests\stress\test_phase2_browser_engine_stress.py:42:5: F401 [*] `tests.stress.helpers.make_type_action` imported but unused
+tests\stress\test_phase2_browser_engine_stress.py:43:5: F401 [*] `tests.stress.helpers.make_key_action` imported but unused
+tests\stress\test_phase3_desktop_engine_stress.py:24:20: F401 [*] `typing.Any` imported but unused
+tests\stress\test_phase3_desktop_engine_stress.py:30:41: F401 [*] `backend.engine_capabilities.EngineCapabilities` imported but unused
+tests\stress\test_phase3_desktop_engine_stress.py:34:5: F401 [*] `backend.engines.desktop_hybrid_engine.execute_desktop_hybrid_action` imported but unused
+tests\stress\test_phase3_desktop_engine_stress.py:40:5: F401 [*] `tests.stress.helpers.ALL_ENGINES` imported but unused
+tests\stress\test_phase3_desktop_engine_stress.py:44:5: F401 [*] `tests.stress.helpers.StressMetrics` imported but unused
+tests\stress\test_phase3_desktop_engine_stress.py:46:5: F401 [*] `tests.stress.helpers.make_key_action` imported but unused
+tests\stress\test_phase3_desktop_engine_stress.py:47:5: F401 [*] `tests.stress.helpers.make_type_action` imported but unused
+tests\stress\test_phase4_accessibility_stress.py:23:20: F401 [*] `typing.Any` imported but unused
+tests\stress\test_phase4_accessibility_stress.py:24:56: F401 [*] `unittest.mock.PropertyMock` imported but unused
+tests\stress\test_phase4_accessibility_stress.py:37:5: F401 [*] `backend.engines.accessibility_engine._element_cache` imported but unused
+tests\stress\test_phase4_accessibility_stress.py:38:5: F401 [*] `backend.engines.accessibility_engine._element_cache_lock` imported but unused
+tests\stress\test_phase4_accessibility_stress.py:44:5: F401 [*] `tests.stress.helpers.StressMetrics` imported but unused
+tests\stress\test_phase4_accessibility_stress.py:977:16: F401 [*] `threading` imported but unused
+tests\stress\test_phase4_accessibility_stress.py:979:13: F811 [*] Redefinition of unused `_element_cache` from line 37: `_element_cache` redefined here
+tests\stress\test_phase4_accessibility_stress.py:980:13: F811 [*] Redefinition of unused `_element_cache_lock` from line 38: `_element_cache_lock` redefined here
+tests\stress\test_phase4_accessibility_stress.py:1010:13: F811 [*] Redefinition of unused `_element_cache` from line 37: `_element_cache` redefined here
+tests\stress\test_phase4_accessibility_stress.py:1011:13: F811 [*] Redefinition of unused `_element_cache_lock` from line 38: `_element_cache_lock` redefined here
+tests\stress\test_phase4_accessibility_stress.py:1020:9: F841 Local variable `errors` is assigned to but never used
+tests\stress\test_phase5_hybrid_fallback_stress.py:22:38: F401 [*] `unittest.mock.MagicMock` imported but unused
+tests\stress\test_phase5_hybrid_fallback_stress.py:22:49: F401 [*] `unittest.mock.call` imported but unused
+tests\stress\test_phase5_hybrid_fallback_stress.py:27:41: F401 [*] `backend.engine_capabilities.EngineCapabilities` imported but unused
+tests\stress\test_phase5_hybrid_fallback_stress.py:31:5: F401 [*] `backend.engines.desktop_hybrid_engine.execute_desktop_hybrid_action` imported but unused
+tests\stress\test_phase5_hybrid_fallback_stress.py:38:5: F401 [*] `tests.stress.helpers.DESKTOP_ENGINES` imported but unused
+tests\stress\test_phase5_hybrid_fallback_stress.py:40:5: F401 [*] `tests.stress.helpers.STRESS` imported but unused
+tests\stress\test_phase5_hybrid_fallback_stress.py:41:5: F401 [*] `tests.stress.helpers.StressMetrics` imported but unused
+tests\stress\test_phase5_hybrid_fallback_stress.py:42:5: F401 [*] `tests.stress.helpers.make_click_action` imported but unused
+tests\stress\test_phase5_hybrid_fallback_stress.py:43:5: F401 [*] `tests.stress.helpers.make_key_action` imported but unused
+tests\stress\test_phase5_hybrid_fallback_stress.py:44:5: F401 [*] `tests.stress.helpers.make_type_action` imported but unused
+tests\stress\test_phase5_hybrid_fallback_stress.py:154:1: E402 Module level import not at top of file
+tests\stress\test_phase5_hybrid_fallback_stress.py:201:1: E402 Module level import not at top of file
+tests\stress\test_phase5_hybrid_fallback_stress.py:698:9: E731 Do not assign a `lambda` expression, use a `def`
+tests\stress\test_phase5_hybrid_fallback_stress.py:1090:17: F841 Local variable `app` is assigned to but never used
+tests\stress\test_phase6_agent_loop_stress.py:25:8: F401 [*] `re` imported but unused
+tests\stress\test_phase6_agent_loop_stress.py:28:20: F401 [*] `typing.Any` imported but unused
+tests\stress\test_phase6_agent_loop_stress.py:28:37: F401 [*] `typing.Optional` imported but unused
+tests\stress\test_phase6_agent_loop_stress.py:29:38: F401 [*] `unittest.mock.MagicMock` imported but unused
+tests\stress\test_phase6_agent_loop_stress.py:37:5: F401 [*] `backend.models.AgentSession` imported but unused
+tests\stress\test_phase6_agent_loop_stress.py:40:5: F401 [*] `backend.models.StepRecord` imported but unused
+tests\stress\test_phase6_agent_loop_stress.py:42:67: F401 [*] `backend.agent.loop.MAX_DUPLICATE_ACTIONS` imported but unused
+tests\stress\test_phase6_agent_loop_stress.py:43:40: F401 [*] `backend.agent.model_router.query_model` imported but unused
+tests\stress\test_phase6_agent_loop_stress.py:47:5: F401 [*] `tests.stress.helpers.ALL_ENGINES` imported but unused
+tests\stress\test_phase6_agent_loop_stress.py:48:5: F401 [*] `tests.stress.helpers.BROWSER_ENGINES` imported but unused
+tests\stress\test_phase6_agent_loop_stress.py:49:5: F401 [*] `tests.stress.helpers.DESKTOP_ENGINES` imported but unused
+tests\stress\test_phase6_agent_loop_stress.py:50:5: F401 [*] `tests.stress.helpers.ENGINE_MODES` imported but unused
+tests\stress\test_phase6_agent_loop_stress.py:51:5: F401 [*] `tests.stress.helpers.STRESS` imported but unused
+tests\stress\test_phase6_agent_loop_stress.py:52:5: F401 [*] `tests.stress.helpers.StressMetrics` imported but unused
+tests\stress\test_phase6_agent_loop_stress.py:495:9: F841 Local variable `step_counter` is assigned to but never used
+tests\stress\test_phase6_agent_loop_stress.py:577:9: F841 Local variable `click_count` is assigned to but never used
+tests\stress\test_phase6_agent_loop_stress.py:578:9: F841 Local variable `wait_count` is assigned to but never used
+tests\stress\test_phase7_frontend_stress.py:39:20: F401 [*] `typing.Any` imported but unused
+tests\stress\test_phase7_frontend_stress.py:695:13: F841 Local variable `options` is assigned to but never used
+tests\stress\test_phase8_soak_test.py:28:8: F401 [*] `asyncio` imported but unused
+tests\stress\test_phase8_soak_test.py:35:8: F401 [*] `subprocess` imported but unused
+tests\stress\test_phase8_soak_test.py:38:37: F401 [*] `typing.Optional` imported but unused
+tests\stress\test_phase8_soak_test.py:39:38: F401 [*] `unittest.mock.MagicMock` imported but unused
+tests\stress\test_phase8_soak_test.py:39:56: F401 [*] `unittest.mock.call` imported but unused
+tests\stress\test_phase8_soak_test.py:47:5: F401 [*] `backend.models.AgentSession` imported but unused
+tests\stress\test_phase8_soak_test.py:48:5: F401 [*] `backend.models.LogEntry` imported but unused
+tests\stress\test_phase8_soak_test.py:50:5: F401 [*] `backend.models.StepRecord` imported but unused
+tests\stress\test_phase8_soak_test.py:52:43: F401 [*] `backend.agent.loop.MAX_CONSECUTIVE_ERRORS` imported but unused
+tests\stress\test_phase8_soak_test.py:52:67: F401 [*] `backend.agent.loop.MAX_DUPLICATE_ACTIONS` imported but unused
+tests\stress\test_phase8_soak_test.py:53:41: F401 [*] `backend.engine_capabilities.EngineCapabilities` imported but unused
+tests\stress\test_phase8_soak_test.py:61:5: F401 [*] `tests.stress.helpers.StressMetrics` imported but unused
+tests\test_accessibility_infra.py:11:8: F401 [*] `re` imported but unused
+tests\test_accessibility_infra.py:12:8: F401 [*] `textwrap` imported but unused
+tests\test_accessibility_infra.py:13:19: F401 [*] `types.SimpleNamespace` imported but unused
+tests\test_accessibility_infra.py:14:38: F401 [*] `unittest.mock.MagicMock` imported but unused
+tests\test_browser_bootstrap.py:14:8: F401 [*] `subprocess` imported but unused
+tests\test_browser_bootstrap.py:16:45: F401 [*] `unittest.mock.call` imported but unused
+tests\test_computer_use_engine.py:17:20: F401 [*] `typing.Any` imported but unused
+tests\test_computer_use_engine.py:17:25: F401 [*] `typing.Dict` imported but unused
+tests\test_computer_use_engine.py:17:31: F401 [*] `typing.List` imported but unused
+tests\test_computer_use_engine.py:17:37: F401 [*] `typing.Optional` imported but unused
+tests\test_computer_use_engine.py:531:9: F841 Local variable `result` is assigned to but never used
+tests\test_computer_use_engine.py:545:9: F841 Local variable `result` is assigned to but never used
+tests\test_computer_use_engine.py:558:9: F841 Local variable `result` is assigned to but never used
+tests\test_computer_use_engine.py:584:9: F841 Local variable `result` is assigned to but never used
+tests\test_computer_use_engine.py:603:9: F841 Local variable `result` is assigned to but never used
+tests\test_computer_use_engine.py:825:9: F841 Local variable `result` is assigned to but never used
+tests\test_computer_use_engine.py:1159:13: F841 Local variable `result` is assigned to but never used
+tests\test_docker_hardening.py:14:8: F401 [*] `re` imported but unused
+tests\test_engine_capabilities.py:27:5: F401 [*] `backend.engine_capabilities.EngineSchema` imported but unused
+tests\test_engine_certification.py:18:8: F401 [*] `os` imported but unused
+tests\test_engine_isolation.py:117:9: F841 Local variable `result` is assigned to but never used
+tests\test_execution_target.py:12:8: F401 [*] `asyncio` imported but unused
+tests\test_execution_target.py:13:8: F401 [*] `platform` imported but unused
+tests\test_execution_target.py:15:38: F401 [*] `unittest.mock.MagicMock` imported but unused
+tests\test_execution_target.py:97:13: F841 Local variable `result` is assigned to but never used
+tests\test_lifespan_migration.py:17:8: F401 [*] `asyncio` imported but unused
+tests\test_lifespan_migration.py:18:8: F401 [*] `inspect` imported but unused
+tests\test_loop_completion.py:16:27: F401 [*] `unittest.mock.AsyncMock` imported but unused
+tests\test_loop_completion.py:16:38: F401 [*] `unittest.mock.MagicMock` imported but unused
+tests\test_loop_completion.py:16:49: F401 [*] `unittest.mock.patch` imported but unused
+tests\test_loop_completion.py:226:34: F401 [*] `google.genai.types` imported but unused
+tests\test_loop_completion.py:266:34: F401 [*] `google.genai.types` imported but unused
+tests\test_loop_completion.py:287:34: F401 [*] `google.genai.types` imported but unused
+tests\test_mcp_direct_passthrough.py:9:8: F401 [*] `asyncio` imported but unused
+tests\test_mcp_direct_passthrough.py:11:8: F401 [*] `pytest` imported but unused
+tests\test_mcp_direct_passthrough.py:12:38: F401 [*] `unittest.mock.MagicMock` imported but unused
+tests\test_mcp_streaming_fixes.py:27:8: F401 [*] `asyncio` imported but unused
+tests\test_mcp_streaming_fixes.py:28:8: F401 [*] `logging` imported but unused
+tests\test_mcp_streaming_fixes.py:30:24: F401 [*] `contextlib.AsyncExitStack` imported but unused
+tests\test_mcp_streaming_fixes.py:490:16: F811 [*] Redefinition of unused `asyncio` from line 27: `asyncio` redefined here
+tests\test_mcp_tool_denylist.py:20:8: F401 [*] `logging` imported but unused
+tests\test_mcp_tool_denylist.py:22:27: F401 [*] `unittest.mock.patch` imported but unused
+tests\test_model_policy.py:13:8: F401 [*] `importlib` imported but unused
+tests\test_model_policy.py:15:27: F401 [*] `unittest.mock.AsyncMock` imported but unused
+tests\test_playwright_state.py:19:38: F401 [*] `unittest.mock.MagicMock` imported but unused
+tests\test_playwright_state.py:316:13: F841 Local variable `step` is assigned to but never used
+tests\test_playwright_state.py:330:13: F841 Local variable `step` is assigned to but never used
+tests\test_prompt_and_recovery.py:14:34: F401 [*] `unittest.mock.MagicMock` imported but unused
+tests\test_ws_auth.py:20:8: F401 [*] `pytest` imported but unused
+tests\test_ws_broadcast_scoping.py:17:8: F401 [*] `asyncio` imported but unused
+Found 164 errors.
+[*] 133 fixable with the `--fix` option (20 hidden fixes can be enabled with the `--unsafe-fixes` option).

@@ -130,7 +130,11 @@ def _is_evaluate_js_safe(code: str) -> tuple[bool, str]:
 def _filter_discovered_tools(tools: list[dict]) -> list[dict]:
     """Drop denylisted tools from a discovered-tools list."""
     filtered = [t for t in tools if t.get("name") not in _DISALLOWED_MCP_TOOLS]
-    dropped = [t.get("name") for t in tools if t.get("name") in _DISALLOWED_MCP_TOOLS]
+    dropped: list[str] = [
+        str(t.get("name"))
+        for t in tools
+        if t.get("name") in _DISALLOWED_MCP_TOOLS and t.get("name") is not None
+    ]
     if dropped:
         logger.warning(
             "Filtered disallowed MCP tools from discovery: %s", ", ".join(dropped)

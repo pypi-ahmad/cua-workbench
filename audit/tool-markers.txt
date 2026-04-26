@@ -1,0 +1,64 @@
+string RelativePath(string directory):264:logger.debug("Claude raw response: %s", raw_text[:500])
+string RelativePath(string directory):298:Caps at 60 s so a hostile or buggy header can't stall the agent.
+string RelativePath(string directory):322:logger.debug("Gemini raw response: %s", raw_text[:500])
+string RelativePath(string directory):357:Caps at 60 s so a hostile or buggy header can't stall the agent.
+string RelativePath(string directory):606:``--remote-debugging-port=9223`` so the host backend can attach
+string RelativePath(string directory):609:well-known debugging port.
+string RelativePath(string directory):626:# 2. Fallback: well-known debugging endpoint on container
+string RelativePath(string directory):632:f"debugging endpoint: {cdp_url}",
+string RelativePath(string directory):679:logger.debug("Error closing %s", label, exc_info=True)
+string RelativePath(string directory):970:logger.debug("Callback %r raised an exception", cb, exc_info=True)
+string RelativePath(string directory):542:This prevents the common Gemini mis-targeting bug where the model
+string RelativePath(string directory):1268:logger.debug("No active MCP STDIO session to close")
+string RelativePath(string directory):76:the "ref" value from the accessibility snapshot. Look for [ref=XXX] in the snapshot text
+string RelativePath(string directory):90:1. Study the accessibility-tree snapshot to find element refs [ref=XXX] before acting.
+string RelativePath(string directory):174:the "ref" value from the accessibility snapshot. Look for [ref=XXX] in the snapshot text
+string RelativePath(string directory):188:1. Study the accessibility-tree snapshot to find element refs [ref=XXX] before acting.
+string RelativePath(string directory):470:# subsets), so we only log at DEBUG for awareness.
+string RelativePath(string directory):475:logger.debug(
+string RelativePath(string directory):64:logger.debug("Screenshot captured via %s (%d chars)", method, len(b64))
+string RelativePath(string directory):40:level=logging.DEBUG if config.debug else logging.INFO,
+string RelativePath(string directory):92:logger.debug("http client close error: %s", e)
+string RelativePath(string directory):99:logger.debug("WebRTC cleanup skipped (import unavailable): %s", e)
+string RelativePath(string directory):412:logger.debug("broadcast send error: %s", e)
+string RelativePath(string directory):620:logger.debug("Key validation error: %s", e)
+string RelativePath(string directory):1096:logger.debug("VNC WebSocket proxy closed: %s", exc)
+string RelativePath(string directory):1219:logger.debug(
+string RelativePath(string directory):1251:logger.debug("JPEG re-encode failed, sending PNG passthrough: %s", e)
+string RelativePath(string directory):977:logger.debug("EditableText.set failed: %s", exc)
+string RelativePath(string directory):995:logger.debug("Action.do_action(%s) failed: %s", action_name, exc)
+string RelativePath(string directory):1184:logger.debug("PS stderr: %s", result.stderr.strip()[:500])
+string RelativePath(string directory):1195:logger.debug("PS JSON parse failed: %s", raw[:300])
+string RelativePath(string directory):2079:logger.debug("macOS set_value failed: %s", exc)
+string RelativePath(string directory):2179:logger.debug("Post-click verification: element %d not focused/selected", element_id)
+string RelativePath(string directory):2195:logger.debug(
+string RelativePath(string directory):3053:logger.debug("Clipboard set failed: %s", exc)
+string RelativePath(string directory):975:# TODO: Remove this list once all callers pass tool_version/beta_flag
+string RelativePath(string directory):1234:the previous bug where a redundant left click preceded the real action.
+string RelativePath(string directory):1386:logger.debug("Error closing executor", exc_info=True)
+string RelativePath(string directory):275:logger.debug("Container stats unavailable: %s", exc)
+string RelativePath(string directory):684:logger.debug("%s Starting session...", log_prefix)
+string RelativePath(string directory):801:logger.debug("%s Status poll: %s", log_prefix, data["error"])
+string RelativePath(string directory):817:logger.debug(
+string RelativePath(string directory):823:logger.debug("%s Status poll error: %s", log_prefix, exc)
+string RelativePath(string directory):1030:help="Enable DEBUG-level logging",
+string RelativePath(string directory):1038:logging.getLogger().setLevel(logging.DEBUG)
+string RelativePath(string directory):152:logger.debug("Waiting for agent service... (attempt %d)", attempt + 1)
+string RelativePath(string directory):20:logger.debug("Loaded .env from %s", _ENV_FILE)
+string RelativePath(string directory):68:debug: bool = False
+string RelativePath(string directory):112:debug=os.getenv("DEBUG", "").lower() in ("1", "true", "yes"),
+string RelativePath(string directory):158:logger.debug(
+string RelativePath(string directory):14:reload=config.debug,
+string RelativePath(string directory):15:log_level="debug" if config.debug else "info",
+string RelativePath(string directory):136:# ── Network & Debugging ───────────────────────────────────────────────
+string RelativePath(string directory):150:["--remote-debugging-port=9223"]
+string RelativePath(string directory):273:# 2. Verify focus (optional but good for debugging)
+string RelativePath(string directory):1683:logger.debug("HTTP %s", fmt % args)
+string RelativePath(string directory):53:const [logLevelFilter, setLogLevelFilter] = useState({ info: true, warning: true, error: true, debug: true })
+string RelativePath(string directory):603:{['info', 'warning', 'error', 'debug'].map(level => (
+string RelativePath(string directory):554:"hack_mainframe", "divide_by_zero",
+string RelativePath(string directory):309:# Use info level to capture WS 403 rejections for debugging
+string RelativePath(string directory):330:# Write Vite output to a log file for debugging
+string RelativePath(string directory):332:vite_log = open(os.path.join(log_dir, "vite_debug.log"), "w")
+string RelativePath(string directory):8:• docker/Dockerfile — debug ports not in EXPOSE, MCP version pinned.
+string RelativePath(string directory):177:"""Every result must include the engine tag for debugging."""

@@ -1,0 +1,175 @@
+[main]	INFO	profile include tests: None
+[main]	INFO	profile exclude tests: None
+[main]	INFO	cli include tests: None
+[main]	INFO	cli exclude tests: None
+[main]	INFO	running on Python 3.14.4
+Run started:2026-04-25 16:15:27.640703+00:00
+
+Test results:
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: backend\agent\screenshot.py:77:53
+76	    proc = await asyncio.create_subprocess_exec(
+77	        "docker", "exec", name, "scrot", "-z", "-o", "/tmp/screenshot.png",
+78	        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+79	    )
+80	    _, stderr = await proc.communicate()
+81	
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: backend\agent\screenshot.py:84:65
+83	        proc = await asyncio.create_subprocess_exec(
+84	            "docker", "exec", name, "import", "-window", "root", "/tmp/screenshot.png",
+85	            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+86	        )
+87	        _, stderr = await proc.communicate()
+88	        if proc.returncode != 0:
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: backend\agent\screenshot.py:92:39
+91	    proc_read = await asyncio.create_subprocess_exec(
+92	        "docker", "exec", name, "cat", "/tmp/screenshot.png",
+93	        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+94	    )
+95	    stdout, stderr = await proc_read.communicate()
+96	
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: backend\config.py:66:16
+65	    # Server
+66	    host: str = "0.0.0.0"
+67	    port: int = 8000
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: backend\engines\computer_use_engine.py:582:15
+581	        """Grab a screenshot via ``docker exec scrot`` as last resort."""
+582	        path = "/tmp/cu_screenshot.png"
+583	        # Run scrot inside the container
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: docker\agent_service.py:94:28
+93	# Allowed directories for file upload operations
+94	_UPLOAD_ALLOWED_PREFIXES = ("/tmp", "/app", "/home")
+95	
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: docker\agent_service.py:223:30
+222	    subprocess.run(
+223	        ["scrot", "-z", "-o", "/tmp/screenshot.png"],
+224	        check=True, timeout=5,
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: docker\agent_service.py:226:14
+225	    )
+226	    with open("/tmp/screenshot.png", "rb") as f:
+227	        return base64.b64encode(f.read()).decode("ascii")
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: docker\agent_service.py:1138:22
+1137	# Pre-created profile directory (seeded at build-time in Dockerfile)
+1138	_CHROME_PROFILE_DIR = "/tmp/chrome-profile"
+1139	
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: docker\agent_service.py:1466:30
+1465	    subprocess.run(
+1466	        ["scrot", "-z", "-o", "/tmp/full.png"],
+1467	        check=True, timeout=5,
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: docker\agent_service.py:1469:14
+1468	    )
+1469	    with open("/tmp/full.png", "rb") as f:
+1470	        return base64.b64encode(f.read()).decode("ascii")
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: docker\agent_service.py:1476:56
+1475	    subprocess.run(
+1476	        ["scrot", "-z", "-o", "-a", f"{x},{y},{w},{h}", "/tmp/region.png"],
+1477	        check=True, timeout=5,
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: docker\agent_service.py:1479:14
+1478	    )
+1479	    with open("/tmp/region.png", "rb") as f:
+1480	        return base64.b64encode(f.read()).decode("ascii")
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: docker\agent_service.py:2411:25
+2410	
+2411	    server = HTTPServer(("0.0.0.0", SERVICE_PORT), AgentHandler)
+2412	    logger.info("Agent service listening on 0.0.0.0:%d", SERVICE_PORT)
+
+--------------------------------------------------
+
+Code scanned:
+	Total lines of code: 12621
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 0
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 161
+		Medium: 14
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 16
+		High: 159
+Files skipped (0):
