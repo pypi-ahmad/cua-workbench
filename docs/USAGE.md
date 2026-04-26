@@ -723,6 +723,10 @@ pip install aiortc av
 
 The backend allows a maximum of 10 session starts per 60-second window. Wait and retry.
 
+### Stress test phases 3, 4, 5 removed
+
+Phases 3 (desktop hybrid engine), 4 (accessibility cache concurrency), and 5 (fallback) were removed because they imported modules and module-level attributes that no longer exist after the engine refactor. The scenarios they covered need re-implementation against the current engine layout. See `audit/04-improvements.md` I-016. Phases 1, 2, 6, 7, 8 still run under `pytest tests/stress`.
+
 ### Closing the browser tab while a session is running
 
 The browser will display a "Leave site?" native confirmation dialog. This guard is intentional — navigating away does not stop the backend session, but it will disconnect your WebSocket and you will lose the live view.
