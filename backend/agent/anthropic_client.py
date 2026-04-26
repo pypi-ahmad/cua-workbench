@@ -7,7 +7,6 @@ JSON action responses. Mirror of gemini_client.py for the Anthropic provider.
 from __future__ import annotations
 
 import asyncio
-import base64
 import hashlib
 import json
 import logging

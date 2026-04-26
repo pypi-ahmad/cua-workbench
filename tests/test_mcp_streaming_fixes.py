@@ -25,9 +25,8 @@ Covers:
 from __future__ import annotations
 
 import asyncio
-import logging
 import unittest
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
@@ -487,7 +486,6 @@ class TestDispatch(unittest.IsolatedAsyncioTestCase):
         """Dynamic dispatch: all MCP tools are dispatched via _mcp_call, no static table needed."""
         from backend.agent.playwright_mcp_client import _build_mcp_args
         # Verify the arg builder exists and is callable
-        import asyncio
         # Test a known MCP tool
         args = asyncio.run(_build_mcp_args("browser_navigate", "", "https://example.com"))
         self.assertEqual(args["url"], "https://example.com")

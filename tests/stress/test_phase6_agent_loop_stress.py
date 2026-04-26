@@ -22,11 +22,10 @@ from __future__ import annotations
 import asyncio
 import json
 import random
-import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Dict, List
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -34,22 +33,13 @@ from backend.config import config
 from backend.models import (
     ActionType,
     AgentAction,
-    AgentSession,
     LogEntry,
     SessionStatus,
-    StepRecord,
 )
-from backend.agent.loop import AgentLoop, MAX_CONSECUTIVE_ERRORS, MAX_DUPLICATE_ACTIONS
-from backend.agent.model_router import query_model
+from backend.agent.loop import AgentLoop, MAX_CONSECUTIVE_ERRORS
 from backend.engine_capabilities import EngineCapabilities
 
 from tests.stress.helpers import (
-    ALL_ENGINES,
-    BROWSER_ENGINES,
-    DESKTOP_ENGINES,
-    ENGINE_MODES,
-    STRESS,
-    StressMetrics,
     mock_screenshot_b64,
     run_async,
 )
@@ -492,8 +482,6 @@ class TestNoRetryStorm:
             call_count += 1
             return {"success": False, "message": "Simulated execution failure"}
 
-        step_counter = {}
-
         async def _mock_query(
             provider, api_key, model_name, task,
             screenshot_b64, action_history, step_number=1,
@@ -573,10 +561,8 @@ class TestNoRetryStorm:
 
         # The loop should detect duplication and inject WAIT actions
         # Instead of 20 identical clicks, there should be recovery hints
-        actions = [s.action for s in session.steps if s.action]
-        click_count = sum(1 for a in actions if a.action == ActionType.CLICK)
-        wait_count = sum(1 for a in actions if a.action == ActionType.WAIT)
-        # Not ALL steps should be clicks — some should be recovery waits
+        # Click vs wait counts kept for documentation but unused; the assertion
+        # below is on total step count to keep the run bounded.
         # The exact ratio depends on MAX_DUPLICATE_ACTIONS spacing
         total_steps = len(session.steps)
         assert total_steps <= 20  # Never exceeds max_steps

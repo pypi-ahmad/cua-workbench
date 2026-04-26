@@ -24,7 +24,6 @@ from backend.engine_capabilities import (
     ALL_ENGINES,
     CONCRETE_ENGINES,
     EngineCapabilities,
-    EngineSchema,
 )
 
 

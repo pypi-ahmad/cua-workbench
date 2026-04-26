@@ -11,7 +11,7 @@ Covers:
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, AsyncMock
 
 from backend.agent.prompts import get_system_prompt
 from backend.models import ActionType, AgentAction

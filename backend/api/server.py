@@ -16,6 +16,8 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 from backend.config import config, get_all_key_statuses, resolve_api_key
 from pydantic import BaseModel
@@ -123,8 +125,6 @@ app = FastAPI(title="CUA — Computer Using Agent", version="1.0.0", lifespan=li
 
 
 # ── B-28: Request-ID middleware ───────────────────────────────────────────────
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):

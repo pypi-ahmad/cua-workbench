@@ -17,7 +17,6 @@ from __future__ import annotations
 import time
 import unittest
 
-import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 

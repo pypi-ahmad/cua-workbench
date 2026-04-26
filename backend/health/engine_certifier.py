@@ -17,7 +17,6 @@ Usage::
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -27,7 +26,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, FrozenSet, List, Optional, Set
+from typing import Any, Dict, List, Set
 
 logger = logging.getLogger(__name__)
 
@@ -523,7 +522,6 @@ class EngineCertifier:
                 proc.stdin.write((init_msg + "\n").encode())
                 proc.stdin.flush()
                 # Wait briefly for response
-                import select
                 proc.stdout.readline()  # may block briefly
                 return "pass"
             finally:

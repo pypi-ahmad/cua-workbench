@@ -13,7 +13,6 @@ Covers:
 from __future__ import annotations
 
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.agent.loop import (
     AgentLoop,
@@ -223,7 +222,6 @@ class TestHistoryTextExpansion(unittest.TestCase):
 
     def test_gemini_history_shows_result_in_reasoning(self):
         """When reasoning contains '→ Result: {...}', it should be visible."""
-        from google.genai import types
         from backend.agent.gemini_client import _build_contents
 
         action = AgentAction(
@@ -263,7 +261,6 @@ class TestHistoryTextExpansion(unittest.TestCase):
 
     def test_gemini_evaluate_js_gets_larger_truncation(self):
         """evaluate_js results should get 400 char limit, not 120."""
-        from google.genai import types
         from backend.agent.gemini_client import _build_contents
 
         long_result = "→ Result: " + "x" * 300
@@ -284,7 +281,6 @@ class TestHistoryTextExpansion(unittest.TestCase):
 
     def test_gemini_click_gets_smaller_truncation(self):
         """click reasoning should be truncated at 120 chars."""
-        from google.genai import types
         from backend.agent.gemini_client import _build_contents
 
         long_reasoning = "R" * 200

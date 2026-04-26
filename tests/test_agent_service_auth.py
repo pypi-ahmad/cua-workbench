@@ -20,12 +20,10 @@ Closes F-008.  Implements I-002.
 from __future__ import annotations
 
 import importlib
-import io
 import os
 import sys
 import unittest
 from pathlib import Path
-from unittest import mock
 
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -151,8 +149,8 @@ class TestAgentServiceSource(unittest.TestCase):
         # Must contain /health and NOT /health/a11y or /screenshot.
         # Locate the tuple definition.
         line = next(
-            l for l in self.text.splitlines()
-            if l.strip().startswith("_PUBLIC_PATHS")
+            ln for ln in self.text.splitlines()
+            if ln.strip().startswith("_PUBLIC_PATHS")
         )
         self.assertIn('"/health"', line)
         self.assertNotIn('"/health/a11y"', line)

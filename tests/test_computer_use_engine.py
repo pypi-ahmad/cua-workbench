@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import unittest
-from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -534,7 +533,7 @@ class TestClaudeActionMapping(unittest.IsolatedAsyncioTestCase):
         client._anthropic = MagicMock()
         executor = AsyncMock()
         executor.execute = AsyncMock(return_value=CUActionResult(name="scroll_at"))
-        result = await client._execute_claude_action(
+        await client._execute_claude_action(
             {"action": "scroll", "coordinate": [500, 400], "direction": "down", "amount": 3},
             executor,
         )
@@ -548,7 +547,7 @@ class TestClaudeActionMapping(unittest.IsolatedAsyncioTestCase):
         client._anthropic = MagicMock()
         executor = AsyncMock()
         executor.execute = AsyncMock(return_value=CUActionResult(name="key_combination"))
-        result = await client._execute_claude_action(
+        await client._execute_claude_action(
             {"action": "key", "key": "Return"}, executor
         )
         executor.execute.assert_awaited_once()
@@ -561,7 +560,7 @@ class TestClaudeActionMapping(unittest.IsolatedAsyncioTestCase):
         client._anthropic = MagicMock()
         executor = AsyncMock()
         executor.execute = AsyncMock(return_value=CUActionResult(name="hover_at"))
-        result = await client._execute_claude_action(
+        await client._execute_claude_action(
             {"action": "mouse_move", "coordinate": [300, 400]}, executor
         )
         executor.execute.assert_awaited_once()
@@ -587,7 +586,7 @@ class TestClaudeActionMapping(unittest.IsolatedAsyncioTestCase):
         executor.screen_width = 1440
         executor.screen_height = 900
         executor.execute = AsyncMock(return_value=CUActionResult(name="type_at_cursor"))
-        result = await client._execute_claude_action(
+        await client._execute_claude_action(
             {"action": "type", "text": "hello world"}, executor
         )
         executor.execute.assert_awaited_once()
@@ -606,7 +605,7 @@ class TestClaudeActionMapping(unittest.IsolatedAsyncioTestCase):
         executor.execute = AsyncMock(return_value=CUActionResult(
             name="double_click", extra={"pixel_x": 100, "pixel_y": 200},
         ))
-        result = await client._execute_claude_action(
+        await client._execute_claude_action(
             {"action": "double_click", "coordinate": [100, 200]}, executor
         )
         # Should call executor.execute exactly once with "double_click"
@@ -849,7 +848,7 @@ class TestClaudeBetaApiCall(unittest.IsolatedAsyncioTestCase):
         executor.screen_height = 900
         executor.capture_screenshot = AsyncMock(return_value=b"\x89PNG\r\n")
 
-        result = await client.run_loop("test task", executor, turn_limit=1)
+        await client.run_loop("test task", executor, turn_limit=1)
 
         # Verify beta.messages.create was called (not messages.create)
         mock_beta_create.assert_called_once()
@@ -1188,7 +1187,7 @@ class TestGeminiSafetyPopBeforeExecutor(unittest.IsolatedAsyncioTestCase):
             async def _confirm(explanation):
                 return confirmed_safety
 
-            result = await client.run_loop(
+            await client.run_loop(
                 "click the button",
                 executor,
                 turn_limit=2,

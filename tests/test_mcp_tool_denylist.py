@@ -17,9 +17,7 @@ Verifies:
 from __future__ import annotations
 
 import asyncio
-import logging
 import unittest
-from unittest.mock import patch
 
 from backend.agent.playwright_mcp_client import (
     _DISALLOWED_MCP_TOOLS,

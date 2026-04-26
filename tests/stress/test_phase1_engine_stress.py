@@ -14,19 +14,18 @@ from __future__ import annotations
 import asyncio
 import random
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from backend.engine_capabilities import EngineCapabilities
-from backend.models import ActionType, AgentAction, AutomationEngine
-from backend.tools.router import SUPPORTED_ENGINES, InvalidEngineError, validate_engine
+from backend.models import ActionType, AgentAction
+from backend.tools.router import InvalidEngineError, validate_engine
 from backend.agent.executor import execute_action
 
 from tests.stress.helpers import (
     ALL_ENGINES,
     BROWSER_ENGINES,
-    DESKTOP_ENGINES,
     ENGINE_MODES,
     SITES,
     STRESS,
@@ -39,10 +38,6 @@ from tests.stress.helpers import (
     make_key_action,
     make_open_url_action,
     make_scroll_action,
-    make_type_action,
-    mock_agent_service_success,
-    mock_agent_service_intermittent,
-    mock_screenshot_b64,
     run_async,
 )
 

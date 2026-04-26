@@ -18,12 +18,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 import time
 import tracemalloc
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -36,11 +35,7 @@ from tests.stress.helpers import (
     ENGINE_MODES,
     SITES,
     STRESS,
-    StressMetrics,
     make_click_action,
-    make_open_url_action,
-    make_type_action,
-    make_key_action,
     run_async,
 )
 

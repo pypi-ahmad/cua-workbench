@@ -6,10 +6,8 @@ resolution / JS fallback), and that the legacy flat path still works
 when tool_args is None.
 """
 
-import asyncio
 import unittest
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from backend.models import ActionType, AgentAction
 

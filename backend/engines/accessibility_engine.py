@@ -32,10 +32,10 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import base64 as _b64
 import dataclasses
 import json
 import logging
-import os
 import platform
 import re
 import shlex
@@ -45,7 +45,9 @@ import threading
 import time
 from collections import OrderedDict
 from difflib import SequenceMatcher
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict
+
+from backend.models import ActionType
 
 logger = logging.getLogger(__name__)
 
@@ -1169,8 +1171,6 @@ class LinuxATSPIProvider(AccessibilityProvider):
 # the PowerShell / JXA script. Reject newlines, control chars, surrogates,
 # and explicit shell metacharacters before encoding.
 
-import base64 as _b64
-
 _SHELL_METACHARS = (";", "`", "$(", "${")
 
 
@@ -2041,11 +2041,7 @@ class MacAccessibilityProvider(AccessibilityProvider):
 
     def click_at(self, x: int, y: int, button: int = 1, clicks: int = 1) -> bool:
         click_type = "right click" if button == 3 else "click"
-        script = (
-            "const se = Application('System Events');\n"
-            f"se.{click_type}({{x: {x}, y: {y}}});"
-        )
-        # AppleScript approach as fallback (more reliable for mouse)
+        # AppleScript approach (more reliable for mouse than JXA)
         applescript = f'tell application "System Events" to {click_type} at {{{x}, {y}}}'
         try:
             for _ in range(clicks):
@@ -2595,8 +2591,8 @@ async def hover_element(target: str) -> dict:
                 await asyncio.to_thread(
                     lambda: subprocess.run(
                         ["osascript", "-e",
-                         f'tell application "System Events" to '
-                         f'key code 0'],  # minimal no-op to keep process active
+                         'tell application "System Events" to '
+                         'key code 0'],  # minimal no-op to keep process active
                         timeout=5, capture_output=True,
                     )
                 )
@@ -2968,8 +2964,6 @@ async def check_accessibility_health() -> bool:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  14. Handler Functions — signatures: async (text: str, target: str) -> dict
 # ═══════════════════════════════════════════════════════════════════════════════
-
-from backend.models import ActionType
 
 
 async def _NOOP(text: str, target: str) -> dict:

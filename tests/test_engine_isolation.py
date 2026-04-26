@@ -114,7 +114,7 @@ class TestNoCrossEngineFallback:
     def test_accessibility_never_calls_mcp(self, mock_mcp, mock_send):
         mock_send.return_value = {"success": False, "message": "AT-SPI error"}
         action = AgentAction(action=ActionType.CLICK, coordinates=[100, 100])
-        result = asyncio.run(execute_action(action, engine="omni_accessibility", mode="desktop", execution_target="docker"))
+        asyncio.run(execute_action(action, engine="omni_accessibility", mode="desktop", execution_target="docker"))
         mock_mcp.assert_not_called()
 
 
