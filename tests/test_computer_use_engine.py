@@ -1156,11 +1156,14 @@ class TestGeminiSafetyPopBeforeExecutor(unittest.IsolatedAsyncioTestCase):
             mock_types.Part.from_bytes = MagicMock(return_value=MagicMock())
             mock_types.Content = MagicMock()
 
+            async def _confirm(explanation):
+                return confirmed_safety
+
             result = await client.run_loop(
                 "click the button",
                 executor,
                 turn_limit=2,
-                on_safety=lambda explanation: confirmed_safety,
+                on_safety=_confirm,
             )
 
         # The executor should NOT have received safety_decision in args
@@ -1215,13 +1218,86 @@ class TestGeminiSafetyPopBeforeExecutor(unittest.IsolatedAsyncioTestCase):
             mock_types.Part.from_bytes = MagicMock(return_value=MagicMock())
             mock_types.Content = MagicMock()
 
+            async def _deny(explanation):
+                return False
+
             final = await client.run_loop(
                 "go to evil.com",
                 executor,
                 turn_limit=2,
-                on_safety=lambda explanation: False,  # DENY
+                on_safety=_deny,  # DENY
             )
 
         assert "terminated" in final.lower()
         # executor.execute should NOT have been called (safety denied before execution)
+        executor.execute.assert_not_awaited()
+
+    async def test_on_safety_is_awaited(self):
+        """Regression for F-001: on_safety must be awaited as a coroutine.
+
+        Previously the call site asyncio.iscoroutinefunction(on_safety) check
+        did not detect bound methods / partials whose underlying coroutine
+        was wrapped, and silently auto-approved the unawaited bool-coroutine
+        as truthy. Now the signature is typed ``Callable[[str], Awaitable[bool]]``
+        and the call is unconditionally awaited.
+        """
+        client = GeminiCUClient.__new__(GeminiCUClient)
+        client._model = "gemini-3-flash-preview"
+
+        mock_types = MagicMock()
+        client._types = mock_types
+        client._genai = MagicMock()
+        client._client = MagicMock()
+        client._environment = Environment.BROWSER
+        client._excluded = []
+        client._system_instruction = None
+
+        fc = MagicMock()
+        fc.name = "navigate"
+        fc.args = {
+            "url": "http://evil.com",
+            "safety_decision": {"decision": "require_confirmation", "explanation": "danger"},
+        }
+
+        candidate = MagicMock()
+        fc_part = MagicMock()
+        fc_part.function_call = fc
+        fc_part.text = None
+        candidate.content.parts = [fc_part]
+
+        response = MagicMock()
+        response.candidates = [candidate]
+
+        client._client.models.generate_content = MagicMock(return_value=response)
+
+        executor = AsyncMock()
+        executor.screen_width = 1440
+        executor.screen_height = 900
+        executor.capture_screenshot = AsyncMock(return_value=b"\x89PNG\r\n" + b"\x00" * 120)
+        executor.get_current_url = MagicMock(return_value="")
+
+        client._build_config = MagicMock()
+
+        on_safety = AsyncMock(return_value=False)
+
+        with patch(
+            "backend.engines.computer_use_engine.asyncio.to_thread",
+            side_effect=lambda fn, *a, **kw: fn(*a, **kw),
+        ):
+            mock_types.Part = MagicMock()
+            mock_types.Part.from_bytes = MagicMock(return_value=MagicMock())
+            mock_types.Content = MagicMock()
+
+            final = await client.run_loop(
+                "go to evil.com",
+                executor,
+                turn_limit=2,
+                on_safety=on_safety,
+            )
+
+        assert on_safety.await_count == 1, (
+            f"on_safety must be awaited exactly once; got {on_safety.await_count}"
+        )
+        on_safety.assert_awaited_with("danger")
+        assert "terminated" in final.lower()
         executor.execute.assert_not_awaited()
