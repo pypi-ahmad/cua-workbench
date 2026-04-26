@@ -1897,11 +1897,15 @@ def _map_key_combo(key: str) -> str:
     
     # Single key
     k = key.lower()
-    if k in ("ctrl", "control"): return "Control"
-    if k == "alt": return "Alt"
-    if k == "shift": return "Shift"
-    if k in ("meta", "super", "win", "cmd"): return "Meta"
-    
+    if k in ("ctrl", "control"):
+        return "Control"
+    if k == "alt":
+        return "Alt"
+    if k == "shift":
+        return "Shift"
+    if k in ("meta", "super", "win", "cmd"):
+        return "Meta"
+
     return _KEY_MAP.get(k, key)
 
 
@@ -1984,7 +1988,8 @@ class AgentHandler(BaseHTTPRequestHandler):
             # loop which conflicts with the HTTPServer thread.  To avoid
             # "Cannot run the event loop while another loop is running",
             # we run the check in a **separate subprocess**.
-            import subprocess, sys
+            import subprocess
+            import sys
             _a11y_script = (
                 "import sys;"
                 "try:\n"
@@ -2239,7 +2244,7 @@ class AgentHandler(BaseHTTPRequestHandler):
         elif action == "type":
             selector = target or (text.split("|")[0] if "|" in text else "")
             value = text.split("|")[1] if "|" in text else text
-            if not target and not "|" in text:
+            if not target and "|" not in text:
                  return _pw_type(text, coords)
             return _pw_type(value, coords, selector)
         elif action == "fill":
@@ -2324,7 +2329,7 @@ class AgentHandler(BaseHTTPRequestHandler):
         elif action == "screenshot_region":
             if len(coords) >= 4:
                 b64 = _pw_screenshot_region(coords[0], coords[1], coords[2], coords[3])
-                return {"success": True, "message": f"Region screenshot captured", "screenshot": b64}
+                return {"success": True, "message": "Region screenshot captured", "screenshot": b64}
             return {"success": False, "message": "screenshot_region needs 4 coords [x, y, width, height]"}
         elif action == "screenshot_viewport":
             b64 = _pw_screenshot_viewport()

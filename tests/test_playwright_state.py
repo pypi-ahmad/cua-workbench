@@ -16,7 +16,7 @@ Covers:
 from __future__ import annotations
 
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from backend.models import ActionType, AgentAction, SessionStatus, TaskState
 from backend.agent.loop import AgentLoop
@@ -313,7 +313,7 @@ class TestEarlyTerminationGuard(unittest.IsolatedAsyncioTestCase):
         loop = _make_loop()
         loop._task_state.complete = True
         with patch("backend.agent.loop.query_model", new_callable=AsyncMock) as mock_model:
-            step = await loop._execute_step(1)
+            await loop._execute_step(1)
             mock_model.assert_not_awaited()
 
     async def test_incomplete_state_proceeds_normally(self):
@@ -327,7 +327,7 @@ class TestEarlyTerminationGuard(unittest.IsolatedAsyncioTestCase):
                 AgentAction(action=ActionType.DONE, reasoning="done"),
                 "raw",
             )
-            step = await loop._execute_step(1)
+            await loop._execute_step(1)
             mock_snap.assert_awaited_once()
             mock_model.assert_awaited_once()
 

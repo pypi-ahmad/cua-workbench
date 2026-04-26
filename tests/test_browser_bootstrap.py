@@ -11,9 +11,8 @@ Covers:
 
 from __future__ import annotations
 
-import subprocess
 import unittest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import sys
 import os

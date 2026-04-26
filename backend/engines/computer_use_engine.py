@@ -1169,21 +1169,6 @@ class ClaudeCUClient:
         if action == "screenshot":
             return CUActionResult(name="screenshot")
 
-        # Map Claude actions → Gemini-style CU action names
-        CLAUDE_TO_CU: Dict[str, str] = {
-            "click": "click_at",
-            "double_click": "click_at",  # with special handling
-            "right_click": "click_at",   # with special handling
-            "type": "_claude_type",
-            "key": "key_combination",
-            "scroll": "scroll_at",
-            "mouse_move": "hover_at",
-            "left_click_drag": "drag_and_drop",
-            "triple_click": "click_at",
-        }
-
-        mapped = CLAUDE_TO_CU.get(action, action)
-
         # Build args in the CU format the executor expects
         coord = action_input.get("coordinate")
         args: Dict[str, Any] = {}

@@ -50,7 +50,7 @@ import logging
 import re
 import shlex
 from contextlib import AsyncExitStack
-from typing import Any, Optional
+from typing import Optional
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client

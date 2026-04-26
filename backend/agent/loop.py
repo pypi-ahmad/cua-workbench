@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Callable, Optional
 
 from backend.config import config
@@ -640,7 +639,7 @@ class AgentLoop:
 
             # 2. Fallback: well-known debugging endpoint on container
             if not cdp_url:
-                cdp_url = f"http://127.0.0.1:9223"
+                cdp_url = "http://127.0.0.1:9223"
                 self._emit_log(
                     "info",
                     "No cdp_url in health response, trying default "

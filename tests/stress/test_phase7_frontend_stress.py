@@ -36,7 +36,7 @@ import time
 import uuid
 from contextlib import closing
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Dict, List
 
 import pytest
 
@@ -692,7 +692,6 @@ class TestFrontendLoadAndRender:
 
             # Engine select is the third .model-select
             engine_select = page.locator("select.model-select").nth(2)
-            options = engine_select.locator("option").all_text_contents()
             option_values = engine_select.locator("option").evaluate_all(
                 "els => els.map(e => e.value)"
             )

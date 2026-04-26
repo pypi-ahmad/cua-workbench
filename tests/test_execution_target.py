@@ -9,10 +9,8 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
-import platform
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -94,7 +92,7 @@ class TestMCPDockerRouting(unittest.IsolatedAsyncioTestCase):
         with patch("backend.agent.playwright_mcp_client.execute_mcp_action", new_callable=AsyncMock, return_value=mock_result) as mock_local, \
              patch("backend.agent.playwright_mcp_client.execute_mcp_action_docker", new_callable=AsyncMock) as mock_docker:
             from backend.agent.executor import execute_action
-            result = await execute_action(
+            await execute_action(
                 action={"action": "browser_click", "target": "button"},
                 engine="playwright_mcp",
                 step=1,
