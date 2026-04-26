@@ -180,7 +180,6 @@ _MAX_CONCURRENT_SESSIONS = 3
 _MAX_STEPS_HARD_CAP = 200
 # Engine list is the single source of truth from the router module
 _VALID_ENGINES = SUPPORTED_ENGINES
-_VALID_PROVIDERS = {"google", "anthropic"}
 
 # ── Allowed models (single source of truth: backend/allowed_models.json) ──────
 
@@ -227,31 +226,12 @@ def _allowed_model_entry(provider: str, model_id: str) -> dict | None:
 
 
 _ALLOWED_MODELS, _VALID_MODELS_BY_PROVIDER = _build_allowed_model_state(_load_allowed_models())
+_VALID_PROVIDERS = set(_VALID_MODELS_BY_PROVIDER)
 
 
 def _fingerprint(key: str) -> str:
     """Return a short stable fingerprint for sensitive in-memory map keys."""
     return hashlib.blake2b(key.encode("utf-8"), digest_size=8).hexdigest()
-
-
-# ── Rate limiter (in-memory sliding window) ───────────────────────────────────
-
-class _RateLimiter:
-    """Simple sliding-window rate limiter (no external deps)."""
-    def __init__(self, max_calls: int, window_seconds: float):
-        """Configure the limiter with *max_calls* per *window_seconds*."""
-        self._max = max_calls
-        self._window = window_seconds
-        self._calls: list[float] = []
-
-    def allow(self) -> bool:
-        """Return True and record a call if under the rate limit."""
-        now = time.monotonic()
-        self._calls = [t for t in self._calls if now - t < self._window]
-        if len(self._calls) >= self._max:
-            return False
-        self._calls.append(now)
-        return True
 
 
 class _PerKeyRateLimiter:

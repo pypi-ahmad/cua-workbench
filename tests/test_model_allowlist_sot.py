@@ -105,6 +105,10 @@ class TestRuntimeMatchesAllowlist(unittest.TestCase):
             expected.setdefault(entry["provider"], set()).add(entry["model_id"])
         self.assertEqual(srv._VALID_MODELS_BY_PROVIDER, expected)
 
+    def test_runtime_provider_set_matches_file(self):
+        expected = {entry["provider"] for entry in _load_allowlist()}
+        self.assertEqual(srv._VALID_PROVIDERS, expected)
+
 
 class TestCodeDefaultsAreAllowlisted(unittest.TestCase):
     """Default model literals in source must be present in the allowlist."""
