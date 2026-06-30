@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import unittest
 from unittest import mock
 
@@ -57,7 +58,11 @@ class TestApiErrorResponses(unittest.TestCase):
     def test_validate_invalid_google_key_is_422(self):
         fake_client = _FakeAsyncClient(_FakeResponse(403))
 
-        with mock.patch.object(srv.httpx, "AsyncClient", return_value=fake_client):
+        @asynccontextmanager
+        async def _fake_request_http_client(_request):
+            yield fake_client
+
+        with mock.patch.object(srv, "_request_http_client", side_effect=_fake_request_http_client):
             resp = self.client.post(
                 "/api/keys/validate",
                 json={"provider": "google", "api_key": "AIzaSyNotRealKey"},
