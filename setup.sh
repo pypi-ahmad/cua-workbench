@@ -26,6 +26,7 @@ fi
 command -v docker >/dev/null 2>&1 || error "Docker is required. Install: https://docs.docker.com/get-docker/"
 command -v python3 >/dev/null 2>&1 || error "Python 3 is required."
 command -v node >/dev/null 2>&1 || error "Node.js is required."
+command -v uv >/dev/null 2>&1 || error "uv is required. Install: https://docs.astral.sh/uv/"
 
 docker info >/dev/null 2>&1 || error "Docker daemon is not running. Start Docker and retry."
 
@@ -76,12 +77,9 @@ info "Docker image built."
 # ── Install Python deps ──────────────────────────────────────────────────────
 info "Installing Python dependencies..."
 if [[ ! -d ".venv" ]]; then
-  python3 -m venv .venv
+  uv venv .venv
 fi
-# shellcheck disable=SC1091
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+uv pip install --python .venv/bin/python -r requirements.txt
 info "Python dependencies installed."
 
 # ── Install frontend deps ────────────────────────────────────────────────────

@@ -78,7 +78,7 @@ That makes the repository useful for engineering evaluation, prompt iteration, r
 
 - Docker with a running daemon
 - Python 3.10+
-- Node.js 18+
+- Node.js 24+
 
 The Docker image is large enough that low disk space can cause setup to fail. Both setup scripts check for that condition.
 

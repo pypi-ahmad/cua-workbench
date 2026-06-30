@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from dataclasses import dataclass
 import hashlib
 import json
@@ -66,6 +67,7 @@ else:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _ws_stream_hub_task
     logger.info(
         "CUA backend starting — model=%s, agent_service=%s, mode=%s",
         config.gemini_model, config.agent_service_url, config.agent_mode,
@@ -102,6 +104,17 @@ async def lifespan(app: FastAPI):
                 task.cancel()
         _active_tasks.clear()
         _active_loops.clear()
+        _ws_clients.clear()
+        _ws_pending_tokens.clear()
+
+        # Stop shared screenshot stream hub.
+        if _ws_stream_hub_task is not None and not _ws_stream_hub_task.done():
+            _ws_stream_hub_task.cancel()
+            try:
+                await _ws_stream_hub_task
+            except asyncio.CancelledError:
+                pass
+        _ws_stream_hub_task = None
 
         # Close shared httpx client
         try:
@@ -259,19 +272,28 @@ class _PerKeyRateLimiter:
     def __init__(self, max_calls: int, window_seconds: float):
         self._max = max_calls
         self._window = window_seconds
-        self._buckets: dict[str, list[float]] = {}
+        self._buckets: dict[str, deque[float]] = {}
+        self._last_gc = 0.0
+        self._gc_interval = max(1.0, window_seconds / 2.0)
 
     def allow(self, key: str) -> bool:
         bucket_key = _fingerprint(key)
         del key
         now = time.monotonic()
         cutoff = now - self._window
-        # Evict any bucket whose newest call is older than the window.
-        for k, calls in list(self._buckets.items()):
-            if not calls or calls[-1] < cutoff:
+        # Periodic stale-bucket eviction; avoids O(n) scans on every call.
+        if now - self._last_gc >= self._gc_interval:
+            stale_keys = [
+                k for k, calls in self._buckets.items()
+                if not calls or calls[-1] < cutoff
+            ]
+            for k in stale_keys:
                 self._buckets.pop(k, None)
-        bucket = self._buckets.setdefault(bucket_key, [])
-        bucket[:] = [t for t in bucket if t >= cutoff]
+            self._last_gc = now
+
+        bucket = self._buckets.setdefault(bucket_key, deque())
+        while bucket and bucket[0] < cutoff:
+            bucket.popleft()
         if len(bucket) >= self._max:
             return False
         bucket.append(now)
@@ -416,6 +438,7 @@ _session_owners: dict[str, str] = {}
 # prevents tab B from seeing tab A's live screenshot stream.
 _ws_clients: dict[WebSocket, set[str]] = {}
 _ws_pending_tokens: dict[WebSocket, str] = {}
+_ws_stream_hub_task: asyncio.Task | None = None
 
 # B-19: Session idle timeout tracking  (last-activity timestamp per session)
 _SESSION_IDLE_TIMEOUT = 30 * 60  # 30 minutes
@@ -425,6 +448,20 @@ _session_last_activity: dict[str, float] = {}
 def _touch_session(session_id: str) -> None:
     """Update the last-activity timestamp for *session_id*."""
     _session_last_activity[session_id] = time.monotonic()
+
+
+@asynccontextmanager
+async def _request_http_client(request: Request):
+    """Yield the shared app HTTP client, with a short-lived fallback."""
+    shared = getattr(request.app.state, "http", None)
+    if isinstance(shared, httpx.AsyncClient) and not shared.is_closed:
+        yield shared
+        return
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0, connect=5.0),
+        limits=httpx.Limits(max_keepalive_connections=20, max_connections=40),
+    ) as client:
+        yield client
 
 
 # ── B-14: Standardized error envelope ─────────────────────────────────────────
@@ -483,6 +520,68 @@ async def _broadcast(event: str, data: dict, *, session_id: str | None = None) -
     for ws in stale:
         _ws_clients.pop(ws, None)
         _ws_pending_tokens.pop(ws, None)
+
+
+async def _ensure_ws_stream_hub() -> None:
+    """Ensure the shared screenshot stream hub task is running."""
+    global _ws_stream_hub_task
+    if _ws_stream_hub_task is None or _ws_stream_hub_task.done():
+        _ws_stream_hub_task = asyncio.create_task(_stream_screenshots_hub())
+
+
+async def _stream_screenshots_hub():
+    """Capture one frame per interval and fan it out to subscribed clients."""
+    consecutive_failures = 0
+    MAX_CONSECUTIVE_FAILURES = 10
+
+    while True:
+        try:
+            await asyncio.sleep(config.ws_screenshot_interval)
+            if not await is_container_running():
+                continue
+            if not _ws_clients:
+                continue
+            if not any(subscriptions for subscriptions in _ws_clients.values()):
+                continue
+
+            b64_png = await capture_screenshot(mode="desktop")
+            payload, fmt = _encode_for_stream(b64_png)
+            message = json.dumps({
+                "event": "screenshot_stream",
+                "screenshot": payload,
+                "format": fmt,
+            })
+
+            stale: list[WebSocket] = []
+            for ws, subscriptions in list(_ws_clients.items()):
+                if not subscriptions:
+                    continue
+                try:
+                    await ws.send_text(message)
+                except (WebSocketDisconnect, RuntimeError, ConnectionError):
+                    stale.append(ws)
+                except Exception as exc:
+                    logger.debug("screenshot hub send error: %s", exc)
+            for ws in stale:
+                _ws_clients.pop(ws, None)
+                _ws_pending_tokens.pop(ws, None)
+
+            consecutive_failures = 0
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            consecutive_failures += 1
+            logger.debug(
+                "screenshot stream hub failure %d/%d: %s",
+                consecutive_failures, MAX_CONSECUTIVE_FAILURES, exc,
+            )
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                logger.warning(
+                    "screenshot stream hub aborting after %d consecutive failures",
+                    consecutive_failures,
+                )
+                break
+            await asyncio.sleep(2)
 
 
 # ── REST Endpoints ────────────────────────────────────────────────────────────
@@ -571,7 +670,6 @@ async def agent_service_health():
 @app.post("/api/agent-service/mode")
 async def set_agent_mode(body: dict, request: Request):
     """Switch the agent service between browser and desktop mode at runtime."""
-    import httpx
     from backend.utils.agent_auth import get_auth_headers
 
     rid = getattr(request.state, "request_id", None)
@@ -579,9 +677,14 @@ async def set_agent_mode(body: dict, request: Request):
     if mode not in ("browser", "desktop"):
         return _error_response(400, "mode must be 'browser' or 'desktop'", request_id=rid)
     url = f"{config.agent_service_url}/mode"
-    async with httpx.AsyncClient(timeout=5.0) as client:
+    async with _request_http_client(request) as client:
         try:
-            resp = await client.post(url, json={"mode": mode}, headers=get_auth_headers())
+            resp = await client.post(
+                url,
+                json={"mode": mode},
+                headers=get_auth_headers(),
+                timeout=5.0,
+            )
             if resp.status_code >= 400:
                 return _error_response(
                     502,
@@ -692,11 +795,12 @@ async def api_validate_key(req: ValidateKeyRequest, request: Request):
     # as "key works", which silently approved invalid keys when the model
     # ID we hard-coded happened to be deprecated.
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with _request_http_client(request) as client:
             if req.provider == "google":
                 resp = await client.get(
                     "https://generativelanguage.googleapis.com/v1beta/models",
                     params={"key": req.api_key},
+                    timeout=5.0,
                 )
                 if resp.status_code == 200:
                     return {"valid": True}
@@ -715,6 +819,7 @@ async def api_validate_key(req: ValidateKeyRequest, request: Request):
                         "x-api-key": req.api_key,
                         "anthropic-version": "2023-06-01",
                     },
+                    timeout=5.0,
                 )
                 if resp.status_code == 200:
                     return {"valid": True}
@@ -1244,12 +1349,12 @@ async def vnc_ws_proxy(ws: WebSocket):
 
 
 @app.get("/vnc/{path:path}")
-async def vnc_http_proxy(path: str):
+async def vnc_http_proxy(path: str, request: Request):
     """Proxy noVNC static files from the container's websockify web server."""
     from starlette.responses import Response
-    async with httpx.AsyncClient(timeout=5.0) as client:
+    async with _request_http_client(request) as client:
         try:
-            resp = await client.get(f"{_NOVNC_HTTP}/{path}")
+            resp = await client.get(f"{_NOVNC_HTTP}/{path}", timeout=5.0)
             content_type = resp.headers.get("content-type", "application/octet-stream")
             return Response(
                 content=resp.content,
@@ -1280,14 +1385,12 @@ async def websocket_endpoint(ws: WebSocket):
         return
     await ws.accept()
     _ws_clients[ws] = set()  # empty = no scoped events until subscribe
+    await _ensure_ws_stream_hub()
     if token is not None:
         _ws_pending_tokens[ws] = token
     logger.info("WebSocket client connected (%d total)", len(_ws_clients))
 
-    streaming_task: asyncio.Task | None = None
     try:
-        streaming_task = asyncio.create_task(_stream_screenshots(ws))
-
         while True:
             data = await ws.receive_text()
             try:
@@ -1330,68 +1433,6 @@ async def websocket_endpoint(ws: WebSocket):
     finally:
         _ws_clients.pop(ws, None)
         _ws_pending_tokens.pop(ws, None)
-        if streaming_task:
-            streaming_task.cancel()
-
-
-async def _stream_screenshots(ws: WebSocket):
-    """Periodically send screenshots to a specific WS client.
-
-    Uses 'desktop' mode (scrot) so the full X11 display is visible,
-    including the browser window, desktop background, and taskbar.
-    Skips capture attempts when the container is not running to avoid
-    spamming warnings.  Exits after N consecutive failures so a zombie
-    task can't silently retry forever (H-13).
-
-    Re-encodes the PNG capture as JPEG-q70 before broadcast — for a
-    typical 1440x900 desktop screenshot this drops payload size from
-    ~1-2 MB to ~150-300 KB (5-8x), cutting both WS bandwidth and
-    frontend decode cost.  The LLM still receives lossless PNG via the
-    separate ``capture_screenshot`` path; this only affects the live
-    user-facing stream.
-    """
-    from backend.utils.docker_manager import is_container_running
-
-    consecutive_failures = 0
-    MAX_CONSECUTIVE_FAILURES = 10
-
-    while True:
-        try:
-            await asyncio.sleep(config.ws_screenshot_interval)
-            if not await is_container_running():
-                continue
-            # Only stream to clients that have actively subscribed to a
-            # session.  Without this gate, every connected tab — even
-            # ones not viewing a session — would receive the live
-            # desktop frames, which is both a privacy leak across tabs
-            # and wasted bandwidth.
-            if not _ws_clients.get(ws):
-                continue
-            b64_png = await capture_screenshot(mode="desktop")
-            payload, fmt = _encode_for_stream(b64_png)
-            await ws.send_text(json.dumps({
-                "event": "screenshot_stream",
-                "screenshot": payload,
-                "format": fmt,
-            }))
-            consecutive_failures = 0
-        except asyncio.CancelledError:
-            break
-        except WebSocketDisconnect:
-            break
-        except Exception as exc:
-            consecutive_failures += 1
-            logger.debug(
-                "screenshot stream failure %d/%d: %s",
-                consecutive_failures, MAX_CONSECUTIVE_FAILURES, exc,
-            )
-            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                logger.warning(
-                    "screenshot stream aborting after %d consecutive failures",
-                    consecutive_failures,
-                )
-                break
-            await asyncio.sleep(2)
 
 
 def _encode_for_stream(b64_png: str) -> tuple[str, str]:
@@ -1406,11 +1447,10 @@ def _encode_for_stream(b64_png: str) -> tuple[str, str]:
         from PIL import Image
 
         png_bytes = _b64.b64decode(b64_png)
-        with Image.open(BytesIO(png_bytes)) as im:
-            if im.mode != "RGB":
-                im = im.convert("RGB")
+        with Image.open(BytesIO(png_bytes)) as opened:
+            image = opened.convert("RGB") if opened.mode != "RGB" else opened.copy()
             buf = BytesIO()
-            im.save(buf, format="JPEG", quality=70, optimize=True)
+            image.save(buf, format="JPEG", quality=70, optimize=True)
             return _b64.b64encode(buf.getvalue()).decode("ascii"), "jpeg"
     except Exception as e:
         logger.debug("JPEG re-encode failed, sending PNG passthrough: %s", e)

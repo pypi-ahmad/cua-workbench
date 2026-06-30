@@ -45,10 +45,12 @@ only accepts POST with a JSON-RPC body).  However, 403 on the actual
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import json
 import logging
 import re
 import shlex
+import time
 from contextlib import AsyncExitStack
 from typing import Optional
 
@@ -510,15 +512,22 @@ def _extract_ref_from_snapshot(snapshot_text: str, target: str) -> str | None:
     return best_ref
 
 
-async def _resolve_ref(element: str) -> str | None:
+async def _resolve_ref(
+    element: str,
+    *,
+    resolver: _SnapshotResolver | None = None,
+) -> str | None:
     """Take a browser snapshot and resolve *element* to its accessibility ref."""
     if not element:
         return None
 
+    if resolver is None:
+        resolver = _SnapshotResolver()
+
     for attempt in range(2):
-        snapshot = await _mcp_call("browser_snapshot", {})
-        if snapshot.get("success"):
-            ref = _extract_ref_from_snapshot(snapshot.get("message", ""), element)
+        snapshot_text = await resolver.get_snapshot(force_refresh=(attempt == 1))
+        if snapshot_text:
+            ref = _extract_ref_from_snapshot(snapshot_text, element)
             if ref:
                 return ref
         if attempt == 0:
@@ -532,6 +541,32 @@ _INPUT_ROLES = frozenset({
     "textbox", "combobox", "searchbox", "spinbutton",
     "input", "textarea", "select",
 })
+
+
+@dataclass
+class _SnapshotResolver:
+    """Per-action snapshot cache for ref resolution."""
+
+    ttl_seconds: float = 0.8
+    snapshot_text: str | None = None
+    captured_at: float = 0.0
+
+    async def get_snapshot(self, *, force_refresh: bool = False) -> str | None:
+        """Return cached snapshot text, refreshing when stale or forced."""
+        now = time.monotonic()
+        if (
+            not force_refresh
+            and self.snapshot_text is not None
+            and (now - self.captured_at) <= self.ttl_seconds
+        ):
+            return self.snapshot_text
+
+        snapshot = await _mcp_call("browser_snapshot", {})
+        if not snapshot.get("success"):
+            return None
+        self.snapshot_text = snapshot.get("message", "")
+        self.captured_at = now
+        return self.snapshot_text
 
 
 def _extract_input_ref_from_snapshot(snapshot_text: str, target: str) -> str | None:
@@ -592,7 +627,11 @@ def _extract_input_ref_from_snapshot(snapshot_text: str, target: str) -> str | N
     return first_input_ref
 
 
-async def _resolve_input_ref(element: str) -> str | None:
+async def _resolve_input_ref(
+    element: str,
+    *,
+    resolver: _SnapshotResolver | None = None,
+) -> str | None:
     """Take a browser snapshot and resolve *element* to a **fillable** ref.
 
     Unlike ``_resolve_ref`` which accepts any element type, this variant
@@ -602,11 +641,14 @@ async def _resolve_input_ref(element: str) -> str | None:
     if not element:
         return None
 
+    if resolver is None:
+        resolver = _SnapshotResolver()
+
     for attempt in range(2):
-        snapshot = await _mcp_call("browser_snapshot", {})
-        if snapshot.get("success"):
+        snapshot_text = await resolver.get_snapshot(force_refresh=(attempt == 1))
+        if snapshot_text:
             ref = _extract_input_ref_from_snapshot(
-                snapshot.get("message", ""), element,
+                snapshot_text, element,
             )
             if ref:
                 return ref
@@ -615,7 +657,7 @@ async def _resolve_input_ref(element: str) -> str | None:
 
     # Final fallback: use generic resolution so we don't return None
     # when the snapshot has unusual roles.
-    return await _resolve_ref(element)
+    return await _resolve_ref(element, resolver=resolver)
 
 
 async def _self_heal_input(
@@ -623,6 +665,8 @@ async def _self_heal_input(
     element: str,
     text: str,
     original_ref: str,
+    *,
+    resolver: _SnapshotResolver | None = None,
 ) -> dict:
     """Reactive self-heal: if a fill/type failed because the ref wasn't an
     input element, take a fresh snapshot, find the real input, click it to
@@ -638,12 +682,14 @@ async def _self_heal_input(
         "Fill/type target ref=%s is not an input — attempting self-heal",
         original_ref,
     )
-    snapshot = await _mcp_call("browser_snapshot", {})
-    if not snapshot.get("success"):
+    if resolver is None:
+        resolver = _SnapshotResolver()
+    snapshot_text = await resolver.get_snapshot(force_refresh=True)
+    if not snapshot_text:
         return result
 
     fallback_ref = _extract_input_ref_from_snapshot(
-        snapshot.get("message", ""), element,
+        snapshot_text, element,
     )
     if not fallback_ref or fallback_ref == original_ref:
         return result
@@ -718,6 +764,8 @@ async def _build_mcp_args(
     tool_name: str,
     target: str,
     text: str,
+    *,
+    resolver: _SnapshotResolver | None = None,
 ) -> dict:
     """Map the agent's *(target, text)* pair to MCP-tool-specific arguments.
 
@@ -726,6 +774,8 @@ async def _build_mcp_args(
     JavaScript click fallback instead of the MCP tool.
     """
     args: dict = {}
+    if resolver is None:
+        resolver = _SnapshotResolver()
 
     # ── Navigation ────────────────────────────────────────────────────
     if tool_name == "browser_navigate":
@@ -738,7 +788,7 @@ async def _build_mcp_args(
     # ── Click (with JS fallback) ─────────────────────────────────────
     if tool_name == "browser_click":
         element = target or text or ""
-        ref = await _resolve_ref(element)
+        ref = await _resolve_ref(element, resolver=resolver)
         if ref:
             args["element"] = element
             args["ref"] = ref
@@ -750,7 +800,7 @@ async def _build_mcp_args(
     # ── Element + ref tools (hover, drag) ────────────────────────────
     if tool_name in _REF_TOOLS:
         element = target or ""
-        ref = await _resolve_ref(element)
+        ref = await _resolve_ref(element, resolver=resolver)
         if not ref:
             return {"_error": f"Unable to resolve element ref for {tool_name}: {element}"}
         args["element"] = element
@@ -758,7 +808,7 @@ async def _build_mcp_args(
         # Drag needs start/end
         if tool_name == "browser_drag":
             end_element = text or ""
-            end_ref = await _resolve_ref(end_element)
+            end_ref = await _resolve_ref(end_element, resolver=resolver)
             if not end_ref:
                 return {"_error": f"Unable to resolve end-element ref for drag: {end_element}"}
             args = {
@@ -772,7 +822,7 @@ async def _build_mcp_args(
     # ── Input-ref tools (type, select_option) ────────────────────────
     if tool_name in _INPUT_REF_TOOLS:
         element = target or ""
-        ref = await _resolve_input_ref(element)
+        ref = await _resolve_input_ref(element, resolver=resolver)
         if not ref:
             return {"_error": f"Unable to resolve input ref for {tool_name}: {element}"}
         args["element"] = element
@@ -1146,7 +1196,8 @@ async def execute_mcp_action(
         return {"success": True, "message": f"Waited {capped:.1f}s"}
 
     # ── Build tool-specific arguments ────────────────────────────────
-    args = await _build_mcp_args(action, target, text)
+    resolver = _SnapshotResolver()
+    args = await _build_mcp_args(action, target, text, resolver=resolver)
 
     # Argument-build errors
     if "_error" in args:
@@ -1161,7 +1212,13 @@ async def execute_mcp_action(
 
     # Post-call hooks
     if action in _INPUT_REF_TOOLS:
-        result = await _self_heal_input(result, target, text, args.get("ref", ""))
+        result = await _self_heal_input(
+            result,
+            target,
+            text,
+            args.get("ref", ""),
+            resolver=resolver,
+        )
     if action == "browser_navigate":
         result = await _validate_browser_context(result)
 

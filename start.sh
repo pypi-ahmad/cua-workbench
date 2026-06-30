@@ -33,17 +33,26 @@ fi
 
 # ── Pre-flight checks ────────────────────────────────────────────────────────
 command -v python3 >/dev/null 2>&1 || { error "python3 not found. Install Python 3.10+."; exit 1; }
-command -v node    >/dev/null 2>&1 || { error "node not found. Install Node.js 18+."; exit 1; }
+command -v node    >/dev/null 2>&1 || { error "node not found. Install Node.js 24+."; exit 1; }
+command -v uv      >/dev/null 2>&1 || { error "uv not found. Install uv from https://docs.astral.sh/uv/."; exit 1; }
 command -v docker  >/dev/null 2>&1 || warn "Docker not found — container features will be unavailable."
 
 # Check Python deps
-if ! python3 -c "import fastapi" 2>/dev/null; then
+PYTHON_CHECK_BIN="python3"
+if [[ -x ".venv/bin/python" ]]; then
+    PYTHON_CHECK_BIN=".venv/bin/python"
+fi
+
+if ! "$PYTHON_CHECK_BIN" -c "import fastapi" 2>/dev/null; then
     if (( CHECK_ONLY )); then
         error "Python dependencies missing. Install them before starting."
         exit 1
     fi
     warn "Python dependencies missing. Installing..."
-    pip install -r requirements.txt
+    if [[ ! -d ".venv" ]]; then
+        uv venv .venv
+    fi
+    uv pip install --python .venv/bin/python -r requirements.txt
 fi
 
 # Check Node deps
@@ -68,7 +77,11 @@ fi
 
 # ── Launch backend ────────────────────────────────────────────────────────────
 info "Starting backend on http://localhost:8000 ..."
-python3 -m backend.main &
+BACKEND_PYTHON="python3"
+if [[ -x ".venv/bin/python" ]]; then
+    BACKEND_PYTHON=".venv/bin/python"
+fi
+"$BACKEND_PYTHON" -m backend.main &
 BACKEND_PID=$!
 
 # Wait for backend to be ready (up to 15 seconds)

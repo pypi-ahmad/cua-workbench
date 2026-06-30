@@ -56,8 +56,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
-# Install Node.js LTS 20 (required for Playwright MCP via npx)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+# Install Node.js LTS 24 (required for Playwright MCP via npx)
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get update \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*

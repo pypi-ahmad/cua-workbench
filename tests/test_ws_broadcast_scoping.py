@@ -140,6 +140,12 @@ class TestNewWSConnectionStartsUnsubscribed(unittest.TestCase):
         src = inspect.getsource(srv.websocket_endpoint)
         self.assertIn("_ws_clients[ws] = set()", src)
 
+    def test_ws_handler_uses_shared_stream_hub(self):
+        import inspect
+        src = inspect.getsource(srv.websocket_endpoint)
+        self.assertIn("await _ensure_ws_stream_hub()", src)
+        self.assertNotIn("_stream_screenshots(", src)
+
 
 if __name__ == "__main__":
     unittest.main()

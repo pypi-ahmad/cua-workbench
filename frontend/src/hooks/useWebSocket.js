@@ -3,6 +3,8 @@ import { issueWsToken } from '../api'
 
 const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
 const WS_BASE = `${WS_PROTOCOL}//${window.location.host}/ws`
+const MAX_LOGS = 200
+const MAX_STEPS = 500
 
 export default function useWebSocket() {
   const wsRef = useRef(null)
@@ -70,10 +72,10 @@ export default function useWebSocket() {
             setLastScreenshotFormat(msg.format || 'png')
             break
           case 'log':
-            setLogs((prev) => [...prev.slice(-200), msg.log])
+            setLogs((prev) => [...prev.slice(-(MAX_LOGS - 1)), msg.log])
             break
           case 'step':
-            setSteps((prev) => [...prev, msg.step])
+            setSteps((prev) => [...prev.slice(-(MAX_STEPS - 1)), msg.step])
             break
           case 'agent_finished':
             setAgentFinished(msg)
